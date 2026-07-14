@@ -6,6 +6,8 @@ export default function Login({ setupDone, onDone }) {
   const [form, setForm] = useState({ email: '', password: '', name: '', finma_reg: '' });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [twofa, setTwofa] = useState(false);
+  const [code, setCode] = useState('');
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   async function submit(e) {
@@ -14,7 +16,12 @@ export default function Login({ setupDone, onDone }) {
     setError(null);
     try {
       if (setupDone) {
-        await api.post('/api/auth/login', { email: form.email, password: form.password });
+        const res = await api.post('/api/auth/login', { email: form.email, password: form.password });
+        if (res.requires2fa) {
+          setTwofa(true);
+          setBusy(false);
+          return;
+        }
       } else {
         await api.post('/api/auth/setup', form);
       }
@@ -24,6 +31,46 @@ export default function Login({ setupDone, onDone }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitCode(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post('/api/auth/login/2fa', { code });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (twofa) {
+    return (
+      <div className="login-wrap">
+        <div className="card login-card">
+          <div className="brand">
+            <div style={{ fontSize: 34 }}>🔐</div>
+            <h1>Vérification</h1>
+            <p className="muted">Entrez le code à 6 chiffres de votre application d’authentification</p>
+          </div>
+          {error && <div className="alert error">{error}</div>}
+          <form onSubmit={submitCode}>
+            <Field label="Code à 6 chiffres">
+              <input
+                inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required autoFocus
+                value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                style={{ fontSize: 22, letterSpacing: 6, textAlign: 'center' }}
+                autoComplete="one-time-code"
+              />
+            </Field>
+            <button className="primary" disabled={busy || code.length !== 6}>Valider</button>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   return (

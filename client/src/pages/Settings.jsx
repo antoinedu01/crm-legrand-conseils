@@ -1,6 +1,95 @@
 import React, { useState } from 'react';
+import QRCode from 'qrcode';
 import { api } from '../api.js';
 import { Field } from '../components/ui.jsx';
+
+function TwoFactorCard({ user, onChanged }) {
+  const [setup, setSetup] = useState(null); // { secret, otpauth, qr }
+  const [code, setCode] = useState('');
+  const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
+
+  async function begin() {
+    setError(null);
+    const res = await api.post('/api/auth/2fa/setup');
+    const qr = await QRCode.toDataURL(res.otpauth, { width: 220, margin: 1 });
+    setSetup({ ...res, qr });
+  }
+
+  async function confirm(e) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await api.post('/api/auth/2fa/enable', { code });
+      setSetup(null);
+      setCode('');
+      setMessage('Double authentification activée ✅ Elle sera demandée à chaque connexion.');
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function disable(e) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await api.post('/api/auth/2fa/disable', { code });
+      setCode('');
+      setMessage('Double authentification désactivée.');
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Double authentification (2FA)</h2>
+      {message && <div className="alert ok">{message}</div>}
+      {error && <div className="alert error">{error}</div>}
+      {user?.totp_enabled ? (
+        <>
+          <p>✅ <strong>Activée.</strong> Un code à 6 chiffres est demandé à chaque connexion.</p>
+          <form onSubmit={disable} className="flex">
+            <input
+              placeholder="Code à 6 chiffres" inputMode="numeric" maxLength={6}
+              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              style={{ width: 160 }}
+            />
+            <button className="danger" disabled={code.length !== 6}>Désactiver</button>
+          </form>
+        </>
+      ) : setup ? (
+        <>
+          <p>1. Ouvrez votre application d’authentification (Google Authenticator, Microsoft
+            Authenticator…) et scannez ce code QR :</p>
+          <img src={setup.qr} alt="Code QR 2FA" style={{ borderRadius: 8 }} />
+          <p className="muted" style={{ fontSize: 12 }}>
+            Ou saisissez la clé manuellement : <code>{setup.secret}</code>
+          </p>
+          <form onSubmit={confirm} className="flex">
+            <input
+              placeholder="Code affiché par l’app" inputMode="numeric" maxLength={6} autoFocus
+              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              style={{ width: 180 }}
+            />
+            <button className="primary" disabled={code.length !== 6}>Confirmer et activer</button>
+            <button type="button" className="ghost" onClick={() => setSetup(null)}>Annuler</button>
+          </form>
+        </>
+      ) : (
+        <>
+          <p className="muted">
+            Ajoute un code à 6 chiffres (application gratuite sur votre téléphone) en plus du mot
+            de passe. Fortement recommandé maintenant que le CRM est accessible depuis internet.
+          </p>
+          <button className="primary" onClick={begin}>Activer la 2FA</button>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function Settings({ user, onSaved }) {
   const [form, setForm] = useState({
@@ -45,7 +134,8 @@ export default function Settings({ user, onSaved }) {
       </div>
       {message && <div className="alert ok">{message}</div>}
       {error && <div className="alert error">{error}</div>}
-      <div className="grid cols-2">
+      <div className="grid cols-2 mb">
+        <TwoFactorCard user={user} onChanged={onSaved} />
         <div className="card">
           <h2>Profil courtier</h2>
           <form onSubmit={submit}>

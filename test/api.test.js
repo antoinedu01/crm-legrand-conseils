@@ -171,3 +171,41 @@ test('un contrat avec commission payée ne peut pas être supprimé', async () =
   assert.equal(del.status, 400);
   assert.ok(del.body.error.includes('958f'));
 });
+
+test('cycle complet 2FA : activation, connexion en deux étapes, désactivation', async () => {
+  const { totpCode } = await import('../server/totp.js');
+  // activation
+  const setup = await auth(request(app).post('/api/auth/2fa/setup'));
+  assert.equal(setup.status, 200);
+  const setupCookie = cookie; // même session
+  const badEnable = await request(app).post('/api/auth/2fa/enable')
+    .set('Cookie', setupCookie).send({ code: '000000' });
+  assert.equal(badEnable.status, 400);
+  const enable = await request(app).post('/api/auth/2fa/enable')
+    .set('Cookie', setupCookie).send({ code: totpCode(setup.body.secret) });
+  assert.equal(enable.status, 200);
+
+  // connexion : le mot de passe seul ne suffit plus
+  const login = await request(app).post('/api/auth/login')
+    .send({ email: 'test@exemple.ch', password: PASSWORD });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.requires2fa, true);
+  const c2 = login.headers['set-cookie'].map((x) => x.split(';')[0]).join('; ');
+  const st = await request(app).get('/api/auth/status').set('Cookie', c2);
+  assert.equal(st.body.authenticated, false, 'pas de session avant le code');
+
+  const badCode = await request(app).post('/api/auth/login/2fa')
+    .set('Cookie', c2).send({ code: '000000' });
+  assert.equal(badCode.status, 401);
+  const good = await request(app).post('/api/auth/login/2fa')
+    .set('Cookie', c2).send({ code: totpCode(setup.body.secret) });
+  assert.equal(good.status, 200);
+  const c3 = good.headers['set-cookie'].map((x) => x.split(';')[0]).join('; ');
+  const st2 = await request(app).get('/api/auth/status').set('Cookie', c3);
+  assert.equal(st2.body.authenticated, true);
+
+  // désactivation (exige un code valide)
+  const disable = await request(app).post('/api/auth/2fa/disable')
+    .set('Cookie', c3).send({ code: totpCode(setup.body.secret) });
+  assert.equal(disable.status, 200);
+});

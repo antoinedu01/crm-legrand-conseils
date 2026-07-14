@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import db from './db.js';
 import { audit } from './audit.js';
+import { generateTotpSecret, verifyTotp, otpauthUrl } from './totp.js';
 
 export const authRouter = Router();
 
@@ -13,7 +14,7 @@ authRouter.get('/status', (req, res) => {
     authenticated: Boolean(req.session.userId),
     user: req.session.userId
       ? db
-          .prepare('SELECT id, email, name, finma_reg, cicero_reg FROM users WHERE id = ?')
+          .prepare('SELECT id, email, name, finma_reg, cicero_reg, totp_enabled FROM users WHERE id = ?')
           .get(req.session.userId)
       : null,
   });
@@ -65,11 +66,79 @@ authRouter.post('/login', (req, res) => {
   attempts.delete(key);
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ error: 'Erreur de session.' });
+    if (user.totp_enabled) {
+      // Mot de passe correct, mais la session n'est ouverte qu'après le code 2FA
+      req.session.pending2fa = user.id;
+      req.session.twofaTries = 0;
+      return res.json({ requires2fa: true });
+    }
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     audit(req, 'connexion', 'user', user.id);
     res.json({ ok: true });
   });
+});
+
+// Deuxième étape de connexion : vérification du code TOTP
+authRouter.post('/login/2fa', (req, res) => {
+  const userId = req.session.pending2fa;
+  if (!userId) return res.status(400).json({ error: 'Recommencez la connexion depuis le début.' });
+  req.session.twofaTries = (req.session.twofaTries || 0) + 1;
+  if (req.session.twofaTries > 5) {
+    audit(req, 'échec 2FA répété — session annulée', 'user', userId);
+    return req.session.destroy(() =>
+      res.status(429).json({ error: 'Trop de codes incorrects. Reconnectez-vous.' })
+    );
+  }
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user || !user.totp_enabled || !verifyTotp(user.totp_secret, req.body?.code)) {
+    audit(req, 'échec de code 2FA', 'user', userId);
+    return res.status(401).json({ error: 'Code incorrect. Réessayez.' });
+  }
+  req.session.regenerate((err) => {
+    if (err) return res.status(500).json({ error: 'Erreur de session.' });
+    req.session.userId = user.id;
+    req.session.userEmail = user.email;
+    audit(req, 'connexion (avec 2FA)', 'user', user.id);
+    res.json({ ok: true });
+  });
+});
+
+// Activation de la double authentification : génération du secret…
+authRouter.post('/2fa/setup', requireAuth, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+  if (user.totp_enabled) return res.status(400).json({ error: 'La 2FA est déjà activée.' });
+  const secret = generateTotpSecret();
+  req.session.totpSetupSecret = secret;
+  res.json({ secret, otpauth: otpauthUrl(secret, user.email) });
+});
+
+// …puis confirmation avec un premier code valide
+authRouter.post('/2fa/enable', requireAuth, (req, res) => {
+  const secret = req.session.totpSetupSecret;
+  if (!secret) return res.status(400).json({ error: 'Commencez par générer le code QR.' });
+  if (!verifyTotp(secret, req.body?.code)) {
+    return res.status(400).json({ error: 'Code incorrect — scannez le QR et réessayez.' });
+  }
+  db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?').run(
+    secret,
+    req.session.userId
+  );
+  delete req.session.totpSetupSecret;
+  audit(req, 'activation de la double authentification (2FA)', 'user', req.session.userId);
+  res.json({ ok: true });
+});
+
+// Désactivation : exige un code valide (pas de désactivation silencieuse)
+authRouter.post('/2fa/disable', requireAuth, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+  if (!user.totp_enabled) return res.status(400).json({ error: 'La 2FA n’est pas activée.' });
+  if (!verifyTotp(user.totp_secret, req.body?.code)) {
+    return res.status(401).json({ error: 'Code incorrect.' });
+  }
+  db.prepare('UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?').run(user.id);
+  audit(req, 'désactivation de la double authentification (2FA)', 'user', user.id);
+  res.json({ ok: true });
 });
 
 authRouter.post('/logout', (req, res) => {

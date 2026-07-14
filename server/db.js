@@ -153,6 +153,18 @@ if (version < 1) {
   });
   migrate();
 }
+if (version < 2) {
+  const migrate = db.transaction(() => {
+    const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+    // Double authentification TOTP (2FA)
+    if (!cols.includes('totp_secret')) db.exec('ALTER TABLE users ADD COLUMN totp_secret TEXT');
+    if (!cols.includes('totp_enabled')) {
+      db.exec('ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0');
+    }
+    db.pragma('user_version = 2');
+  });
+  migrate();
+}
 
 // Compagnies suisses proposées par défaut au premier démarrage
 const companyCount = db.prepare('SELECT COUNT(*) AS n FROM companies').get().n;
