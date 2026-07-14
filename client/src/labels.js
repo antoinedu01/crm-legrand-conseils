@@ -5,6 +5,8 @@ export const BRANCHES = {
   lca: 'Complémentaire (LCA)',
   lpp: 'Prévoyance professionnelle (LPP)',
   hypotheque: 'Assurance hypothèque',
+  deces: 'Risque pur décès',
+  incapacite: 'Incapacité de gain',
   rc_menage: 'RC / Ménage',
   autre: 'Autre',
 };

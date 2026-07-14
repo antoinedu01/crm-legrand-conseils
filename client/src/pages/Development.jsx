@@ -65,6 +65,150 @@ function ScoringRulesModal({ onClose, onSaved }) {
   );
 }
 
+const RESULT_OPTIONS = {
+  fait: '✅ Fait',
+  rdv_pris: '📅 Rendez-vous pris',
+  pas_joint: '📵 Pas joint',
+  a_relancer: '⏰ À relancer plus tard',
+  sans_suite: '✖ Sans suite / refus',
+};
+
+const ACTION_TYPE_LABELS = {
+  nouveau_prospect: 'Nouveau lead',
+  relance_prioritaire: 'Relance prioritaire',
+  relance_offre: 'Relance d’offre',
+  confirmation_rdv: 'Rendez-vous',
+  tache_retard: 'En retard',
+  tache_du_jour: 'Tâche du jour',
+  anniversaire_contrat: 'Anniversaire',
+  prise_nouvelles: 'Prise de nouvelles',
+  vente_complementaire: 'Vente complémentaire',
+  demande_recommandation: 'Recommandation',
+};
+
+function ResultModal({ action, onDone, onClose }) {
+  const [result, setResult] = useState('fait');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const res = await api.post('/api/today/result', {
+        action_key: action.key, action_type: action.type,
+        client_id: action.client_id, contract_id: action.contract_id,
+        task_id: action.task_id, result, note,
+      });
+      onDone(res.next);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <Modal title={`Résultat — ${action.client_name || action.reason}`} onClose={onClose}>
+      {error && <div className="alert error">{error}</div>}
+      <form onSubmit={submit}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {Object.entries(RESULT_OPTIONS).map(([k, v]) => (
+            <label className="check" key={k}>
+              <input type="radio" name="result" value={k} checked={result === k}
+                     onChange={() => setResult(k)} />
+              {v}
+            </label>
+          ))}
+          <Field label="Note (facultatif)">
+            <input value={note} onChange={(e) => setNote(e.target.value)}
+                   placeholder="p. ex. rappeler après ses vacances, intéressé par le 3a…" />
+          </Field>
+        </div>
+        <div className="actions">
+          <button type="button" onClick={onClose}>Annuler</button>
+          <button className="primary">Enregistrer</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function Today() {
+  const { data, loading, error, reload } = useAsync(() => api.get('/api/today'), []);
+  const [resultFor, setResultFor] = useState(null);
+  const [nextMessage, setNextMessage] = useState(null);
+
+  const groups = [
+    ['haute', '🔥 Priorité haute', 'À traiter en premier'],
+    ['normale', '📋 À faire aujourd’hui', ''],
+    ['basse', '🌱 Quand vous avez un moment', 'Entretien du portefeuille'],
+  ];
+  const byPriority = { haute: [], normale: [], basse: [] };
+  (data || []).forEach((a) => byPriority[a.priority]?.push(a));
+
+  return (
+    <>
+      {nextMessage && <div className="alert ok">{nextMessage}</div>}
+      {error && <div className="alert error">{error}</div>}
+      {loading ? (
+        <p className="muted">Chargement…</p>
+      ) : (data || []).length === 0 ? (
+        <div className="card">
+          <Empty>
+            ✅ Rien à faire pour l’instant ! Les actions apparaissent ici automatiquement :
+            nouveaux prospects, relances d’offres, tâches échues, anniversaires de contrats,
+            clients à recontacter, demandes de recommandation…
+          </Empty>
+        </div>
+      ) : (
+        groups.map(([p, title]) =>
+          byPriority[p].length === 0 ? null : (
+            <div className="card mb" key={p}>
+              <h2>{title} <span className="muted">({byPriority[p].length})</span></h2>
+              <table className="data">
+                <tbody>
+                  {byPriority[p].map((a) => (
+                    <tr key={a.key}>
+                      <td style={{ width: 130 }}>
+                        <Badge value={a.priority} label={ACTION_TYPE_LABELS[a.type] || a.type} />
+                        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{fmtDate(a.date)}</div>
+                      </td>
+                      <td>
+                        <strong>
+                          {a.client_id ? <Link to={`/clients/${a.client_id}`}>{a.client_name}</Link> : a.client_name}
+                          {a.client_id ? ' — ' : ''}{a.reason}
+                        </strong>
+                        <div className="muted" style={{ fontSize: 12.5 }}>
+                          🎯 {a.objective}
+                          {a.contact_pref && <> · 🕐 à joindre : {a.contact_pref}</>}
+                        </div>
+                      </td>
+                      <td className="right" style={{ whiteSpace: 'nowrap', width: 180 }}>
+                        {a.client_id && (
+                          <Link to={`/clients/${a.client_id}`}>
+                            <button className="small">Démarrer</button>
+                          </Link>
+                        )}{' '}
+                        <button className="small primary" onClick={() => setResultFor(a)}>Résultat</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )
+      )}
+      {resultFor && (
+        <ResultModal
+          action={resultFor}
+          onClose={() => setResultFor(null)}
+          onDone={(next) => { setResultFor(null); setNextMessage(next); reload(); }}
+        />
+      )}
+    </>
+  );
+}
+
 function Prospects() {
   const [channelFilter, setChannelFilter] = useState('');
   const [showRules, setShowRules] = useState(false);
@@ -346,7 +490,7 @@ function Channels() {
 }
 
 export default function Development() {
-  const [tab, setTab] = useState('prospects');
+  const [tab, setTab] = useState('aujourdhui');
   return (
     <>
       <div className="page-head">
@@ -356,6 +500,9 @@ export default function Development() {
         </div>
       </div>
       <div className="toolbar">
+        <button className={tab === 'aujourdhui' ? 'primary' : ''} onClick={() => setTab('aujourdhui')}>
+          ☀️ Aujourd'hui
+        </button>
         <button className={tab === 'prospects' ? 'primary' : ''} onClick={() => setTab('prospects')}>
           Prospects & pipeline
         </button>
@@ -363,6 +510,7 @@ export default function Development() {
           Canaux d'acquisition
         </button>
       </div>
+      {tab === 'aujourdhui' && <Today />}
       {tab === 'prospects' && <Prospects />}
       {tab === 'canaux' && <Channels />}
     </>

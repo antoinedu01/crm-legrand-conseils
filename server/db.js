@@ -241,6 +241,27 @@ if (version < 4) {
   migrate();
 }
 
+if (version < 5) {
+  // Bloc 3 : journal des actions commerciales (plan d'action quotidien)
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS action_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action_key TEXT NOT NULL,
+        action_type TEXT,
+        client_id INTEGER REFERENCES clients(id),
+        contract_id INTEGER REFERENCES contracts(id),
+        result TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_action_log_key ON action_log(action_key, created_at);
+    `);
+    db.pragma('user_version = 5');
+  });
+  migrate();
+}
+
 // Règles de scoring par défaut (points modifiables dans l'interface)
 const ruleCount = db.prepare('SELECT COUNT(*) AS n FROM scoring_rules').get().n;
 if (ruleCount === 0) {

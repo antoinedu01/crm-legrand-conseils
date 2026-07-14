@@ -6,7 +6,8 @@ import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields } from '../v
 export const contractsRouter = Router();
 
 export const BRANCHES = [
-  'vie_3a', 'vie_3b', 'lamal', 'lca', 'lpp', 'hypotheque', 'rc_menage', 'autre',
+  'vie_3a', 'vie_3b', 'lamal', 'lca', 'lpp', 'hypotheque',
+  'deces', 'incapacite', 'rc_menage', 'autre',
 ];
 const CONTRACT_STATUSES = ['offre', 'actif', 'suspendu', 'resilie', 'echu'];
 const FREQUENCIES = ['mensuelle', 'trimestrielle', 'semestrielle', 'annuelle', 'unique'];

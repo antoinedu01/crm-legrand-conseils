@@ -303,3 +303,60 @@ test('bloc 2 : scoring avec raisons affichées, classement et réglages', async 
   const bad = await auth(request(app).put(`/api/prospects/scoring-rules/${urgentRule.id}`)).send({ points: 5000 });
   assert.equal(bad.status, 400);
 });
+
+test('bloc 3 : plan d’action quotidien — génération, résultat et enchaînement', async () => {
+  // un nouveau prospect urgent doit apparaître dans le plan du jour
+  const p = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Nora', last_name: 'DuJour', phone: '079 555 66 77',
+    email: 'nora.dujour@exemple.ch', status: 'prospect', force: true,
+  });
+  await auth(request(app).put(`/api/clients/${p.body.id}/lead`)).send({
+    main_need: 'LAMal / caisse maladie', urgent: 1,
+  });
+
+  const plan = await auth(request(app).get('/api/today'));
+  assert.equal(plan.status, 200);
+  const action = plan.body.find((a) => a.client_id === p.body.id && a.type === 'nouveau_prospect');
+  assert.ok(action, 'le nouveau prospect est dans le plan du jour');
+  assert.equal(action.priority, 'haute');
+  assert.ok(action.reason.length > 5 && action.objective.length > 5, 'raison et objectif présents');
+
+  // résultat « rendez-vous pris » : tâche créée + prospect passé à l'étape RDV
+  const result = await auth(request(app).post('/api/today/result')).send({
+    action_key: action.key, action_type: action.type,
+    client_id: p.body.id, result: 'rdv_pris', note: 'RDV jeudi 14h',
+  });
+  assert.equal(result.status, 200);
+  assert.ok(result.body.next.includes('RDV'), 'la prochaine étape est expliquée');
+
+  const detail = await auth(request(app).get(`/api/clients/${p.body.id}`));
+  assert.equal(detail.body.lead.pipeline_stage, 'rdv');
+  assert.ok(detail.body.tasks.some((t) => t.title.includes('Préparer')), 'tâche de préparation créée');
+  assert.ok(detail.body.activities.some((a) => a.content.includes('Rendez-vous pris')), 'activité journalisée');
+
+  // l'action traitée ne réapparaît plus ; l'action « confirmer le RDV » prend le relais
+  const plan2 = await auth(request(app).get('/api/today'));
+  assert.ok(!plan2.body.find((a) => a.key === action.key), 'l’action traitée a disparu');
+
+  // résultat invalide refusé
+  const bad = await auth(request(app).post('/api/today/result')).send({
+    action_key: 'x', result: 'nimporte',
+  });
+  assert.equal(bad.status, 400);
+});
+
+test('bloc 3 : une tâche en retard apparaît en priorité haute et « fait » la termine', async () => {
+  const t = await auth(request(app).post('/api/tasks')).send({
+    title: 'Tâche oubliée', due_date: '2026-01-05', priority: 'normale',
+  });
+  const plan = await auth(request(app).get('/api/today'));
+  const action = plan.body.find((a) => a.task_id === t.body.id);
+  assert.ok(action, 'la tâche en retard est dans le plan');
+  assert.equal(action.priority, 'haute');
+
+  await auth(request(app).post('/api/today/result')).send({
+    action_key: action.key, action_type: action.type, task_id: t.body.id, result: 'fait',
+  });
+  const tasks = await auth(request(app).get('/api/tasks?status=terminee'));
+  assert.ok(tasks.body.some((x) => x.id === t.body.id), 'la tâche est terminée');
+});

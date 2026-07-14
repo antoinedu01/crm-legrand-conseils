@@ -139,8 +139,11 @@ function BranchBars({ byBranch }) {
 
 export default function Dashboard() {
   const { data, loading, error } = useAsync(() => api.get('/api/dashboard'), []);
+  const today = useAsync(() => api.get('/api/today'), []);
   if (loading) return <p className="muted">Chargement…</p>;
   if (error) return <div className="alert error">{error}</div>;
+  const todayCount = (today.data || []).length;
+  const todayUrgent = (today.data || []).filter((a) => a.priority === 'haute').length;
   const { kpis, monthly, byBranch, upcomingTasks, expiringContracts, complianceGaps } = data;
 
   return (
@@ -153,6 +156,14 @@ export default function Dashboard() {
       </div>
 
       <div className="tiles mb">
+        <div className="tile" style={{ borderColor: todayUrgent > 0 ? 'var(--critical)' : undefined }}>
+          <div className="label">☀️ Actions aujourd'hui</div>
+          <div className="value">{todayCount}</div>
+          <div className="hint">
+            {todayUrgent > 0 && <>{todayUrgent} prioritaire(s) · </>}
+            <Link to="/developpement">voir le plan d'action</Link>
+          </div>
+        </div>
         <div className="tile">
           <div className="label">Clients & prospects</div>
           <div className="value">{kpis.clients}</div>
