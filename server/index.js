@@ -67,6 +67,25 @@ app.use('/api/tasks', requireAuth, tasksRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/compliance', requireAuth, complianceRouter);
 
+// Sauvegarde complète de la base (copie cohérente via l'API backup de SQLite)
+app.get('/api/backup', requireAuth, async (req, res) => {
+  const { default: db } = await import('./db.js');
+  const { audit } = await import('./audit.js');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const file = path.join(DATA_DIR, `sauvegarde-${stamp}-${Date.now()}.sqlite`);
+  try {
+    await db.backup(file);
+    audit(req, 'téléchargement de sauvegarde', 'system', null, path.basename(file));
+    res.download(file, `crm-sauvegarde-${stamp}.sqlite`, () => {
+      fs.unlink(file, () => {});
+    });
+  } catch (err) {
+    console.error(err);
+    fs.unlink(file, () => {});
+    res.status(500).json({ error: 'La sauvegarde a échoué.' });
+  }
+});
+
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue.' }));
 
 // En production, sert l'interface compilée

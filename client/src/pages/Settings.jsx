@@ -73,6 +73,15 @@ export default function Settings({ user, onSaved }) {
         </div>
         <div className="card">
           <h2>Sécurité & sauvegardes</h2>
+          <p>
+            <a href="/api/backup" download>
+              <button type="button" className="primary">⬇ Télécharger une sauvegarde complète</button>
+            </a>
+          </p>
+          <p className="muted" style={{ fontSize: 12 }}>
+            Le fichier contient toute la base (clients, contrats, commissions, journal d’audit).
+            Conservez-le sur un support chiffré. Pour restaurer : remplacez <code>data/crm.sqlite</code> par ce fichier.
+          </p>
           <table className="data">
             <tbody>
               <tr><td>Mot de passe</td><td>haché avec bcrypt (coût 12), jamais stocké en clair</td></tr>
@@ -80,7 +89,7 @@ export default function Settings({ user, onSaved }) {
               <tr><td>Force brute</td><td>verrouillage 5 minutes après 5 échecs de connexion</td></tr>
               <tr><td>Traçabilité</td><td>toutes les actions sont inscrites au journal d’audit</td></tr>
               <tr><td>Données</td><td>base SQLite locale (<code>data/crm.sqlite</code>) — hébergez-la en Suisse</td></tr>
-              <tr><td>Sauvegardes</td><td>copiez régulièrement le dossier <code>data/</code> sur un support chiffré</td></tr>
+              <tr><td>Sauvegardes</td><td>bouton ci-dessus + sauvegarde automatique quotidienne si hébergé (voir DEPLOIEMENT.md)</td></tr>
             </tbody>
           </table>
         </div>
