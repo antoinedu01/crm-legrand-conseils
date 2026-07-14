@@ -47,6 +47,11 @@ echo  CRM demarre ! Votre navigateur va s'ouvrir sur http://localhost:3000
 echo  Laissez cette fenetre noire OUVERTE pendant que vous travaillez.
 echo  Pour arreter le CRM : fermez cette fenetre.
 echo.
+echo  Depuis un iPad/telephone sur le MEME Wi-Fi, ouvrez Safari a l'adresse :
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do echo     http://%%a:3000 ^(sans les espaces^)
+echo  (Si Windows demande d'autoriser Node.js dans le pare-feu :
+echo   cochez "Reseaux prives" puis cliquez "Autoriser l'acces".)
+echo.
 start "" http://localhost:3000
 set NODE_ENV=production
 node server\index.js
