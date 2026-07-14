@@ -1,0 +1,30 @@
+{
+  "name": "crm-legrand-conseils",
+  "version": "1.0.0",
+  "description": "CRM pour courtier en assurance suisse — gestion clients, contrats, commissions, conformité nLPD / LSA (FINMA)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"node --watch server/index.js\" \"vite\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "cross-env NODE_ENV=production node server/index.js",
+    "seed:demo": "node server/seed-demo.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "cross-env": "^7.0.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
+    "vite": "^5.4.0"
+  }
+}
