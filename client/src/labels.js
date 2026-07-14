@@ -55,6 +55,28 @@ export const PAYMENT_FREQUENCIES = {
 
 export const CANTONS = ['AG','AI','AR','BE','BL','BS','FR','GE','GL','GR','JU','LU','NE','NW','OW','SG','SH','SO','SZ','TG','TI','UR','VD','VS','ZG','ZH'];
 
+export const PIPELINE_STAGES = {
+  nouveau: 'Nouveau',
+  contacte: 'Contacté',
+  rdv: 'RDV fixé',
+  analyse: 'Analyse des besoins',
+  offre: 'Offre envoyée',
+  signe: 'Signé',
+  perdu: 'Perdu',
+};
+
+export const AGE_RANGES = ['18-25', '26-35', '36-45', '46-55', '56-65', '65+'];
+
+export const WORK_SITUATIONS = ['Salarié(e)', 'Indépendant(e)', 'Frontalier/ère', 'Sans activité', 'Retraité(e)', 'Étudiant(e)'];
+
+export const MAIN_NEEDS = [
+  'Prévoyance 3a', 'Prévoyance 3b', 'Assurance vie', 'LAMal / caisse maladie',
+  'Complémentaires LCA', 'Incapacité de gain', 'Risque décès', 'Protection famille',
+  'Hypothèque / amortissement', 'Bilan de prévoyance complet', 'Autre',
+];
+
+export const CONTACT_PREFS = ['Matin', 'Midi', 'Après-midi', 'Soir (17h-19h)', 'Peu importe'];
+
 const chf = new Intl.NumberFormat('fr-CH', {
   style: 'currency',
   currency: 'CHF',

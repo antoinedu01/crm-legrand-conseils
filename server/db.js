@@ -166,6 +166,84 @@ if (version < 2) {
   migrate();
 }
 
+if (version < 3) {
+  // Bloc 1 du module « Développement du portefeuille » :
+  // canaux d'acquisition, coûts par canal, origine des prospects.
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS channels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE,
+        name TEXT NOT NULL,
+        description TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        sort INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        channel_id INTEGER REFERENCES channels(id),
+        status TEXT NOT NULL DEFAULT 'brouillon',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS channel_costs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id INTEGER NOT NULL REFERENCES channels(id),
+        month TEXT NOT NULL,                -- format AAAA-MM
+        amount REAL NOT NULL DEFAULT 0,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS lead_details (
+        client_id INTEGER PRIMARY KEY REFERENCES clients(id),
+        channel_id INTEGER REFERENCES channels(id),
+        campaign_id INTEGER REFERENCES campaigns(id),
+        referrer_client_id INTEGER REFERENCES clients(id),
+        pipeline_stage TEXT NOT NULL DEFAULT 'nouveau',
+        main_need TEXT,
+        age_range TEXT,
+        work_situation TEXT,
+        family_situation TEXT,
+        contact_pref TEXT,
+        score INTEGER NOT NULL DEFAULT 0,
+        score_reasons TEXT,
+        classement TEXT NOT NULL DEFAULT 'non_qualifie',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_lead_details_channel ON lead_details(channel_id);
+      CREATE INDEX IF NOT EXISTS idx_channel_costs_channel ON channel_costs(channel_id, month);
+    `);
+    db.pragma('user_version = 3');
+  });
+  migrate();
+}
+
+// Les 14 canaux d'acquisition du plan de développement
+const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
+if (channelCount === 0) {
+  const insert = db.prepare(
+    'INSERT INTO channels (key, name, description, sort) VALUES (?, ?, ?, ?)'
+  );
+  const seed = db.transaction((rows) => rows.forEach((r, i) => insert.run(...r, i)));
+  seed([
+    ['recommandations', 'Recommandations de clients', 'Parrainage par vos clients satisfaits — le canal le plus rentable.'],
+    ['fiduciaires', 'Partenariats fiduciaires', 'Comptables et fiduciaires qui recommandent vos services.'],
+    ['courtiers_immobiliers', 'Partenariats courtiers immobiliers', 'Courtiers en immobilier apporteurs d’affaires.'],
+    ['agences_immobilieres', 'Partenariats agences immobilières', 'Agences qui orientent leurs acheteurs vers vous.'],
+    ['specialistes_hypothecaires', 'Partenariats spécialistes hypothécaires', 'Conseillers hypothécaires — synergie assurance/amortissement.'],
+    ['salles_sport', 'Partenariats salles de sport & clubs', 'Présence et offres auprès des clubs sportifs.'],
+    ['entreprises_independants', 'Partenariats entreprises & indépendants', 'Employeurs et indépendants (LPP, perte de gain).'],
+    ['site_internet', 'Formulaires du site internet', 'Demandes entrantes via legrandconseils.ch.'],
+    ['reseaux_sociaux', 'Réseaux sociaux', 'LinkedIn, Instagram, Facebook — publications et messages.'],
+    ['contenus', 'Contenus pédagogiques', 'Articles, guides, vidéos explicatives.'],
+    ['webinaires_evenements', 'Webinaires & événements', 'Présentations publiques, soirées d’information.'],
+    ['campagnes_pub', 'Campagnes publicitaires', 'Publicité payante avec formulaire de consentement.'],
+    ['reactivation', 'Réactivation d’anciens prospects', 'Reprise de contact avec les dossiers restés sans suite.'],
+    ['vente_complementaire', 'Vente complémentaire (clients existants)', 'Besoins non couverts de votre portefeuille actuel.'],
+  ]);
+}
+
 // Compagnies suisses proposées par défaut au premier démarrage
 const companyCount = db.prepare('SELECT COUNT(*) AS n FROM companies').get().n;
 if (companyCount === 0) {

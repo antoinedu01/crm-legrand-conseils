@@ -5,6 +5,13 @@ import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
 import { CLIENT_STATUS, CANTONS } from '../labels.js';
 
 export function ClientForm({ initial, onSaved, onClose }) {
+  const [channels, setChannels] = useState([]);
+  const [channelId, setChannelId] = useState('');
+  React.useEffect(() => {
+    if (!initial?.id) {
+      api.get('/api/channels').then((rows) => setChannels(rows.filter((c) => c.active))).catch(() => {});
+    }
+  }, [initial]);
   const [form, setForm] = useState({
     type: 'particulier', first_name: '', last_name: '', company_name: '', email: '', phone: '',
     birth_date: '', address: '', npa: '', city: '', canton: '', profession: '',
@@ -40,6 +47,9 @@ export function ClientForm({ initial, onSaved, onClose }) {
             throw err;
           }
         }
+        if (id && channelId) {
+          await api.put(`/api/clients/${id}/lead`, { channel_id: channelId });
+        }
       }
       onSaved(id);
     } catch (err) {
@@ -59,6 +69,14 @@ export function ClientForm({ initial, onSaved, onClose }) {
               <option value="entreprise">Entreprise</option>
             </select>
           </Field>
+          {!initial?.id && channels.length > 0 && (
+            <Field label="Canal d'origine (comment ce contact vous a trouvé)">
+              <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+                <option value="">— À renseigner plus tard —</option>
+                {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </Field>
+          )}
           <Field label="Statut">
             <select value={form.status} onChange={set('status')}>
               {Object.entries(CLIENT_STATUS).filter(([k]) => k !== 'anonymise').map(([k, v]) => (

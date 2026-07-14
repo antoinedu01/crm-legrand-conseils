@@ -209,3 +209,55 @@ test('cycle complet 2FA : activation, connexion en deux étapes, désactivation'
     .set('Cookie', c3).send({ code: totpCode(setup.body.secret) });
   assert.equal(disable.status, 200);
 });
+
+test('bloc 1 : les 14 canaux d’acquisition sont pré-remplis', async () => {
+  const res = await auth(request(app).get('/api/channels'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.length, 14);
+  assert.ok(res.body.some((c) => c.key === 'recommandations'));
+});
+
+test('bloc 1 : origine d’un prospect (canal, parrain, pipeline) et statistiques du canal', async () => {
+  const year = new Date().getFullYear();
+  const channels = await auth(request(app).get('/api/channels'));
+  const reco = channels.body.find((c) => c.key === 'recommandations');
+
+  const prospect = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Léa', last_name: 'Nouvelle', status: 'prospect', force: true,
+  });
+  // upsert : création puis mise à jour
+  const put1 = await auth(request(app).put(`/api/clients/${prospect.body.id}/lead`))
+    .send({ channel_id: reco.id, referrer_client_id: 1, main_need: 'Prévoyance 3a' });
+  assert.equal(put1.status, 200);
+  const put2 = await auth(request(app).put(`/api/clients/${prospect.body.id}/lead`))
+    .send({ pipeline_stage: 'contacte' });
+  assert.equal(put2.status, 200);
+
+  // étape inconnue et auto-parrainage refusés
+  const badStage = await auth(request(app).put(`/api/clients/${prospect.body.id}/lead`))
+    .send({ pipeline_stage: 'inexistant' });
+  assert.equal(badStage.status, 400);
+  const selfRef = await auth(request(app).put(`/api/clients/${prospect.body.id}/lead`))
+    .send({ referrer_client_id: prospect.body.id });
+  assert.equal(selfRef.status, 400);
+
+  // la fiche client renvoie l'origine complète
+  const detail = await auth(request(app).get(`/api/clients/${prospect.body.id}`));
+  assert.equal(detail.body.lead.pipeline_stage, 'contacte');
+  assert.equal(detail.body.lead.channel_name, 'Recommandations de clients');
+  assert.ok(detail.body.lead.referrer_name);
+
+  // saisie d'un coût + statistiques agrégées
+  const month = `${year}-01`;
+  const cost = await auth(request(app).post(`/api/channels/${reco.id}/costs`))
+    .send({ month, amount: 120.5, notes: 'cartes de parrainage' });
+  assert.equal(cost.status, 201);
+  const badCost = await auth(request(app).post(`/api/channels/${reco.id}/costs`))
+    .send({ month: 'janvier', amount: 10 });
+  assert.equal(badCost.status, 400);
+
+  const stats = await auth(request(app).get(`/api/channels?year=${year}`));
+  const recoStats = stats.body.find((c) => c.id === reco.id);
+  assert.ok(recoStats.leads_year >= 1);
+  assert.equal(recoStats.costs_year, 120.5);
+});

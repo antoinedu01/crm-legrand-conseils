@@ -103,8 +103,75 @@ clientsRouter.get('/:id', (req, res) => {
   const tasks = db
     .prepare("SELECT * FROM tasks WHERE client_id = ? ORDER BY status, due_date")
     .all(client.id);
+  const lead = db
+    .prepare(
+      `SELECT ld.*, ch.name AS channel_name, ca.name AS campaign_name,
+        ref.first_name AS ref_first_name, ref.last_name AS ref_last_name,
+        ref.company_name AS ref_company_name, ref.type AS ref_type
+       FROM lead_details ld
+       LEFT JOIN channels ch ON ch.id = ld.channel_id
+       LEFT JOIN campaigns ca ON ca.id = ld.campaign_id
+       LEFT JOIN clients ref ON ref.id = ld.referrer_client_id
+       WHERE ld.client_id = ?`
+    )
+    .get(client.id);
+  if (lead && lead.referrer_client_id) {
+    lead.referrer_name = displayName({
+      type: lead.ref_type, first_name: lead.ref_first_name,
+      last_name: lead.ref_last_name, company_name: lead.ref_company_name,
+    });
+  }
   audit(req, 'consultation du dossier client', 'client', client.id, displayName(client));
-  res.json({ ...client, display_name: displayName(client), contracts, commissions, activities, tasks });
+  res.json({
+    ...client, display_name: displayName(client),
+    contracts, commissions, activities, tasks, lead: lead || null,
+  });
+});
+
+export const PIPELINE_STAGES = ['nouveau', 'contacte', 'rdv', 'analyse', 'offre', 'signe', 'perdu'];
+const LEAD_FIELDS = [
+  'channel_id', 'campaign_id', 'referrer_client_id', 'pipeline_stage',
+  'main_need', 'age_range', 'work_situation', 'family_situation', 'contact_pref',
+];
+
+// Origine & prospection : d'où vient ce prospect, où en est-on avec lui
+clientsRouter.put('/:id/lead', (req, res) => {
+  const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
+  if (!client) return res.status(404).json({ error: 'Client introuvable.' });
+  if (client.status === 'anonymise') {
+    return res.status(403).json({ error: 'Ce dossier a été anonymisé.' });
+  }
+  const data = {};
+  for (const f of LEAD_FIELDS) if (f in (req.body || {})) data[f] = req.body[f] === '' ? null : req.body[f];
+  if ('pipeline_stage' in data && !PIPELINE_STAGES.includes(data.pipeline_stage)) {
+    return res.status(400).json({ error: 'Étape de pipeline inconnue.' });
+  }
+  if (data.referrer_client_id && Number(data.referrer_client_id) === client.id) {
+    return res.status(400).json({ error: 'Un client ne peut pas être son propre parrain.' });
+  }
+  for (const f of ['main_need', 'age_range', 'work_situation', 'family_situation', 'contact_pref']) {
+    if (data[f] != null && String(data[f]).length > 300) {
+      return res.status(400).json({ error: `Le champ « ${f} » est trop long.` });
+    }
+  }
+  const existing = db.prepare('SELECT client_id FROM lead_details WHERE client_id = ?').get(client.id);
+  if (existing) {
+    const fields = Object.keys(data);
+    if (fields.length > 0) {
+      db.prepare(
+        `UPDATE lead_details SET ${fields.map((f) => `${f} = ?`).join(', ')},
+          updated_at = datetime('now') WHERE client_id = ?`
+      ).run(...fields.map((f) => data[f]), client.id);
+    }
+  } else {
+    const fields = Object.keys(data);
+    db.prepare(
+      `INSERT INTO lead_details (client_id${fields.length ? ', ' + fields.join(', ') : ''})
+       VALUES (?${fields.map(() => ', ?').join('')})`
+    ).run(client.id, ...fields.map((f) => data[f]));
+  }
+  audit(req, 'mise à jour origine/prospection', 'client', client.id, data.pipeline_stage || '');
+  res.json({ ok: true });
 });
 
 clientsRouter.post('/', (req, res) => {
