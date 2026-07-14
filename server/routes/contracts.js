@@ -1,12 +1,29 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
+import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields } from '../validate.js';
 
 export const contractsRouter = Router();
 
 export const BRANCHES = [
   'vie_3a', 'vie_3b', 'lamal', 'lca', 'lpp', 'hypotheque', 'rc_menage', 'autre',
 ];
+const CONTRACT_STATUSES = ['offre', 'actif', 'suspendu', 'resilie', 'echu'];
+const FREQUENCIES = ['mensuelle', 'trimestrielle', 'semestrielle', 'annuelle', 'unique'];
+
+function validateContract(data) {
+  assert(inEnum(data.status, CONTRACT_STATUSES), 'Statut de contrat inconnu.');
+  assert(inEnum(data.payment_frequency, FREQUENCIES), 'Fréquence de paiement inconnue.');
+  assert(isNonNegNumber(data.annual_premium), 'La prime annuelle doit être un nombre positif.');
+  assert(isNonNegNumber(data.acq_commission_rate), 'Le taux d’acquisition doit être un nombre positif.');
+  assert(isNonNegNumber(data.rec_commission_rate), 'Le taux récurrent doit être un nombre positif.');
+  assert(Number(data.acq_commission_rate || 0) <= 100 && Number(data.rec_commission_rate || 0) <= 100,
+    'Un taux de commission ne peut pas dépasser 100 %.');
+  assert(isDateStr(data.start_date), 'Date de début invalide (AAAA-MM-JJ).');
+  assert(isDateStr(data.end_date), 'Date d’échéance invalide (AAAA-MM-JJ).');
+  checkTextFields(data, ['policy_number', 'product_name'], 200);
+  checkTextFields(data, ['notes'], 5000);
+}
 
 const FIELDS = [
   'client_id', 'company_id', 'branch', 'policy_number', 'product_name', 'annual_premium',
@@ -63,6 +80,7 @@ contractsRouter.post('/', (req, res) => {
   if (!BRANCHES.includes(data.branch)) {
     return res.status(400).json({ error: 'Branche inconnue.' });
   }
+  validateContract(data);
   const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(data.client_id);
   if (!client) return res.status(400).json({ error: 'Client introuvable.' });
 
@@ -102,6 +120,7 @@ contractsRouter.put('/:id', (req, res) => {
   if ('branch' in data && !BRANCHES.includes(data.branch)) {
     return res.status(400).json({ error: 'Branche inconnue.' });
   }
+  validateContract(data);
   if (Object.keys(data).length === 0) return res.json({ ok: true });
   const fields = Object.keys(data);
   db.prepare(

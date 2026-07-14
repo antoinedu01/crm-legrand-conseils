@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
+import { useAsync, Badge, Empty } from '../components/ui.jsx';
 import {
   BRANCHES, CONTRACT_STATUS, CLIENT_STATUS, COMMISSION_STATUS, COMMISSION_TYPES,
   ACTIVITY_TYPES, fmtCHF, fmtDate, fmtDateTime,

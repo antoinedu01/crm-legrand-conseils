@@ -135,6 +135,25 @@ CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 `);
 
+// Migrations légères versionnées (PRAGMA user_version).
+// Réversibilité : chaque migration est documentée dans docs/MIGRATIONS.md
+// et une sauvegarde de la base est conseillée avant toute mise à jour.
+const version = db.pragma('user_version', { simple: true });
+if (version < 1) {
+  const migrate = db.transaction(() => {
+    const cols = db.prepare('PRAGMA table_info(clients)').all().map((c) => c.name);
+    if (!cols.includes('owner_user_id')) {
+      // Prépare l'évolution multi-conseiller : propriétaire du dossier
+      db.exec('ALTER TABLE clients ADD COLUMN owner_user_id INTEGER REFERENCES users(id)');
+    }
+    // Index pour la détection de doublons (e-mail / téléphone)
+    db.exec('CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone)');
+    db.pragma('user_version = 1');
+  });
+  migrate();
+}
+
 // Compagnies suisses proposées par défaut au premier démarrage
 const companyCount = db.prepare('SELECT COUNT(*) AS n FROM companies').get().n;
 if (companyCount === 0) {

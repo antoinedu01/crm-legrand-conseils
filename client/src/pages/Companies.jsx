@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api.js';
-import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
+import { useAsync, Modal, Field, Empty } from '../components/ui.jsx';
 import { fmtCHF } from '../labels.js';
 
 function CompanyForm({ initial, onSaved, onClose }) {

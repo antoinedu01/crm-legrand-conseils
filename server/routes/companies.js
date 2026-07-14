@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
+import { assert, isEmail, isNonNegNumber, checkTextFields } from '../validate.js';
 
 export const companiesRouter = Router();
+
+function validateCompany(data) {
+  assert(data.contact_email == null || isEmail(data.contact_email), 'Adresse e-mail de contact invalide.');
+  assert(isNonNegNumber(data.default_acq_rate), 'Le taux d’acquisition doit être un nombre positif.');
+  assert(isNonNegNumber(data.default_rec_rate), 'Le taux récurrent doit être un nombre positif.');
+  assert(Number(data.default_acq_rate || 0) <= 100 && Number(data.default_rec_rate || 0) <= 100,
+    'Un taux de commission ne peut pas dépasser 100 %.');
+  checkTextFields(data, ['name', 'finma_number', 'contact_name', 'contact_phone'], 200);
+  checkTextFields(data, ['notes'], 5000);
+}
 
 const FIELDS = [
   'name', 'finma_number', 'contact_name', 'contact_email', 'contact_phone',
@@ -36,6 +47,7 @@ companiesRouter.get('/', (req, res) => {
 companiesRouter.post('/', (req, res) => {
   const data = pick(req.body);
   if (!data.name) return res.status(400).json({ error: 'Le nom de la compagnie est requis.' });
+  validateCompany(data);
   const fields = Object.keys(data);
   const info = db
     .prepare(`INSERT INTO companies (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
@@ -49,6 +61,7 @@ companiesRouter.put('/:id', (req, res) => {
   if (!company) return res.status(404).json({ error: 'Compagnie introuvable.' });
   const data = pick(req.body);
   if (Object.keys(data).length === 0) return res.json({ ok: true });
+  validateCompany(data);
   const fields = Object.keys(data);
   db.prepare(`UPDATE companies SET ${fields.map((f) => `${f} = ?`).join(', ')} WHERE id = ?`).run(
     ...fields.map((f) => data[f]),

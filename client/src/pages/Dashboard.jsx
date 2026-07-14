@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAsync, Badge, Empty } from '../components/ui.jsx';
+import { useAsync, Empty } from '../components/ui.jsx';
 import { fmtCHF, fmtDate, BRANCHES } from '../labels.js';
 
 const MONTHS_FR = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];

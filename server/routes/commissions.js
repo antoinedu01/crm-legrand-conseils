@@ -1,8 +1,21 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
+import { assert, isDateStr, inEnum, checkTextFields } from '../validate.js';
 
 export const commissionsRouter = Router();
+
+const COMMISSION_STATUSES = ['attendue', 'payee', 'annulee'];
+const COMMISSION_TYPES = ['acquisition', 'recurrente', 'ajustement'];
+
+function validateCommission({ type, status, amount, due_date, paid_date, ...rest }) {
+  assert(inEnum(type, COMMISSION_TYPES), 'Type de commission inconnu.');
+  assert(inEnum(status, COMMISSION_STATUSES), 'Statut de commission inconnu.');
+  assert(amount == null || Number.isFinite(Number(amount)), 'Le montant doit être un nombre.');
+  assert(isDateStr(due_date), 'Date d’échéance invalide (AAAA-MM-JJ).');
+  assert(isDateStr(paid_date), 'Date de paiement invalide (AAAA-MM-JJ).');
+  checkTextFields(rest, ['label', 'notes'], 500);
+}
 
 commissionsRouter.get('/', (req, res) => {
   const { status, year, company_id } = req.query;
@@ -35,6 +48,7 @@ commissionsRouter.post('/', (req, res) => {
   if (!contract_id || !amount) {
     return res.status(400).json({ error: 'Contrat et montant sont requis.' });
   }
+  validateCommission({ type, label, amount, due_date, notes });
   const contract = db.prepare('SELECT id FROM contracts WHERE id = ?').get(contract_id);
   if (!contract) return res.status(400).json({ error: 'Contrat introuvable.' });
   const info = db
@@ -51,6 +65,7 @@ commissionsRouter.put('/:id', (req, res) => {
   const commission = db.prepare('SELECT * FROM commissions WHERE id = ?').get(req.params.id);
   if (!commission) return res.status(404).json({ error: 'Commission introuvable.' });
   const { status, paid_date, amount, due_date, label, notes } = req.body || {};
+  validateCommission({ status, paid_date, amount, due_date, label, notes });
   db.prepare(
     `UPDATE commissions SET
       status = COALESCE(?, status),

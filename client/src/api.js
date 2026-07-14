@@ -10,7 +10,12 @@ async function request(method, url, body) {
     throw new Error('Session expirée. Veuillez vous reconnecter.');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Erreur ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 

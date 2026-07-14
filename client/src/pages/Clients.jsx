@@ -24,8 +24,23 @@ export function ClientForm({ initial, onSaved, onClose }) {
       if (payload.consent_data && !payload.consent_date) payload.consent_date = new Date().toISOString().slice(0, 10);
       if (payload.mandate_signed && !payload.mandate_date) payload.mandate_date = new Date().toISOString().slice(0, 10);
       let id = initial?.id;
-      if (id) await api.put(`/api/clients/${id}`, payload);
-      else id = (await api.post('/api/clients', payload)).id;
+      if (id) {
+        await api.put(`/api/clients/${id}`, payload);
+      } else {
+        try {
+          id = (await api.post('/api/clients', payload)).id;
+        } catch (err) {
+          if (err.status === 409 && err.data?.duplicates?.length) {
+            const names = err.data.duplicates.map((d) => d.name).join(', ');
+            if (!window.confirm(
+              `Un dossier existe déjà avec cet e-mail ou ce téléphone : ${names}.\n\nCréer quand même un nouveau dossier ?`
+            )) return;
+            id = (await api.post('/api/clients', { ...payload, force: true })).id;
+          } else {
+            throw err;
+          }
+        }
+      }
       onSaved(id);
     } catch (err) {
       setError(err.message);

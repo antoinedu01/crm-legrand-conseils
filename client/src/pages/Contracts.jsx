@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
-import { BRANCHES, CONTRACT_STATUS, PAYMENT_FREQUENCIES, fmtCHF, fmtDate } from '../labels.js';
+import { BRANCHES, CONTRACT_STATUS, PAYMENT_FREQUENCIES, fmtCHF } from '../labels.js';
 
 export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   const [clients, setClients] = useState([]);

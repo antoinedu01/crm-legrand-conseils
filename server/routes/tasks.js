@@ -1,8 +1,17 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
+import { assert, isDateStr, inEnum, checkTextFields } from '../validate.js';
 
 export const tasksRouter = Router();
+
+function validateTask(data) {
+  assert(inEnum(data.priority, ['basse', 'normale', 'haute']), 'Priorité inconnue.');
+  assert(inEnum(data.status, ['ouverte', 'terminee']), 'Statut de tâche inconnu.');
+  assert(isDateStr(data.due_date), 'Date d’échéance invalide (AAAA-MM-JJ).');
+  checkTextFields(data, ['title'], 300);
+  checkTextFields(data, ['description'], 5000);
+}
 
 tasksRouter.get('/', (req, res) => {
   const { status } = req.query;
@@ -30,6 +39,7 @@ tasksRouter.get('/', (req, res) => {
 tasksRouter.post('/', (req, res) => {
   const { title, description, due_date, priority, client_id, contract_id } = req.body || {};
   if (!title) return res.status(400).json({ error: 'Le titre est requis.' });
+  validateTask({ title, description, due_date, priority });
   const info = db
     .prepare(
       `INSERT INTO tasks (title, description, due_date, priority, client_id, contract_id)
@@ -44,6 +54,7 @@ tasksRouter.put('/:id', (req, res) => {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Tâche introuvable.' });
   const { title, description, due_date, priority, status } = req.body || {};
+  validateTask({ title, description, due_date, priority, status });
   db.prepare(
     `UPDATE tasks SET
       title = COALESCE(?, title), description = COALESCE(?, description),

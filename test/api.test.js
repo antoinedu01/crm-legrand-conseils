@@ -1,0 +1,173 @@
+// Tests d'intégration de l'API (node:test + supertest).
+// La base de test est isolée dans un dossier temporaire (CRM_DATA_DIR).
+import { test, before } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import request from 'supertest';
+
+process.env.CRM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-test-'));
+process.env.NODE_ENV = 'test';
+
+const { default: app } = await import('../server/app.js');
+
+const PASSWORD = 'MotDePasseDeTest!42';
+let cookie = '';
+
+function auth(req) {
+  return req.set('Cookie', cookie);
+}
+
+before(async () => {
+  const res = await request(app)
+    .post('/api/auth/setup')
+    .send({ email: 'test@exemple.ch', name: 'Testeur', password: PASSWORD });
+  assert.equal(res.status, 200);
+  cookie = res.headers['set-cookie'].map((c) => c.split(';')[0]).join('; ');
+});
+
+test('l’accès sans session est refusé (401)', async () => {
+  const res = await request(app).get('/api/clients');
+  assert.equal(res.status, 401);
+});
+
+test('la connexion échoue avec un mauvais mot de passe', async () => {
+  const res = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'test@exemple.ch', password: 'faux-mot-de-passe' });
+  assert.equal(res.status, 401);
+});
+
+test('la connexion réussit et la session persiste', async () => {
+  const res = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'test@exemple.ch', password: PASSWORD });
+  assert.equal(res.status, 200);
+  const c = res.headers['set-cookie'].map((x) => x.split(';')[0]).join('; ');
+  const status = await request(app).get('/api/auth/status').set('Cookie', c);
+  assert.equal(status.body.authenticated, true);
+});
+
+test('une requête de modification intersite est bloquée (CSRF)', async () => {
+  const res = await auth(request(app).post('/api/clients'))
+    .set('Origin', 'https://site-malveillant.example')
+    .send({ last_name: 'Intrus' });
+  assert.equal(res.status, 403);
+});
+
+test('création d’un client avec validation', async () => {
+  const bad = await auth(request(app).post('/api/clients')).send({
+    last_name: 'Duval', email: 'pas-un-email',
+  });
+  assert.equal(bad.status, 400);
+
+  const ok = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Anne', last_name: 'Duval', email: 'anne.duval@exemple.ch',
+    phone: '079 123 45 67', status: 'prospect', consent_data: 1, consent_date: '2026-07-01',
+  });
+  assert.equal(ok.status, 201);
+  assert.ok(ok.body.id);
+});
+
+test('les doublons e-mail/téléphone sont détectés (409), forçables', async () => {
+  const dup = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Annie', last_name: 'Duvale', email: 'ANNE.DUVAL@exemple.ch',
+  });
+  assert.equal(dup.status, 409);
+  assert.ok(dup.body.duplicates.length >= 1);
+
+  // même téléphone sous un autre format (+41 vs 079)
+  const dupPhone = await auth(request(app).post('/api/clients')).send({
+    last_name: 'Autre', phone: '+41 79 123 45 67',
+  });
+  assert.equal(dupPhone.status, 409);
+
+  const forced = await auth(request(app).post('/api/clients')).send({
+    last_name: 'Duvale-bis', email: 'anne.duval@exemple.ch', force: true,
+  });
+  assert.equal(forced.status, 201);
+});
+
+let contractId;
+test('création d’un contrat : commission d’acquisition automatique + avertissements LSA', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Paul', last_name: 'Roch', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a',
+    annual_premium: 7056, acq_commission_rate: 4, rec_commission_rate: 1,
+    status: 'actif', start_date: '2026-01-01',
+  });
+  assert.equal(res.status, 201);
+  contractId = res.body.id;
+  // mandat non signé + info LSA absente + consentement absent → 3 avertissements
+  assert.equal(res.body.warnings.length, 3);
+
+  const commissions = await auth(request(app).get('/api/commissions?year=2026'));
+  const acq = commissions.body.find((c) => c.contract_id === contractId && c.type === 'acquisition');
+  assert.ok(acq, 'commission d’acquisition créée automatiquement');
+  assert.equal(acq.amount, 282.24);
+});
+
+test('un taux de commission invalide est refusé', async () => {
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: 1, company_id: 1, branch: 'vie_3a', annual_premium: 100, acq_commission_rate: 250,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('génération des commissions récurrentes : pas de doublon d’une exécution à l’autre', async () => {
+  const first = await auth(request(app).post('/api/commissions/generate-recurring')).send({ year: 2026 });
+  assert.equal(first.status, 200);
+  assert.ok(first.body.created >= 1);
+  const second = await auth(request(app).post('/api/commissions/generate-recurring')).send({ year: 2026 });
+  assert.equal(second.body.created, 0);
+});
+
+test('export nLPD du dossier client', async () => {
+  const res = await auth(request(app).get('/api/clients/1/export'));
+  assert.equal(res.status, 200);
+  assert.ok(res.body.base_legale.includes('art. 25'));
+  assert.ok(Array.isArray(res.body.contrats));
+});
+
+test('anonymisation : données personnelles effacées, dossier verrouillé', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Zoé', last_name: 'Efface', email: 'zoe@exemple.ch', avs_number: '756.1234.5678.90',
+  });
+  const id = client.body.id;
+  const anon = await auth(request(app).post(`/api/clients/${id}/anonymize`));
+  assert.equal(anon.status, 200);
+  const detail = await auth(request(app).get(`/api/clients/${id}`));
+  assert.equal(detail.body.email, null);
+  assert.equal(detail.body.avs_number, null);
+  assert.equal(detail.body.status, 'anonymise');
+  const edit = await auth(request(app).put(`/api/clients/${id}`)).send({ last_name: 'Retour' });
+  assert.equal(edit.status, 403);
+});
+
+test('le journal d’audit trace les actions sensibles', async () => {
+  const res = await auth(request(app).get('/api/compliance/audit-log?q=anonymisation'));
+  assert.equal(res.status, 200);
+  assert.ok(res.body.length >= 1);
+});
+
+test('la sauvegarde produit un fichier SQLite', async () => {
+  const res = await auth(request(app).get('/api/backup')).buffer(true).parse((r, cb) => {
+    const chunks = [];
+    r.on('data', (c) => chunks.push(c));
+    r.on('end', () => cb(null, Buffer.concat(chunks)));
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.subarray(0, 15).toString(), 'SQLite format 3');
+});
+
+test('un contrat avec commission payée ne peut pas être supprimé', async () => {
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === contractId && c.type === 'acquisition');
+  await auth(request(app).put(`/api/commissions/${acq.id}`)).send({ status: 'payee' });
+  const del = await auth(request(app).delete(`/api/contracts/${contractId}`));
+  assert.equal(del.status, 400);
+  assert.ok(del.body.error.includes('958f'));
+});

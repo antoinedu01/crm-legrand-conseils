@@ -48,7 +48,6 @@ export function useAsync(fn, deps) {
       (data) => setState({ loading: false, data, error: null }),
       (error) => setState({ loading: false, data: null, error: error.message })
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   useEffect(() => { reload(); }, [reload]);
   return { ...state, reload };

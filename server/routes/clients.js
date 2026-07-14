@@ -1,8 +1,41 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
+import {
+  assert, isEmail, isDateStr, inEnum, checkTextFields, normEmail, normPhone,
+} from '../validate.js';
 
 export const clientsRouter = Router();
+
+const CLIENT_STATUSES = ['prospect', 'client', 'ancien', 'anonymise'];
+const CLIENT_TYPES = ['particulier', 'entreprise'];
+
+function validateClient(data) {
+  assert(inEnum(data.type, CLIENT_TYPES), 'Type de client inconnu.');
+  assert(inEnum(data.status, CLIENT_STATUSES), 'Statut de client inconnu.');
+  assert(data.email == null || isEmail(data.email), 'Adresse e-mail invalide.');
+  assert(isDateStr(data.birth_date), 'Date de naissance invalide (AAAA-MM-JJ).');
+  assert(isDateStr(data.consent_date), 'Date de consentement invalide.');
+  assert(isDateStr(data.mandate_date), 'Date de mandat invalide.');
+  assert(isDateStr(data.info_lsa_date), 'Date d’information LSA invalide.');
+  checkTextFields(data, ['first_name', 'last_name', 'company_name', 'phone', 'address',
+    'npa', 'city', 'canton', 'nationality', 'marital_status', 'profession', 'avs_number'], 200);
+  checkTextFields(data, ['notes'], 5000);
+}
+
+// Détection de doublons par e-mail ou téléphone normalisés
+function findDuplicates(data, excludeId = null) {
+  const email = normEmail(data.email);
+  const phone = normPhone(data.phone);
+  if (!email && !phone) return [];
+  const rows = db
+    .prepare("SELECT id, type, first_name, last_name, company_name, email, phone FROM clients WHERE status != 'anonymise'")
+    .all();
+  return rows
+    .filter((r) => r.id !== excludeId)
+    .filter((r) => (email && normEmail(r.email) === email) || (phone && normPhone(r.phone) === phone))
+    .map((r) => ({ id: r.id, name: displayName(r), email: r.email, phone: r.phone }));
+}
 
 const CLIENT_FIELDS = [
   'type', 'first_name', 'last_name', 'company_name', 'email', 'phone', 'birth_date',
@@ -79,6 +112,16 @@ clientsRouter.post('/', (req, res) => {
   if (!data.first_name && !data.last_name && !data.company_name) {
     return res.status(400).json({ error: 'Un nom (ou une raison sociale) est requis.' });
   }
+  validateClient(data);
+  if (!req.body?.force) {
+    const duplicates = findDuplicates(data);
+    if (duplicates.length > 0) {
+      return res.status(409).json({
+        error: 'Un dossier existe déjà avec cet e-mail ou ce téléphone.',
+        duplicates,
+      });
+    }
+  }
   const fields = Object.keys(data);
   const info = db
     .prepare(
@@ -97,6 +140,7 @@ clientsRouter.put('/:id', (req, res) => {
   }
   const data = pick(req.body);
   if (Object.keys(data).length === 0) return res.json({ ok: true });
+  validateClient(data);
   const fields = Object.keys(data);
   db.prepare(
     `UPDATE clients SET ${fields.map((f) => `${f} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`
