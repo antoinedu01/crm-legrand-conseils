@@ -16,12 +16,28 @@ Hébergeurs suisses adaptés (données en Suisse, support en français) :
 - **Hostpoint** (Rapperswil)
 - **Exoscale** (Lausanne)
 
-### Étapes (une fois, ~1 heure ; votre hébergeur peut aider)
+### Installation automatique (recommandée — une seule commande)
 
 1. **Commander un VPS** Ubuntu 24.04 (1 vCPU / 1–2 Go de RAM suffisent largement).
 2. **Pointer un sous-domaine** (p. ex. `crm.legrand-conseils.ch`) vers l'adresse IP
    du serveur (enregistrement DNS de type A, dans la console de votre hébergeur).
-3. **Sur le serveur** (copier-coller bloc par bloc, en SSH) :
+3. **Se connecter au serveur en SSH** et coller cette unique commande
+   (remplacez le domaine par le vôtre) :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/antoinedu01/crm-legrand-conseils/claude/insurance-broker-crm-exx09v/deploy/install.sh | sudo bash -s -- crm.votre-domaine.ch
+```
+
+Elle installe tout : Node.js, le CRM (démarrage automatique), HTTPS (Caddy),
+pare-feu, sauvegardes nocturnes et mises à jour de sécurité. À la fin, ouvrez
+`https://votre-domaine` et **créez immédiatement votre compte courtier**
+(le premier compte créé devient le seul compte).
+
+Pour mettre à jour le CRM plus tard : relancez la même commande.
+
+### Étapes manuelles (équivalent détaillé, si vous préférez)
+
+Sur le serveur, copier-coller bloc par bloc, en SSH :
 
 ```bash
 # Node.js 22 LTS + outils
