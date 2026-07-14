@@ -13,14 +13,33 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist node_modules (
-  echo Premiere utilisation : installation en cours, patientez 1 a 2 minutes...
-  call npm install --no-audit --no-fund
+rem Installe (ou repare) les composants si l'un d'eux manque
+if not exist node_modules\express\package.json goto :install
+if not exist node_modules\vite\package.json goto :install
+if not exist node_modules\better-sqlite3\package.json goto :install
+goto :installed
+:install
+echo Installation en cours, patientez 1 a 2 minutes... NE FERMEZ PAS cette fenetre.
+call npm install --no-audit --no-fund
+if errorlevel 1 (
+  echo.
+  echo  L'installation a echoue. Verifiez votre connexion internet puis relancez ce fichier.
+  echo.
+  pause
+  exit /b 1
 )
+:installed
 
-if not exist client\dist (
+if not exist client\dist\index.html (
   echo Preparation de l'interface...
   call npm run build
+  if errorlevel 1 (
+    echo.
+    echo  La preparation de l'interface a echoue. Relancez ce fichier.
+    echo.
+    pause
+    exit /b 1
+  )
 )
 
 echo.
