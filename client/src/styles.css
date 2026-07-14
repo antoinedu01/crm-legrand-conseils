@@ -201,6 +201,20 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .login-card .brand { text-align: center; margin-bottom: 18px; }
 .login-card form { display: flex; flex-direction: column; gap: 12px; }
 
+/* ---------- Pipeline prospects ---------- */
+.kanban { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: flex-start; }
+.kcol { min-width: 215px; flex: 1; background: var(--page); border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
+.kcol h3 { display: flex; justify-content: space-between; align-items: center; margin: 0 0 8px; padding: 0 2px; }
+.kcol h3 .count { color: var(--muted); font-weight: 500; }
+.kcard { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 8px; box-shadow: var(--shadow); }
+.kcard .name { font-weight: 600; }
+.kcard .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.kcard .score-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.kcard select { font-size: 12px; padding: 3px 6px; width: 100%; margin-top: 8px; }
+.kcard details { margin-top: 6px; font-size: 12px; }
+.kcard details summary { cursor: pointer; color: var(--accent-ink); }
+.kcard details ul { margin: 6px 0 0 16px; padding: 0; color: var(--ink-2); }
+
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { padding: 10px 0; border-bottom: 1px solid var(--grid); display: flex; gap: 10px; }
 .timeline li:last-child { border-bottom: none; }

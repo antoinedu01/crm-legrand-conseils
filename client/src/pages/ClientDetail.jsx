@@ -21,6 +21,7 @@ function LeadCard({ clientId, lead, onSaved }) {
     age_range: lead?.age_range || '',
     work_situation: lead?.work_situation || '',
     contact_pref: lead?.contact_pref || '',
+    urgent: Boolean(lead?.urgent),
   });
   const [message, setMessage] = React.useState(null);
   const [error, setError] = React.useState(null);
@@ -98,6 +99,11 @@ function LeadCard({ clientId, lead, onSaved }) {
               {WORK_SITUATIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
+          <label className="check full">
+            <input type="checkbox" checked={form.urgent}
+                   onChange={(e) => setForm({ ...form, urgent: e.target.checked })} />
+            Besoin urgent ou échéance proche (résiliation, fin de contrat…)
+          </label>
         </div>
         <div className="actions" style={{ justifyContent: 'flex-start' }}>
           <button className="primary small">Enregistrer l'origine</button>

@@ -18,6 +18,7 @@ import { tasksRouter } from './routes/tasks.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { complianceRouter } from './routes/compliance.js';
 import { channelsRouter } from './routes/channels.js';
+import { prospectsRouter } from './routes/prospects.js';
 import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,6 +128,7 @@ app.use('/api/tasks', requireAuth, tasksRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/compliance', requireAuth, complianceRouter);
 app.use('/api/channels', requireAuth, channelsRouter);
+app.use('/api/prospects', requireAuth, prospectsRouter);
 
 // Sauvegarde complète de la base (copie cohérente via l'API backup de SQLite)
 app.get('/api/backup', requireAuth, async (req, res) => {

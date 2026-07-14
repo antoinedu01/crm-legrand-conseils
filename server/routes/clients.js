@@ -131,7 +131,7 @@ clientsRouter.get('/:id', (req, res) => {
 export const PIPELINE_STAGES = ['nouveau', 'contacte', 'rdv', 'analyse', 'offre', 'signe', 'perdu'];
 const LEAD_FIELDS = [
   'channel_id', 'campaign_id', 'referrer_client_id', 'pipeline_stage',
-  'main_need', 'age_range', 'work_situation', 'family_situation', 'contact_pref',
+  'main_need', 'age_range', 'work_situation', 'family_situation', 'contact_pref', 'urgent',
 ];
 
 // Origine & prospection : d'où vient ce prospect, où en est-on avec lui
@@ -149,6 +149,7 @@ clientsRouter.put('/:id/lead', (req, res) => {
   if (data.referrer_client_id && Number(data.referrer_client_id) === client.id) {
     return res.status(400).json({ error: 'Un client ne peut pas être son propre parrain.' });
   }
+  if ('urgent' in data) data.urgent = data.urgent ? 1 : 0;
   for (const f of ['main_need', 'age_range', 'work_situation', 'family_situation', 'contact_pref']) {
     if (data[f] != null && String(data[f]).length > 300) {
       return res.status(400).json({ error: `Le champ « ${f} » est trop long.` });

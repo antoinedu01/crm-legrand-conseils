@@ -1,7 +1,152 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAsync, Modal, Field } from '../components/ui.jsx';
-import { fmtCHF } from '../labels.js';
+import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
+import { fmtCHF, fmtDate, PIPELINE_STAGES, CLASSEMENTS } from '../labels.js';
+
+function ScoringRulesModal({ onClose, onSaved }) {
+  const { data, loading, reload } = useAsync(() => api.get('/api/prospects/scoring-rules'), []);
+  const [error, setError] = useState(null);
+
+  async function update(rule, patch) {
+    setError(null);
+    try {
+      await api.put(`/api/prospects/scoring-rules/${rule.id}`, patch);
+      reload();
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <Modal title="Réglages du scoring" onClose={onClose} wide>
+      <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
+        Chaque règle active ajoute (ou retire) des points. Le score organise votre travail —
+        les raisons sont toujours affichées, et c'est vous qui décidez.
+      </p>
+      {error && <div className="alert error">{error}</div>}
+      {loading ? (
+        <p className="muted">Chargement…</p>
+      ) : (
+        <table className="data">
+          <thead>
+            <tr><th>Règle</th><th className="num">Points</th><th>Active</th></tr>
+          </thead>
+          <tbody>
+            {data.map((r) => (
+              <tr key={r.id} style={r.active ? undefined : { opacity: 0.5 }}>
+                <td>{r.label}</td>
+                <td className="num">
+                  <input
+                    type="number" min="-100" max="100" defaultValue={r.points}
+                    style={{ width: 70, textAlign: 'right' }}
+                    onBlur={(e) => Number(e.target.value) !== r.points && update(r, { points: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <label className="check">
+                    <input type="checkbox" checked={!!r.active}
+                           onChange={(e) => update(r, { active: e.target.checked ? 1 : 0 })} />
+                  </label>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="muted" style={{ fontSize: 12 }}>
+        Classement : 10+ pts = Froid · 25+ = Tiède · 45+ = Chaud · 65+ = Prioritaire.
+      </p>
+      <div className="actions">
+        <button className="primary" onClick={onClose}>Fermer</button>
+      </div>
+    </Modal>
+  );
+}
+
+function Prospects() {
+  const [channelFilter, setChannelFilter] = useState('');
+  const [showRules, setShowRules] = useState(false);
+  const channels = useAsync(() => api.get('/api/channels'), []);
+  const { data, loading, error, reload } = useAsync(
+    () => api.get(`/api/prospects?channel_id=${channelFilter}`),
+    [channelFilter]
+  );
+
+  async function moveStage(p, stage) {
+    await api.put(`/api/clients/${p.id}/lead`, { pipeline_stage: stage });
+    reload();
+  }
+
+  const stages = Object.keys(PIPELINE_STAGES);
+  const byStage = Object.fromEntries(stages.map((s) => [s, []]));
+  (data || []).forEach((p) => (byStage[p.pipeline_stage] || byStage.nouveau).push(p));
+
+  return (
+    <>
+      <div className="toolbar">
+        <select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)}>
+          <option value="">Tous les canaux</option>
+          {(channels.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <div className="grow" />
+        <button onClick={() => setShowRules(true)}>⚙️ Réglages du scoring</button>
+      </div>
+      {error && <div className="alert error">{error}</div>}
+      {loading ? (
+        <p className="muted">Chargement…</p>
+      ) : (data || []).length === 0 ? (
+        <div className="card">
+          <Empty>
+            Aucun prospect pour le moment. Créez un client au statut « Prospect » (page Clients)
+            et renseignez son origine — il apparaîtra ici avec son score.
+          </Empty>
+        </div>
+      ) : (
+        <div className="kanban">
+          {stages.map((s) => (
+            <div className="kcol" key={s}>
+              <h3>{PIPELINE_STAGES[s]} <span className="count">{byStage[s].length}</span></h3>
+              {byStage[s].map((p) => (
+                <div className="kcard" key={p.id}>
+                  <div className="name"><Link to={`/clients/${p.id}`}>{p.name}</Link></div>
+                  <div className="meta">
+                    {[p.channel_name, p.main_need, p.canton].filter(Boolean).join(' · ') || 'origine non renseignée'}
+                  </div>
+                  <div className="score-row">
+                    <Badge value={p.classement} label={`${CLASSEMENTS[p.classement]} · ${p.score} pts`} />
+                    {p.urgent && <Badge value="haute" label="Urgent" />}
+                  </div>
+                  {p.reasons.length > 0 && (
+                    <details>
+                      <summary>Pourquoi ce score ?</summary>
+                      <ul>
+                        {p.reasons.map((r) => (
+                          <li key={r.label}>{r.label} ({r.points > 0 ? '+' : ''}{r.points})</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  <select value={p.pipeline_stage} onChange={(e) => moveStage(p, e.target.value)}
+                          aria-label="Changer d'étape">
+                    {stages.map((st) => <option key={st} value={st}>{PIPELINE_STAGES[st]}</option>)}
+                  </select>
+                  <div className="meta">
+                    {p.last_activity_at
+                      ? `dernier échange : ${fmtDate(p.last_activity_at.slice(0, 10))}`
+                      : `créé le ${fmtDate(p.created_at.slice(0, 10))} — aucun échange enregistré`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {showRules && <ScoringRulesModal onClose={() => setShowRules(false)} onSaved={reload} />}
+    </>
+  );
+}
 
 function CostModal({ channel, onSaved, onClose }) {
   const now = new Date();
@@ -201,7 +346,7 @@ function Channels() {
 }
 
 export default function Development() {
-  const [tab, setTab] = useState('canaux');
+  const [tab, setTab] = useState('prospects');
   return (
     <>
       <div className="page-head">
@@ -211,10 +356,14 @@ export default function Development() {
         </div>
       </div>
       <div className="toolbar">
+        <button className={tab === 'prospects' ? 'primary' : ''} onClick={() => setTab('prospects')}>
+          Prospects & pipeline
+        </button>
         <button className={tab === 'canaux' ? 'primary' : ''} onClick={() => setTab('canaux')}>
           Canaux d'acquisition
         </button>
       </div>
+      {tab === 'prospects' && <Prospects />}
       {tab === 'canaux' && <Channels />}
     </>
   );

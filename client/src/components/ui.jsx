@@ -30,6 +30,7 @@ const TONES = {
   offre: 'info', prospect: 'info', attendue: 'warn', suspendu: 'warn',
   resilie: 'critical', annulee: 'critical', anonymise: 'critical', echu: 'serious',
   ancien: 'serious', haute: 'critical', normale: 'info', basse: '',
+  non_qualifie: '', froid: 'info', tiede: 'warn', chaud: 'serious', prioritaire: 'critical',
 };
 
 export function Badge({ value, label }) {

@@ -77,6 +77,14 @@ export const MAIN_NEEDS = [
 
 export const CONTACT_PREFS = ['Matin', 'Midi', 'Après-midi', 'Soir (17h-19h)', 'Peu importe'];
 
+export const CLASSEMENTS = {
+  non_qualifie: 'Non qualifié',
+  froid: 'Froid',
+  tiede: 'Tiède',
+  chaud: 'Chaud',
+  prioritaire: 'Prioritaire',
+};
+
 const chf = new Intl.NumberFormat('fr-CH', {
   style: 'currency',
   currency: 'CHF',

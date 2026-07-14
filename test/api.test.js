@@ -261,3 +261,45 @@ test('bloc 1 : origine d’un prospect (canal, parrain, pipeline) et statistique
   assert.ok(recoStats.leads_year >= 1);
   assert.equal(recoStats.costs_year, 120.5);
 });
+
+test('bloc 2 : scoring avec raisons affichées, classement et réglages', async () => {
+  const channels = await auth(request(app).get('/api/channels'));
+  const reco = channels.body.find((c) => c.key === 'recommandations');
+
+  const p = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Hugo', last_name: 'Score', email: 'hugo.score@exemple.ch',
+    phone: '078 111 22 33', status: 'prospect', force: true,
+  });
+  await auth(request(app).put(`/api/clients/${p.body.id}/lead`)).send({
+    channel_id: reco.id, referrer_client_id: 1, main_need: 'Incapacité de gain',
+    urgent: 1, pipeline_stage: 'rdv', age_range: '26-35', work_situation: 'Salarié(e)',
+    contact_pref: 'Soir (17h-19h)',
+  });
+  await auth(request(app).post(`/api/clients/${p.body.id}/activities`))
+    .send({ type: 'appel', content: 'Premier appel très positif.' });
+
+  const list = await auth(request(app).get('/api/prospects'));
+  assert.equal(list.status, 200);
+  const hugo = list.body.find((x) => x.id === p.body.id);
+  assert.ok(hugo, 'le prospect apparaît dans le pipeline');
+  // recommandé 20 + besoin 15 + urgent 20 + rdv 20 + coordonnées 10 + profil 10 + plage 5 + échange récent 10 = 110
+  assert.equal(hugo.score, 110);
+  assert.equal(hugo.classement, 'prioritaire');
+  assert.ok(hugo.reasons.length >= 7, 'les raisons du score sont listées');
+  assert.ok(hugo.reasons.some((r) => r.label.includes('Recommandé')));
+
+  // le tri place le meilleur score en premier
+  assert.equal(list.body[0].id, hugo.id);
+
+  // réglage d'une règle : désactiver « urgent » fait baisser le score de 20
+  const rules = await auth(request(app).get('/api/prospects/scoring-rules'));
+  const urgentRule = rules.body.find((r) => r.key === 'urgent');
+  await auth(request(app).put(`/api/prospects/scoring-rules/${urgentRule.id}`)).send({ active: 0 });
+  const list2 = await auth(request(app).get('/api/prospects'));
+  assert.equal(list2.body.find((x) => x.id === p.body.id).score, 90);
+  await auth(request(app).put(`/api/prospects/scoring-rules/${urgentRule.id}`)).send({ active: 1 });
+
+  // points invalides refusés
+  const bad = await auth(request(app).put(`/api/prospects/scoring-rules/${urgentRule.id}`)).send({ points: 5000 });
+  assert.equal(bad.status, 400);
+});

@@ -219,6 +219,49 @@ if (version < 3) {
   migrate();
 }
 
+if (version < 4) {
+  // Bloc 2 : scoring configurable des prospects
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scoring_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        label TEXT NOT NULL,
+        points INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        sort INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    const cols = db.prepare('PRAGMA table_info(lead_details)').all().map((c) => c.name);
+    if (!cols.includes('urgent')) {
+      db.exec('ALTER TABLE lead_details ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0');
+    }
+    db.pragma('user_version = 4');
+  });
+  migrate();
+}
+
+// Règles de scoring par défaut (points modifiables dans l'interface)
+const ruleCount = db.prepare('SELECT COUNT(*) AS n FROM scoring_rules').get().n;
+if (ruleCount === 0) {
+  const insert = db.prepare(
+    'INSERT INTO scoring_rules (key, label, points, sort) VALUES (?, ?, ?, ?)'
+  );
+  const seed = db.transaction((rows) => rows.forEach((r, i) => insert.run(...r, i)));
+  seed([
+    ['recommande', 'Recommandé par un client ou un partenaire', 20],
+    ['besoin_identifie', 'Besoin principal clairement identifié', 15],
+    ['urgent', 'Besoin urgent ou échéance proche', 20],
+    ['rdv_fixe', 'Rendez-vous fixé', 20],
+    ['offre_en_cours', 'Offre envoyée (en attente de décision)', 15],
+    ['coordonnees_completes', 'E-mail et téléphone renseignés', 10],
+    ['profil_complet', 'Profil complété (âge et situation professionnelle)', 10],
+    ['plage_contact', 'Disponibilité de contact connue', 5],
+    ['echange_recent', 'Échange dans les 14 derniers jours', 10],
+    ['sans_suivi_30j', 'Aucun échange depuis plus de 30 jours', -15],
+  ]);
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
