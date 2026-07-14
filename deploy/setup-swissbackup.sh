@@ -27,6 +27,13 @@ BUCKET_DEFAULT="crm-sauvegardes"
 read -rp "Nom du coffre/bucket [${BUCKET_DEFAULT}] : " BUCKET
 BUCKET="${BUCKET:-$BUCKET_DEFAULT}"
 
+# Nettoyage : espaces, retours à la ligne et guillemets parasites (copier-coller)
+clean() { printf '%s' "$1" | tr -d '[:space:]"' ; }
+ENDPOINT="$(clean "$ENDPOINT")"
+ACCESS_KEY="$(clean "$ACCESS_KEY")"
+SECRET_KEY="$(clean "$SECRET_KEY")"
+BUCKET="$(clean "$BUCKET")"
+
 # Configuration rclone pour l'utilisateur crm (celui qui exécute les sauvegardes)
 CONF_DIR=/home/crm/.config/rclone
 mkdir -p "$CONF_DIR"
@@ -37,6 +44,7 @@ provider = Other
 access_key_id = $ACCESS_KEY
 secret_access_key = $SECRET_KEY
 endpoint = $ENDPOINT
+region = us-east-1
 acl = private
 EOF
 chown -R crm:crm /home/crm/.config
