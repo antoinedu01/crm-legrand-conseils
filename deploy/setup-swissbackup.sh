@@ -71,9 +71,9 @@ EOF
 fi
 
 echo "=== Premier envoi (test réel) ==="
-sudo -u crm /home/crm/backup.sh
+sudo -u crm bash -c 'cd /home/crm && /home/crm/backup.sh'
 echo "Contenu du coffre distant :"
-sudo -u crm rclone ls "swissbackup:$BUCKET"
+sudo -u crm bash -c "cd /home/crm && rclone ls 'swissbackup:$BUCKET'"
 
 echo
 echo "==========================================================="

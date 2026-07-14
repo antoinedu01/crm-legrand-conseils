@@ -91,9 +91,13 @@ EOF
 systemctl reload caddy || systemctl restart caddy
 
 echo "=== [6/7] Sauvegardes quotidiennes (02h15, rotation 7 jours + 12 mois) ==="
-cat > /home/crm/backup.sh <<'EOF'
+# Ne pas écraser un backup.sh existant : il peut contenir la copie externe
+# ajoutée par setup-swissbackup.sh
+if [ ! -f /home/crm/backup.sh ]; then
+  cat > /home/crm/backup.sh <<'EOF'
 #!/bin/bash
 set -e
+cd /home/crm
 DIR=/home/crm/sauvegardes
 mkdir -p "$DIR"
 STAMP=$(date +%F)
@@ -102,7 +106,8 @@ gzip -f "$DIR/crm-$STAMP.sqlite"
 find "$DIR" -name 'crm-*.sqlite.gz' -mtime +7 ! -name 'crm-*-01.sqlite.gz' -delete
 find "$DIR" -name 'crm-*-01.sqlite.gz' -mtime +365 -delete
 EOF
-chmod +x /home/crm/backup.sh && chown crm:crm /home/crm/backup.sh
+  chmod +x /home/crm/backup.sh && chown crm:crm /home/crm/backup.sh
+fi
 echo '15 2 * * * crm /home/crm/backup.sh' > /etc/cron.d/crm-backup
 
 echo "=== [7/7] Mises à jour de sécurité automatiques ==="
