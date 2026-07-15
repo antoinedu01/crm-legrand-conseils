@@ -20,6 +20,7 @@ import { complianceRouter } from './routes/compliance.js';
 import { channelsRouter } from './routes/channels.js';
 import { prospectsRouter } from './routes/prospects.js';
 import { todayRouter } from './routes/today.js';
+import { publicRouter } from './routes/public.js';
 import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +73,10 @@ app.use((req, res, next) => {
   );
   next();
 });
+
+// Formulaires publics du site (CORS restreint + protections dédiées) —
+// monté AVANT le contrôle anti-CSRF interne, car les requêtes viennent du site.
+app.use('/api/public', publicRouter);
 
 // Anti-CSRF : toute requête de modification doit provenir de notre propre origine.
 // (Complète SameSite=Lax : même un navigateur ancien ne peut pas poster depuis un autre site.)

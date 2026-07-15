@@ -9,6 +9,8 @@ import request from 'supertest';
 
 process.env.CRM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-test-'));
 process.env.NODE_ENV = 'test';
+process.env.SITE_ORIGINS = 'https://site-de-test.ch';
+process.env.PUBLIC_RATE_LIMIT = '100';
 
 const { default: app } = await import('../server/app.js');
 
@@ -359,4 +361,58 @@ test('bloc 3 : une tâche en retard apparaît en priorité haute et « fait » l
   });
   const tasks = await auth(request(app).get('/api/tasks?status=terminee'));
   assert.ok(tasks.body.some((x) => x.id === t.body.id), 'la tâche est terminée');
+});
+
+test('formulaire public du site : CORS, consentement, anti-robot, doublons', async () => {
+  const SITE = 'https://site-de-test.ch';
+  // préflight CORS accepté pour l'origine du site
+  const pre = await request(app).options('/api/public/lead').set('Origin', SITE);
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers['access-control-allow-origin'], SITE);
+
+  // origine inconnue refusée
+  const badOrigin = await request(app).post('/api/public/lead')
+    .set('Origin', 'https://autre-site.example').send({});
+  assert.equal(badOrigin.status, 403);
+
+  // sans consentement → refusé
+  const noConsent = await request(app).post('/api/public/lead').set('Origin', SITE).send({
+    first_name: 'Lia', last_name: 'DuSite', phone: '079 222 33 44',
+  });
+  assert.equal(noConsent.status, 400);
+
+  // champ-piège rempli → ok silencieux, rien créé
+  const before = (await auth(request(app).get('/api/clients'))).body.length;
+  const bot = await request(app).post('/api/public/lead').set('Origin', SITE).send({
+    first_name: 'Bot', last_name: 'Spam', phone: '000', consent: 1, website: 'http://spam',
+  });
+  assert.equal(bot.status, 200);
+  const afterBot = (await auth(request(app).get('/api/clients'))).body.length;
+  assert.equal(afterBot, before, 'aucun dossier créé pour le robot');
+
+  // lead valide → prospect créé avec canal site + consentement horodaté
+  const ok = await request(app).post('/api/public/lead').set('Origin', SITE).send({
+    first_name: 'Lia', last_name: 'DuSite', phone: '079 222 33 44', canton: 'vd',
+    main_need: 'LAMal / caisse maladie', contact_pref: 'Soir (17h-19h)', consent: 1,
+    consent_text_version: 'v1-2026', tool: 'comparateur_lamal',
+    details: 'Canton: Vaud · Franchise: 2500 · Modèle: Telmed',
+    source_page: '/comparateur-lamal',
+  });
+  assert.equal(ok.status, 201);
+  const clients = (await auth(request(app).get('/api/clients?q=DuSite'))).body;
+  assert.equal(clients.length, 1);
+  const detail = (await auth(request(app).get(`/api/clients/${clients[0].id}`))).body;
+  assert.equal(detail.canton, 'VD');
+  assert.equal(detail.lead.main_need, 'LAMal / caisse maladie');
+  assert.ok(detail.activities.some((a) => a.content.includes('comparateur_lamal')));
+
+  // même téléphone → pas de doublon, tâche de recontact créée
+  const dup = await request(app).post('/api/public/lead').set('Origin', SITE).send({
+    first_name: 'Lia', last_name: 'DuSite', phone: '+41 79 222 33 44', consent: 1, tool: 'resiliation',
+  });
+  assert.equal(dup.status, 201);
+  const clients2 = (await auth(request(app).get('/api/clients?q=DuSite'))).body;
+  assert.equal(clients2.length, 1, 'pas de second dossier');
+  const detail2 = (await auth(request(app).get(`/api/clients/${clients[0].id}`))).body;
+  assert.ok(detail2.tasks.some((t) => t.title.includes('nouvelle demande via le site')));
 });

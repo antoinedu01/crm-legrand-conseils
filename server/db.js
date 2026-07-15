@@ -283,6 +283,26 @@ if (ruleCount === 0) {
   ]);
 }
 
+if (version < 6) {
+  // Formulaires publics du site : preuves de consentement horodatées (nLPD)
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS consents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        kind TEXT NOT NULL DEFAULT 'site_form',   -- origine du consentement
+        granted INTEGER NOT NULL DEFAULT 1,
+        text_version TEXT,                        -- version du texte affiché au moment du consentement
+        source TEXT,                              -- page/outil d'origine
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_consents_client ON consents(client_id);
+    `);
+    db.pragma('user_version = 6');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
