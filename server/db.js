@@ -262,6 +262,88 @@ if (version < 5) {
   migrate();
 }
 
+if (version < 6) {
+  // Bloc 4 : partenaires professionnels, attribution des leads, modèles de messages
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS partners (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'autre',
+        contact_name TEXT,
+        email TEXT,
+        phone TEXT,
+        city TEXT,
+        canton TEXT,
+        stage TEXT NOT NULL DEFAULT 'identifie',
+        remuneration TEXT,
+        agreement_signed INTEGER NOT NULL DEFAULT 0,
+        agreement_date TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS partner_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    const cols = db.prepare('PRAGMA table_info(lead_details)').all().map((c) => c.name);
+    if (!cols.includes('partner_id')) {
+      db.exec('ALTER TABLE lead_details ADD COLUMN partner_id INTEGER REFERENCES partners(id)');
+    }
+    db.pragma('user_version = 6');
+  });
+  migrate();
+}
+
+// Modèles de messages de départ (modifiables dans l'interface)
+const templateCount = db.prepare('SELECT COUNT(*) AS n FROM templates').get().n;
+if (templateCount === 0) {
+  const insert = db.prepare('INSERT INTO templates (key, name, content) VALUES (?, ?, ?)');
+  const seed = db.transaction((rows) => rows.forEach((r) => insert.run(...r)));
+  seed([
+    ['demande_recommandation', 'Demande de recommandation (après signature)',
+`Bonjour {prénom},
+
+Un grand merci pour votre confiance ! J'espère que tout est clair concernant votre nouveau contrat — je reste bien sûr à disposition.
+
+Petite question : si dans votre entourage une personne se pose des questions sur sa prévoyance ou ses assurances, auriez-vous la gentillesse de lui transmettre mes coordonnées ? Avec son accord, je lui offre volontiers un premier entretien sans engagement.
+
+Merci d'avance et belle journée,
+{votre nom}`],
+    ['remerciement_parrain', 'Remerciement au parrain',
+`Bonjour {prénom},
+
+Je tenais à vous remercier chaleureusement d'avoir recommandé mes services à {prénom du filleul}. Votre confiance me touche — c'est le plus beau compliment pour mon travail.
+
+Je m'occupe de lui/d'elle avec le même soin que pour vous.
+
+Avec mes meilleures salutations,
+{votre nom}`],
+    ['approche_fiduciaire', 'Premier contact partenaire (fiduciaire)',
+`Bonjour {nom},
+
+Je suis courtier en assurance indépendant à {votre ville}, spécialisé dans la prévoyance (3a/3b), la protection du revenu et les assurances de personnes.
+
+Vos clients indépendants et PME ont souvent des lacunes de couverture (perte de gain, LPP, prévoyance du chef d'entreprise) qui touchent directement les sujets que vous traitez. Je serais ravi d'échanger 20 minutes autour d'un café pour voir si une collaboration aurait du sens — en toute indépendance, je travaille avec l'ensemble des compagnies du marché.
+
+Auriez-vous un moment la semaine prochaine ?
+
+Avec mes meilleures salutations,
+{votre nom}`],
+  ]);
+}
+
 // Règles de scoring par défaut (points modifiables dans l'interface)
 const ruleCount = db.prepare('SELECT COUNT(*) AS n FROM scoring_rules').get().n;
 if (ruleCount === 0) {

@@ -79,6 +79,28 @@ export const MAIN_NEEDS = [
 
 export const CONTACT_PREFS = ['Matin', 'Midi', 'Après-midi', 'Soir (17h-19h)', 'Peu importe'];
 
+export const PARTNER_CATEGORIES = {
+  fiduciaire: 'Fiduciaire',
+  agent_immobilier: 'Agent immobilier',
+  courtier_hypothecaire: 'Courtier hypothécaire',
+  entreprise: 'Entreprise',
+  rh: 'Spécialiste RH',
+  club_sportif: 'Club sportif / salle de sport',
+  association: 'Association professionnelle',
+  autre: 'Autre prescripteur',
+};
+
+export const PARTNER_STAGES = {
+  identifie: 'Identifié',
+  a_contacter: 'À contacter',
+  premier_echange: 'Premier échange',
+  rdv_prevu: 'RDV prévu',
+  proposition: 'Proposition envoyée',
+  actif: 'Partenariat actif',
+  inactif: 'Inactif',
+  refuse: 'Refusé',
+};
+
 export const CLASSEMENTS = {
   non_qualifie: 'Non qualifié',
   froid: 'Froid',

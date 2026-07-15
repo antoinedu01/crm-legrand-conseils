@@ -130,7 +130,7 @@ clientsRouter.get('/:id', (req, res) => {
 
 export const PIPELINE_STAGES = ['nouveau', 'contacte', 'rdv', 'analyse', 'offre', 'signe', 'perdu'];
 const LEAD_FIELDS = [
-  'channel_id', 'campaign_id', 'referrer_client_id', 'pipeline_stage',
+  'channel_id', 'campaign_id', 'referrer_client_id', 'partner_id', 'pipeline_stage',
   'main_need', 'age_range', 'work_situation', 'family_situation', 'contact_pref', 'urgent',
 ];
 

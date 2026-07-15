@@ -2,7 +2,336 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
-import { fmtCHF, fmtDate, PIPELINE_STAGES, CLASSEMENTS } from '../labels.js';
+import {
+  fmtCHF, fmtDate, fmtDateTime, PIPELINE_STAGES, CLASSEMENTS,
+  PARTNER_CATEGORIES, PARTNER_STAGES, CANTONS,
+} from '../labels.js';
+
+// ---------- Recommandations ----------
+
+function TemplateEditor({ template, onSaved }) {
+  const [content, setContent] = useState(template.content);
+  const [message, setMessage] = useState(null);
+
+  async function save() {
+    await api.put(`/api/templates/${template.id}`, { content });
+    setMessage('Modèle enregistré.');
+    onSaved();
+  }
+  function copy() {
+    navigator.clipboard?.writeText(content);
+    setMessage('Copié ! Collez-le dans votre e-mail ou WhatsApp et personnalisez les {champs}.');
+  }
+
+  return (
+    <details className="card mb">
+      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>✉️ {template.name}</summary>
+      {message && <div className="alert ok mt">{message}</div>}
+      <textarea rows={9} value={content} onChange={(e) => setContent(e.target.value)} className="mt" />
+      <div className="flex mt">
+        <button className="primary small" onClick={save}>Enregistrer le modèle</button>
+        <button className="small" onClick={copy}>📋 Copier le texte</button>
+        <span className="muted" style={{ fontSize: 12 }}>
+          Le CRM n’envoie jamais de message lui-même : vous copiez, personnalisez et envoyez.
+        </span>
+      </div>
+    </details>
+  );
+}
+
+function Referrals() {
+  const { data, loading, error } = useAsync(() => api.get('/api/referrals'), []);
+  const templates = useAsync(() => api.get('/api/templates'), []);
+
+  return (
+    <>
+      {error && <div className="alert error">{error}</div>}
+      {loading ? (
+        <p className="muted">Chargement…</p>
+      ) : (
+        <>
+          <div className="tiles mb">
+            <div className="tile">
+              <div className="label">Recommandations reçues</div>
+              <div className="value">{data.totals.referrals}</div>
+            </div>
+            <div className="tile">
+              <div className="label">Rendez-vous générés</div>
+              <div className="value">{data.totals.meetings}</div>
+            </div>
+            <div className="tile">
+              <div className="label">Contrats gagnés</div>
+              <div className="value">{data.totals.contracts}</div>
+            </div>
+            <div className="tile">
+              <div className="label">Commissions générées</div>
+              <div className="value">{fmtCHF(data.totals.commissions)}</div>
+            </div>
+          </div>
+
+          {(templates.data || [])
+            .filter((t) => ['demande_recommandation', 'remerciement_parrain'].includes(t.key))
+            .map((t) => <TemplateEditor key={t.id} template={t} onSaved={templates.reload} />)}
+
+          <div className="card">
+            <h2>Vos parrains</h2>
+            {data.parrains.length === 0 ? (
+              <Empty>
+                Aucune recommandation enregistrée. Quand un prospect vous est recommandé,
+                choisissez le canal « Recommandations de clients » sur sa fiche et indiquez le parrain —
+                tout le suivi se fera ici.
+              </Empty>
+            ) : (
+              <table className="data">
+                <thead>
+                  <tr><th>Parrain</th><th>Filleuls</th><th className="num">Contrats</th><th className="num">Commissions</th></tr>
+                </thead>
+                <tbody>
+                  {data.parrains.map((p) => (
+                    <tr key={p.parrain_id}>
+                      <td><Link to={`/clients/${p.parrain_id}`}><strong>{p.parrain_name}</strong></Link>
+                        <div className="muted" style={{ fontSize: 12 }}>{p.filleuls.length} recommandation(s)</div>
+                      </td>
+                      <td>
+                        {p.filleuls.map((f) => (
+                          <div key={f.id} style={{ marginBottom: 4 }}>
+                            <Link to={`/clients/${f.id}`}>{f.name}</Link>{' '}
+                            <Badge value={f.pipeline_stage || f.status}
+                                   label={PIPELINE_STAGES[f.pipeline_stage] || f.status} />
+                            {!f.consent && <span className="muted" style={{ fontSize: 11 }}> · consentement à recueillir</span>}
+                          </div>
+                        ))}
+                      </td>
+                      <td className="num">{p.total_contracts}</td>
+                      <td className="num">{fmtCHF(p.total_commissions)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p className="muted mt" style={{ fontSize: 12 }}>
+              ⚖️ Ne demandez jamais à un client de vous transmettre des données personnelles d’un proche
+              sans son accord : demandez-lui plutôt de transmettre VOS coordonnées. Le consentement du
+              nouveau prospect se recueille au premier contact (case nLPD sur sa fiche).
+            </p>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// ---------- Partenaires ----------
+
+function PartnerModal({ initial, onSaved, onClose }) {
+  const [form, setForm] = useState({
+    name: '', category: 'fiduciaire', contact_name: '', email: '', phone: '',
+    city: '', canton: '', stage: 'identifie', remuneration: '',
+    agreement_signed: 0, agreement_date: '', notes: '',
+    ...initial,
+  });
+  const [note, setNote] = useState('');
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState(null);
+  const set = (k) => (e) =>
+    setForm({ ...form, [k]: e.target.type === 'checkbox' ? (e.target.checked ? 1 : 0) : e.target.value });
+
+  React.useEffect(() => {
+    if (initial?.id) api.get(`/api/partners/${initial.id}`).then(setDetail).catch(() => {});
+  }, [initial]);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(null);
+    try {
+      if (initial?.id) await api.put(`/api/partners/${initial.id}`, form);
+      else await api.post('/api/partners', form);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function addNote() {
+    if (!note.trim()) return;
+    await api.post(`/api/partners/${initial.id}/notes`, { content: note });
+    setNote('');
+    setDetail(await api.get(`/api/partners/${initial.id}`));
+  }
+
+  return (
+    <Modal title={initial?.id ? `Partenaire — ${initial.name}` : 'Nouveau partenaire'} onClose={onClose} wide>
+      {error && <div className="alert error">{error}</div>}
+      <form onSubmit={submit}>
+        <div className="form-grid">
+          <Field label="Nom (organisation ou personne)">
+            <input required value={form.name} onChange={set('name')} />
+          </Field>
+          <Field label="Catégorie">
+            <select value={form.category} onChange={set('category')}>
+              {Object.entries(PARTNER_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label="Personne de contact">
+            <input value={form.contact_name || ''} onChange={set('contact_name')} />
+          </Field>
+          <Field label="Étape du partenariat">
+            <select value={form.stage} onChange={set('stage')}>
+              {Object.entries(PARTNER_STAGES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label="E-mail">
+            <input type="email" value={form.email || ''} onChange={set('email')} />
+          </Field>
+          <Field label="Téléphone">
+            <input value={form.phone || ''} onChange={set('phone')} />
+          </Field>
+          <Field label="Localité">
+            <input value={form.city || ''} onChange={set('city')} />
+          </Field>
+          <Field label="Canton">
+            <select value={form.canton || ''} onChange={set('canton')}>
+              <option value="">—</option>
+              {CANTONS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Rémunération / contrepartie convenue" full>
+            <input value={form.remuneration || ''} onChange={set('remuneration')}
+                   placeholder="p. ex. apporteur d'affaires 10 % de la commission d'acquisition" />
+          </Field>
+          <div className="full alert warn" style={{ margin: 0 }}>
+            ⚖️ Toute rémunération d’apporteur d’affaires doit faire l’objet d’une convention écrite et
+            être vérifiée juridiquement (art. 45b LSA — transparence envers le client). À faire valider
+            avant le premier versement.
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={!!form.agreement_signed} onChange={set('agreement_signed')} />
+            Convention de partenariat signée
+          </label>
+          <Field label="Date de la convention">
+            <input type="date" value={form.agreement_date || ''} onChange={set('agreement_date')} />
+          </Field>
+          <Field label="Notes générales" full>
+            <textarea rows={2} value={form.notes || ''} onChange={set('notes')} />
+          </Field>
+        </div>
+        <div className="actions">
+          <button type="button" onClick={onClose}>Fermer</button>
+          <button className="primary">Enregistrer</button>
+        </div>
+      </form>
+
+      {detail && (
+        <>
+          <h3 className="mt">Échanges ({detail.notes.length})</h3>
+          <div className="flex mb">
+            <input className="grow" placeholder="Ajouter un échange (appel, café, e-mail…)"
+                   value={note} onChange={(e) => setNote(e.target.value)} />
+            <button className="small primary" type="button" onClick={addNote}>Ajouter</button>
+          </div>
+          <ul className="timeline">
+            {detail.notes.map((n) => (
+              <li key={n.id}>
+                <span className="when">{fmtDateTime(n.created_at)}</span>
+                <span>{n.content}</span>
+              </li>
+            ))}
+          </ul>
+          {detail.leads.length > 0 && (
+            <>
+              <h3 className="mt">Prospects transmis ({detail.leads.length})</h3>
+              <ul className="timeline">
+                {detail.leads.map((l) => (
+                  <li key={l.id}>
+                    <span><Link to={`/clients/${l.id}`}>{l.name}</Link>{' '}
+                      <Badge value={l.pipeline_stage || l.status} label={PIPELINE_STAGES[l.pipeline_stage] || l.status} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function Partners() {
+  const [editing, setEditing] = useState(null);
+  const { data, loading, error, reload } = useAsync(() => api.get('/api/partners'), []);
+
+  async function moveStage(p, stage) {
+    await api.put(`/api/partners/${p.id}`, { stage });
+    reload();
+  }
+
+  const active = (data || []).filter((p) => p.stage === 'actif').length;
+
+  return (
+    <>
+      <div className="toolbar">
+        <span className="muted">{(data || []).length} partenaire(s), dont {active} actif(s)</span>
+        <div className="grow" />
+        <button className="primary" onClick={() => setEditing({})}>+ Nouveau partenaire</button>
+      </div>
+      {error && <div className="alert error">{error}</div>}
+      <div className="card">
+        {loading ? (
+          <p className="muted">Chargement…</p>
+        ) : (data || []).length === 0 ? (
+          <Empty>
+            Aucun partenaire. Commencez par lister vos fiduciaires, salles de sport et autres
+            prescripteurs autour de chez vous — même « identifié, pas encore contacté » compte.
+          </Empty>
+        ) : (
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Partenaire</th><th>Contact</th><th>Étape</th>
+                <th className="num">Leads</th><th className="num">RDV</th>
+                <th className="num">Contrats</th><th className="num">Commissions</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <strong>{p.name}</strong>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {PARTNER_CATEGORIES[p.category]}{p.city ? ` · ${p.city}` : ''}
+                      {p.agreement_signed ? ' · convention ✓' : ''}
+                    </div>
+                  </td>
+                  <td>{p.contact_name || '—'}{p.phone && <div className="muted" style={{ fontSize: 12 }}>{p.phone}</div>}</td>
+                  <td>
+                    <select value={p.stage} onChange={(e) => moveStage(p, e.target.value)}>
+                      {Object.entries(PARTNER_STAGES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </td>
+                  <td className="num">{p.leads_count}</td>
+                  <td className="num">{p.meetings_count}</td>
+                  <td className="num">{p.contracts_count}</td>
+                  <td className="num">{fmtCHF(p.commissions_paid)}</td>
+                  <td className="right">
+                    <button className="small" onClick={() => setEditing(p)}>Ouvrir</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {editing !== null && (
+        <PartnerModal
+          initial={editing.id ? editing : undefined}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); }}
+        />
+      )}
+    </>
+  );
+}
 
 function ScoringRulesModal({ onClose, onSaved }) {
   const { data, loading, reload } = useAsync(() => api.get('/api/prospects/scoring-rules'), []);

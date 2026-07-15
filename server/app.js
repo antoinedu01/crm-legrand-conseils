@@ -20,6 +20,9 @@ import { complianceRouter } from './routes/compliance.js';
 import { channelsRouter } from './routes/channels.js';
 import { prospectsRouter } from './routes/prospects.js';
 import { todayRouter } from './routes/today.js';
+import { partnersRouter } from './routes/partners.js';
+import { referralsRouter } from './routes/referrals.js';
+import { templatesRouter } from './routes/templates.js';
 import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +134,9 @@ app.use('/api/compliance', requireAuth, complianceRouter);
 app.use('/api/channels', requireAuth, channelsRouter);
 app.use('/api/prospects', requireAuth, prospectsRouter);
 app.use('/api/today', requireAuth, todayRouter);
+app.use('/api/partners', requireAuth, partnersRouter);
+app.use('/api/referrals', requireAuth, referralsRouter);
+app.use('/api/templates', requireAuth, templatesRouter);
 
 // Sauvegarde complète de la base (copie cohérente via l'API backup de SQLite)
 app.get('/api/backup', requireAuth, async (req, res) => {
