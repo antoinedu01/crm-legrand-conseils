@@ -25,18 +25,32 @@
 | Typographies | Charte visuelle | Probablement existant (site) | Site professionnel en ligne | Polices exactes + droits | Humain/Graph | Récupérer les références + droits | avant 26/07 | Production finale des visuels (opérationnel, non réglementaire) | `À confirmer` |
 | Coordonnées pro | CTA, mentions | Inconnu | — | Adresse, tél., e-mail pro | Humain | Fournir | avant 02/08 | Oui | `À confirmer` |
 | Adresse | Mentions, flyer | Inconnu | — | Adresse complète | Humain | Fournir | avant 02/08 | Oui | `À confirmer` |
-| Téléphone | Contact | Inconnu | — | N° pro | Humain | Fournir | avant 02/08 | Non | `À confirmer` |
+| Téléphone | Contact | Confirmé (17/07/2026) | **+41 78 353 96 88** | — | Humain | Aucune | — | Non | `Prêt` |
 | E-mail | Contact, envoi guide | Inconnu | — | E-mail pro (expéditeur) | Humain | Fournir | avant 02/08 | Oui | `À confirmer` |
 | Site internet | Destination CTA | Existe | legrandconseils.ch | URL exactes des pages | Humain/Dev | Confirmer les URL | avant 02/08 | Oui | `À confirmer` |
-| N° / réf. FINMA | Statut intermédiaire | Dossier déclaré validé | Dossier d'intermédiaire déclaré validé par le dirigeant | N° + preuve d'indexation **actuelle** au registre | Humain | Vérifier l'inscription et les données actuelles du registre public FINMA | avant 02/08 | Toute publication/impression **mentionnant le statut, l'inscription ou une réf. FINMA** (flyer, guide, bio). Ne bloque pas un contenu pédagogique sans affirmation sur cette inscription | `Bloquant` |
-| Inscription registre public | Légal | Déclarée (à prouver) | Dossier déclaré validé par le dirigeant | Preuve d'indexation actuelle | Humain | Vérifier la présence actuelle au registre public | avant 02/08 | Idem ligne précédente (publications mentionnant le statut) | `Bloquant` |
-| Formulation statut intermédiaire | Conformité | À définir | « intermédiaire d'assurance non lié » (à confirmer) | Libellé validé | Humain/CR | Valider le libellé exact | avant 02/08 | Idem : supports mentionnant le statut | `À confirmer` |
+| N° / réf. FINMA (société) | Statut intermédiaire | **Confirmé (documents officiels, 17/07/2026)** | « Legrand conseils Sàrl » au registre · n° FINMA **F01569363** · non lié · 1re inscription 22/06/2026 · branches : assurance-maladie complémentaire et assurance-vie · UID CHE-376.900.357 | — | Humain | Aucune | — | Non | `Prêt` |
+| N° / réf. FINMA (dirigeant) | Statut intermédiaire | **Confirmé (documents officiels, 17/07/2026)** | Antoine Legrand · n° FINMA **F01569355** · non lié · 1re inscription 22/06/2026 · mêmes branches | — | Humain | Aucune | — | Non | `Prêt` |
+| Inscription registre public | Légal | **Confirmée (documents officiels, 17/07/2026)** | Société et dirigeant inscrits comme intermédiaires non liés | — | Humain | Aucune | — | Non | `Prêt` |
+| Formulation statut intermédiaire | Conformité | **Confirmée** | « **intermédiaire d'assurance non lié** » | — | Humain/CR | Utiliser ce libellé | — | Non | `Prêt` |
 
-> **Précisions (déclarations du dirigeant, 17/07/2026)** :
-> - **Statut FINMA** : `Dossier déclaré validé par le dirigeant — inscription et
->   données actuelles du registre public FINMA à vérifier avant diffusion.` Aucun
->   numéro FINMA n'est créé ; l'inscription publique n'est **pas** présentée comme
->   définitivement confirmée sans preuve actuelle.
+> **Précisions (17/07/2026)** :
+> - **Statut FINMA — confirmé par les documents officiels transmis** :
+>   société « Legrand conseils Sàrl » (orthographe du registre), n° **F01569363**,
+>   et Antoine Legrand, n° **F01569355** — tous deux **intermédiaires d'assurance
+>   non liés**, 1re inscription le 22/06/2026, branches : assurance-maladie
+>   complémentaire et assurance-vie ; UID CHE-376.900.357.
+> - **Marque** : dans la communication, utiliser toujours « **Legrand Conseils
+>   Sàrl** » (le registre officiel affiche « Legrand conseils Sàrl » — cette
+>   différence de casse est documentaire, pas une variante à reprendre).
+> - **Numéros FINMA** : ne **pas** les afficher systématiquement dans chaque
+>   publication ; les réserver aux supports où c'est pertinent (mentions légales,
+>   documents officiels).
+> - **Portée stricte de l'inscription** : elle couvre uniquement les **branches
+>   inscrites** (assurance-maladie complémentaire et assurance-vie) ; ce n'est ni
+>   une autorisation générale, ni un agrément FINMA pour la **LAMal obligatoire**.
+>   Formulation publique à préférer : « inscrit au registre public de la FINMA
+>   comme intermédiaire d'assurance non lié pour les branches assurance-maladie
+>   complémentaire et assurance-vie » (cf. `CLAUDE.md` § 6quater).
 > - **Identité visuelle** : `Éléments visuels probablement existants sur le site —
 >   fichiers sources, références exactes et droits d'utilisation à récupérer et
 >   confirmer.`
@@ -45,10 +59,10 @@
 
 | Élément | Utilité | État actuel | Information connue | Information manquante | Responsable | Action nécessaire | Date limite | Blocage diffusion | Statut |
 |---|---|---|---|---|---|---|---|---|---|
-| Profil LinkedIn perso | Diffusion posts | Inconnu | — | URL, accès | Humain | Confirmer/compléter | avant 03/08 | Oui | `À confirmer` |
-| Page LinkedIn entreprise | Diffusion page | Inconnu | — | Existe ? URL, admin | Humain | Créer/confirmer | avant 09/08 | Oui | `À confirmer` |
-| Compte Instagram | Diffusion | Inconnu | — | Existe ? handle, accès | Humain | Créer/confirmer | avant 09/08 | Oui | `À confirmer` |
-| Page Facebook | Diffusion | Inconnu | — | Existe ? URL, admin | Humain | Créer/confirmer | avant 09/08 | Oui | `À confirmer` |
+| Profil LinkedIn perso | Diffusion posts (**canal prioritaire actuel**) | **Existant** (confirmé 17/07/2026) | Profil du dirigeant actif | URL du profil, optimisation bio | Humain | Compléter/optimiser | avant 03/08 | Non (canal utilisable) | `À confirmer` |
+| Page LinkedIn entreprise | Diffusion page | **Non créée** (confirmé 17/07/2026) | N'existe pas encore | Création + admin | Humain | Créer la page (contenus préparables mais **non publiables** avant création ; ne jamais inventer son URL) | avant 09/08 | Contenus destinés à la page entreprise uniquement | `À créer` |
+| Compte Instagram | Diffusion | **Existant** (confirmé 17/07/2026) | Compte actif | Handle exact, accès, optimisation | Humain | Compléter/optimiser | avant 09/08 | Non (canal utilisable) | `À confirmer` |
+| Page Facebook | Diffusion | **Non créée** (confirmé 17/07/2026) | N'existe pas encore | Création + admin | Humain | Créer la page (contenus préparables mais **non publiables** avant création ; ne jamais inventer son URL) | avant 09/08 | **Publication Facebook du 22/08** et tout contenu Facebook | `À créer` |
 | Photo de profil | Cohérence | Inconnu | — | Visuel validé | Humain/Graph | Préparer | avant 09/08 | Non | `À créer` |
 | Bannière | Cohérence | Inconnu | — | Visuel validé | Humain/Graph | Préparer | avant 09/08 | Non | `À créer` |
 | Biographie | Présentation | À rédiger | Positionnement dispo | Texte validé | MD/CR/Humain | Rédiger + valider | avant 09/08 | Non | `À créer` |
@@ -145,8 +159,8 @@ Typologie des blocages (voir détail dans les tableaux ci-dessus) :
 
 | Type | Éléments concernés | Action précisément bloquée |
 |---|---|---|
-| **Réglementaire / protection des données** | Statut FINMA + registre public ; page Protection des données ; mentions légales | Publication/impression **mentionnant le statut FINMA** ; **mise en ligne du formulaire et collecte** ; **impression/diffusion du flyer** |
-| **Technique** | URL page Contact ; pages téléchargement + remerciement ; QR code ; événements de mesure | Diffusion des **contenus à CTA vers ces pages** ; **lancement du lead magnet** ; **impression/diffusion du flyer** ; fiabilité de l'attribution |
+| **Réglementaire / protection des données** | Page Protection des données ; mentions légales *(le statut FINMA est **confirmé** depuis le 17/07/2026 — n° F01569363 société / F01569355 dirigeant — et ne bloque plus)* | **Mise en ligne du formulaire et collecte** ; **impression/diffusion du flyer** (mentions finales) |
+| **Technique** | URL page Contact ; pages téléchargement + remerciement ; QR code ; événements de mesure ; **page Facebook et page LinkedIn entreprise non créées** | Diffusion des **contenus à CTA vers ces pages** ; **lancement du lead magnet** ; **impression/diffusion du flyer** ; **publication des contenus Facebook / page entreprise** tant que ces pages n'existent pas ; fiabilité de l'attribution |
 | **Éditorial** | Validation humaine finale de chaque contenu (checklist) | **Programmation manuelle** du contenu concerné |
 | **Simple information à confirmer** | Charte visuelle (fichiers sources, droits), coordonnées, accès réseaux sociaux, GA4 | Production **finale** des visuels et finitions des profils — ne bloque ni les brouillons ni la stratégie |
 

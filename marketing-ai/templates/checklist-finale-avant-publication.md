@@ -34,6 +34,8 @@
 - [ ] **Montant / chiffre** : aucun chiffre non sourcé (plafond, taux, prime, délai) ; sinon source + date.
 - [ ] **Absence de promesse garantie** (économie, rendement, acceptation, « meilleur produit »).
 - [ ] **Absence de faux témoignage** et d'exemple présenté comme un vrai dossier client.
+- [ ] **Neutralité / non-dénigrement** : aucun dénigrement d'une compagnie, d'un courtier ou d'un conseiller ; aucune affirmation de supériorité générale (assureur, courtier ou Legrand Conseils Sàrl) ; aucun classement public ; comparaisons uniquement sur critères objectifs et vérifiables (cf. `CLAUDE.md` § Neutralité).
+- [ ] **Portée FINMA** : si le statut est mentionné, reprendre exactement le registre (« intermédiaire d'assurance non lié, branches assurance-maladie complémentaire et assurance-vie ») ; jamais « approuvé / certifié / conforme FINMA », jamais présenté comme agrément LAMal ou autorisation générale (cf. `CLAUDE.md` § 6quater).
 
 ## 4. Parcours et mesure
 - [ ] **CTA** clair, volontaire, non intrusif, cohérent avec la page cible.

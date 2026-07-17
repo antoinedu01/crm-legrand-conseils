@@ -12,7 +12,7 @@ l'application en production.
 ## 1. Objectif du système marketing
 
 Augmenter la **visibilité** et générer des **leads entrants qualifiés** de façon
-**éthique et conforme** (nLPD, LSA/FINMA), grâce à des agents IA qui produisent
+**éthique et respectueuse du cadre légal** (nLPD, LSA), grâce à des agents IA qui produisent
 des **brouillons** — jamais des publications automatiques. L'humain garde la
 décision finale à chaque étape.
 

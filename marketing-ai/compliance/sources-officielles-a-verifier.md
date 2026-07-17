@@ -21,7 +21,7 @@
 | 6 | L'indépendant ne bénéficie pas automatiquement des mêmes protections qu'un salarié (prévoyance professionnelle / perte de gain) | LinkedIn 20/08 | OFAS / ch.ch | Partiellement (extrait général) | Non | 16/07/2026 | Oui | `À vérifier (source spécifique non consultée)` |
 | 7 | Modalités et délais d'affiliation à l'assurance maladie d'un nouveau-né | Facebook 22/08 | OFSP | Non | Non | — | Oui | `Non consulté` |
 | 8 | Cadre fiscal du 3b différent de celui du 3a (pas d'avantage annuel ; traitement au retrait) | Guide (mention générale, sans chiffre) | AFC | Partiellement (extrait, non repris chiffré) | Non | 16/07/2026 | Oui | `À vérifier (avant tout chiffrage)` |
-| 9 | Statut « intermédiaire d'assurance non lié » et inscription au registre public de la FINMA | Flyer, guide, positionnement | FINMA | Oui (extrait de recherche) | Non | 16/07/2026 | Oui | `Consulté (extrait) — inscription réelle de l'entreprise à confirmer` |
+| 9 | Statut « intermédiaire d'assurance non lié » et inscription au registre public de la FINMA | Flyer, guide, positionnement | FINMA | **Oui — documents officiels transmis par le dirigeant** | Oui (documents officiels) | 17/07/2026 | Non (confirmé) | `Confirmé — société « Legrand conseils Sàrl » n° F01569363 et Antoine Legrand n° F01569355, non liés, 1re inscription 22/06/2026, branches assurance-maladie complémentaire et assurance-vie, UID CHE-376.900.357` |
 | 10 | Obligations de l'intermédiaire (compétences, RC professionnelle, annonces) | (contexte statut) | FINMA | Oui (extrait de recherche) | Non | 16/07/2026 | Oui | `Consulté (extrait) — lecture complète requise` |
 
 ---
@@ -32,11 +32,22 @@
   LOT 2A sont volontairement **sans chiffres**.
 - Tant qu'une affirmation n'est pas vérifiée sur la page complète, la mention
   `Vérification humaine obligatoire` reste applicable.
-- Pour le point 9 : le dirigeant a **déclaré son dossier d'intermédiaire validé**
-  (17/07/2026), mais l'**inscription et les données actuelles du registre public
-  FINMA** doivent encore être vérifiées avant toute communication (n° / preuve
-  d'indexation actuelle). L'inscription publique n'est **pas** présentée comme
-  définitivement confirmée sans preuve actuelle ; aucun numéro FINMA n'est créé.
+- Pour le point 9 : **confirmé le 17/07/2026 par les documents officiels
+  transmis** — société « Legrand conseils Sàrl » (orthographe du registre),
+  n° FINMA **F01569363**, et Antoine Legrand, n° FINMA **F01569355**, tous deux
+  **intermédiaires d'assurance non liés**, 1re inscription le 22/06/2026,
+  branches : assurance-maladie complémentaire et assurance-vie ;
+  UID CHE-376.900.357. Dans la **communication de marque**, utiliser « Legrand
+  Conseils Sàrl ». Ne **pas** afficher systématiquement les numéros FINMA dans
+  chaque publication (les réserver aux supports où c'est pertinent).
+  **Portée stricte** : cette inscription n'est **pas** une autorisation générale
+  couvrant toutes les activités, et n'est **pas** un agrément FINMA pour
+  l'assurance obligatoire **LAMal**. Toute mention publique reprend **exactement**
+  le statut et les branches du registre. Ne jamais employer « approuvé par la
+  FINMA », « certifié FINMA », « conforme FINMA » ou « autorisé FINMA pour toutes
+  les assurances » ; préférer : « inscrit au registre public de la FINMA comme
+  intermédiaire d'assurance non lié pour les branches assurance-maladie
+  complémentaire et assurance-vie » (cf. `CLAUDE.md` § 6quater).
 - **Pages officielles à relire intégralement** (accès direct bloqué le 16/07) :
   - ch.ch — « Le 3e pilier en Suisse (3a et 3b) »
   - ch.ch — « La prévoyance vieillesse en Suisse »

@@ -39,7 +39,12 @@
   comparer plusieurs assureurs, et vous accompagner dans vos choix. »
   *(Formulation neutre : l'entreprise ne représente pas directement toutes les
   compagnies.)*
-  `Statut et inscription au registre public à vérifier avant impression`
+  `Statut et références du registre public FINMA à contrôler une dernière
+  fois avant impression.`
+  *(Si le statut est mentionné, formulation à utiliser : « inscrit au registre
+  public de la FINMA comme intermédiaire d'assurance non lié pour les branches
+  assurance-maladie complémentaire et assurance-vie ». Jamais « approuvé /
+  certifié / conforme FINMA ».)*
 - **Appel à l'action** :
   « Demandez un bilan personnalisé de vos assurances et de votre prévoyance. »
   *(Aucune mention de gratuité. Aucune promesse d'économie ni d'amélioration de

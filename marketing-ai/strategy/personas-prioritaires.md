@@ -22,8 +22,8 @@
 - **Questions fréquentes** : « 3A ou 3B, quelle différence ? », « Combien puis-je
   verser ? », « Est-ce que ça sert vraiment quand on est jeune ? », « Que se
   passe-t-il si je tombe en incapacité de gain ? ».
-- **Freins** : perçoit l'assurance comme complexe/ennuyeuse ; méfiance envers les
-  « vendeurs » ; manque de temps ; budget limité.
+- **Freins** : perçoit l'assurance comme complexe/ennuyeuse ; réticence face aux
+  démarches perçues comme commerciales ; manque de temps ; budget limité.
 - **Déclencheurs de contact** : premier vrai salaire, changement d'emploi,
   déménagement, contenu pédagogique clair, guide 3e pilier téléchargé.
 - **Canaux adaptés** : LinkedIn, Instagram (Reels/stories), SEO (recherches

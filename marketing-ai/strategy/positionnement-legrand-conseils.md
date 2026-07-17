@@ -39,7 +39,7 @@ Pour le prospect particulier :
 - « Le 3e pilier me paraît flou : 3A, 3B, quelle différence, pour quoi faire ? »
 - « Ma situation a changé (emploi, enfant, achat) et je ne sais pas quoi
   adapter. »
-- « Je veux un avis indépendant, pas un vendeur d'une seule compagnie. »
+- « Je veux un avis indépendant, qui compare les offres de plusieurs compagnies. »
 - « Je n'ai pas le temps de tout comparer moi-même. »
 
 ## 3. Éléments différenciants

@@ -24,6 +24,14 @@ Ce dossier reçoit les **rapports de conformité** produits par l'agent
   consentement explicite et versionné pour toute collecte.
 - **Ton et marché** : professionnel, humain, pédagogique, non agressif ; adapté à
   la Suisse romande (Vaud/Genève).
+- **Neutralité / non-dénigrement** : aucun dénigrement d'une compagnie, d'un
+  courtier ou d'un conseiller ; aucune affirmation de supériorité générale ; aucun
+  classement public ; comparaisons uniquement objectives, vérifiables et neutres
+  (cf. `CLAUDE.md`, section « Neutralité, conseil et non-dénigrement »).
+- **Portée FINMA** : l'inscription au registre (intermédiaire non lié, branches
+  assurance-maladie complémentaire et assurance-vie) n'est ni une autorisation
+  générale, ni un agrément pour la LAMal obligatoire ; jamais « approuvé /
+  certifié / conforme FINMA » (cf. `CLAUDE.md` § 6quater).
 
 ## Règles internes de conformité — 10 points (nLPD / LSA / FINMA)
 

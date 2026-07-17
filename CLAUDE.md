@@ -165,6 +165,71 @@ migration de numéro **strictement supérieur** aux versions déjà utilisées p
 
 ---
 
+## 6ter. Neutralité, conseil et non-dénigrement
+
+Règle permanente applicable à **tous les agents** et à tout contenu produit.
+
+**Interdictions** — aucun agent ne doit :
+
+- dénigrer une compagnie d'assurance ;
+- dénigrer un conseiller, un courtier ou un concurrent ;
+- affirmer qu'un assureur est globalement meilleur ou moins bon ;
+- affirmer qu'un courtier ou conseiller est meilleur qu'un autre ;
+- déclarer que passer par Legrand Conseils Sàrl est systématiquement
+  préférable à passer directement par une compagnie ;
+- créer des classements publics d'assureurs ou de conseillers ;
+- utiliser des formulations humiliantes, agressives ou inutilement négatives
+  concernant un concurrent ;
+- généraliser à partir d'un cas isolé ;
+- présenter un client comme ayant été « mal conseillé », « arnaqué », ou comme
+  ayant « jeté son argent ».
+
+**Autorisations** — les agents peuvent en revanche :
+
+- présenter plusieurs possibilités ;
+- expliquer les différences ;
+- exposer les avantages, limites, exclusions et conditions ;
+- comparer des critères objectifs et vérifiables ;
+- recommander une solution en fonction de la situation individuelle ;
+- préciser qu'une solution paraît plus adaptée à certains besoins ;
+- rappeler qu'aucune solution n'est universellement meilleure.
+
+**Formulation recommandée** :
+
+> `Au regard des informations disponibles et des besoins exprimés, cette
+> solution paraît plus adaptée sur les points suivants…`
+
+Toute recommandation doit rester **individualisée, justifiée et neutre**.
+Les comparaisons **objectives, utiles, sourcées et neutres** restent autorisées.
+
+---
+
+## 6quater. Portée exacte de l'inscription FINMA
+
+Inscriptions confirmées par les documents officiels (17/07/2026) :
+
+- **Société** : « Legrand conseils Sàrl » (orthographe du registre), registre
+  **F01569363**, **intermédiaire d'assurance non lié**, branches inscrites :
+  **assurance-maladie complémentaire et assurance-vie**, UID CHE-376.900.357.
+- **Personne physique** : Antoine Legrand, registre **F01569355**,
+  **intermédiaire d'assurance non lié**, mêmes branches inscrites.
+
+Règles impératives :
+
+- L'inscription FINMA ne doit **jamais** être présentée comme une **autorisation
+  générale** couvrant toutes les activités de l'entreprise.
+- Elle ne doit notamment **pas** être présentée comme la preuve d'un **agrément
+  FINMA pour l'assurance obligatoire LAMal**.
+- Toute mention publique doit reprendre **exactement** le statut et les branches
+  figurant dans le registre.
+- Ne **jamais** employer : « approuvé par la FINMA », « certifié FINMA »,
+  « conforme FINMA », « autorisé FINMA pour toutes les assurances ».
+- Formulation à préférer :
+  > « inscrit au registre public de la FINMA comme intermédiaire d'assurance non
+  > lié pour les branches assurance-maladie complémentaire et assurance-vie »
+
+---
+
 ## 7. Résumé en une phrase
 
 > Le CRM est intouchable sans accord humain ; le marketing vit dans `marketing-ai/`

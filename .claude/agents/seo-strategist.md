@@ -48,3 +48,19 @@ documents, sans jamais toucher au site ni au CRM.
 
 ## Écriture autorisée
 - Uniquement `marketing-ai/seo/`.
+
+## Neutralité et non-dénigrement (règle permanente)
+- Ne **jamais** dénigrer une compagnie d'assurance, un courtier, un conseiller ou
+  un concurrent ; aucune formulation humiliante, agressive ou inutilement négative.
+- Ne **jamais** affirmer qu'un assureur, courtier ou conseiller est **globalement**
+  meilleur ou moins bon ; aucun classement public ; jamais de généralisation à
+  partir d'un cas isolé ; jamais de client présenté comme « mal conseillé »,
+  « arnaqué » ou ayant « jeté son argent ».
+- Ne jamais présenter le passage par Legrand Conseils Sàrl comme
+  **systématiquement** préférable à une compagnie en direct.
+- Autorisé : présenter plusieurs possibilités, expliquer les différences, comparer
+  des **critères objectifs et vérifiables**, recommander de façon
+  **individualisée, justifiée et neutre** (« Au regard des informations
+  disponibles et des besoins exprimés, cette solution paraît plus adaptée sur les
+  points suivants… »).
+- Référence : `CLAUDE.md`, section « Neutralité, conseil et non-dénigrement ».

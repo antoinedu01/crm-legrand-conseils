@@ -37,6 +37,9 @@
 - Aucune promesse interdite (économie/rendement/acceptation garantis, « meilleur
   produit ») : ☐ Confirmé
 - Ton professionnel, humain, pédagogique, non agressif : ☐ Confirmé
+- Neutralité / non-dénigrement : aucun dénigrement d'une compagnie, d'un courtier
+  ou d'un conseiller ; aucune affirmation de supériorité générale ; aucun
+  classement public (cf. `CLAUDE.md` § Neutralité) : ☐ Confirmé
 - Adaptation Suisse romande (Vaud/Genève) : ☐ Confirmé
 
 ## Validation
