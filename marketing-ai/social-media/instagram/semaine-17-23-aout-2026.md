@@ -1,7 +1,7 @@
 # Instagram — Semaine du 17 au 23 août 2026
 
-> Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
-> Rédigé le 16/07/2026 pour une **diffusion envisagée** le 18/08/2026.
+> **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
+> Diffusion envisagée le 18/08/2026 sur le **compte Instagram existant**.
 > Producteur : `social-media-manager` · Contrôle : `compliance-reviewer`.
 > Legrand Conseils Sàrl — Suisse romande (Vaud / Genève).
 > **Aucune publication automatique.** Aucun chiffre non sourcé.
@@ -50,7 +50,7 @@ Dans ce carrousel, on démonte 3 idées reçues, simplement, sans jargon et sans
 
 Le but n'est pas de vous vendre quoi que ce soit, mais de vous aider à y voir clair. Le reste — ce qui vous convient vraiment — se discute au cas par cas.
 
-Enregistrez le post 🔖 pour le retrouver, et posez votre question en commentaire : on répond avec plaisir (de façon générale, l'analyse personnalisée se fait ensuite, tranquillement). »
+Enregistrez le post 🔖 pour le retrouver, et posez votre question en commentaire : on répond volontiers de façon générale — pour votre situation précise, on en parle directement. »
 
 - **Appel à l'action** : « Enregistrez ce post » + « Posez votre question en commentaire ».
 - **Brief graphique** : 6 slides 4:5, fond clair aux couleurs de la marque, une idée par slide, gros titres lisibles sur mobile, pictos simples (ampoule pour les idées reçues), logo discret en pied de slide. Pas de chiffres. Contraste élevé pour l'accessibilité.
@@ -60,7 +60,7 @@ Enregistrez le post 🔖 pour le retrouver, et posez votre question en commentai
 - **Affirmations à vérifier** :
   - Libellé « pilier lié / libre » et cadre fiscal → source officielle (ch.ch / OFAS / AFC). `Vérification humaine obligatoire`.
 - **KPI principal** : engagement (enregistrements, partages, commentaires).
-- **Statut** : `Brouillon IA — validation humaine requise`.
+- **Statut** : `Version finale — prête pour validation humaine`.
 
 ---
 

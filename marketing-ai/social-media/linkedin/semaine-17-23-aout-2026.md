@@ -1,12 +1,12 @@
 # LinkedIn — Semaine du 17 au 23 août 2026
 
-> Brouillon marketing (LOT 2A). **Brouillons IA — validation humaine requise.**
-> Rédigé le 16/07/2026 pour une **diffusion envisagée** du 17 au 23/08/2026.
+> **Versions finales — prêtes pour validation humaine** (finalisées le 17/07/2026).
+> Diffusion envisagée du 17 au 23/08/2026, sur le **profil LinkedIn personnel du
+> dirigeant** (canal prioritaire actuel — la page entreprise n'est **pas encore
+> créée** ; ne pas inventer son URL).
 > **Aucune publication automatique** : programmation manuelle après validation
 > finale uniquement. Producteur : `linkedin-writer` · Coordination :
 > `marketing-director` · Contrôle : `compliance-reviewer`.
-> Ton : voix personnelle du dirigeant, adaptable à la page entreprise
-> Legrand Conseils Sàrl (Vaud / Genève).
 > Rappel : aucun chiffre (plafond, taux, prime, délai) tant qu'une source
 > officielle récente n'est pas confirmée par un humain.
 
@@ -24,7 +24,7 @@
 
 3a ou 3b ?
 
-Beaucoup de personnes que je rencontre ont entendu parler du 3e pilier, sans trop savoir ce qui se cache derrière ces deux petites lettres.
+Beaucoup de personnes que je rencontre ont entendu parler du 3e pilier, sans trop savoir ce qui se cache derrière ces deux abréviations.
 
 Voici l'idée générale, sans jargon.
 
@@ -50,7 +50,7 @@ Si le sujet vous intrigue, j'ai résumé l'essentiel en quelques minutes de lect
   - Libellé exact « pilier lié / pilier libre » et cadre fiscal → source officielle à confirmer (ch.ch / OFAS / AFC). `Vérification humaine obligatoire`.
   - Aucune affirmation chiffrée présente (volontaire).
 - **KPI principal** : portée + clics vers le site.
-- **Statut** : `Brouillon IA — validation humaine requise`.
+- **Statut** : `Version finale — prête pour validation humaine`.
 
 ---
 
@@ -91,12 +91,12 @@ Si vous êtes indépendant·e en Suisse romande et que vous n'avez jamais vraime
   - « L'indépendant ne bénéficie pas automatiquement des mêmes protections qu'un salarié » (couverture perte de gain, prévoyance professionnelle facultative pour l'indépendant) → source officielle à confirmer (OFAS / ch.ch). `Vérification humaine obligatoire`.
   - Ne pas ajouter de montants, seuils ou délais sans source. `Vérification humaine obligatoire` si un chiffre est introduit.
 - **KPI principal** : portée + clics vers le site (et demandes d'analyse à terme).
-- **Statut** : `Brouillon IA — validation humaine requise`.
+- **Statut** : `Version finale — prête pour validation humaine`.
 
 ---
 
 ### Notes de production (LinkedIn)
 - 2 publications cette semaine (le calendrier en autorise jusqu'à 3 ; 2 suffisent pour un lancement maîtrisé).
 - Aucune promesse d'économie, de rendement ou d'acceptation. Aucun « meilleur produit ».
-- Version « page entreprise » : reformuler les « je » en « nous / chez Legrand Conseils Sàrl » sans changer le fond.
+- Version « page entreprise » : la page LinkedIn de Legrand Conseils Sàrl **n'existe pas encore** (confirmé 17/07/2026). Une fois créée (voir `../checklist-creation-pages-linkedin-facebook.md`), reformuler les « je » en « nous / chez Legrand Conseils Sàrl » sans changer le fond. Ne jamais inventer l'URL de la page.
 - Les liens ne seront insérés qu'après confirmation humaine des URL réelles.

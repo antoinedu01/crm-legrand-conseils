@@ -1,7 +1,7 @@
 # Reel — Semaine du 17 au 23 août 2026
 
-> Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
-> Rédigé le 16/07/2026 pour une **diffusion envisagée** le vendredi 21/08/2026.
+> **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
+> Diffusion envisagée le vendredi 21/08/2026 sur le **compte Instagram existant**.
 > Producteur : `social-media-manager` · Contrôle : `compliance-reviewer`.
 > Legrand Conseils Sàrl — Suisse romande. **Aucune publication automatique.**
 > Script naturel, prononçable par une vraie personne. Aucun chiffre non sourcé.
@@ -67,4 +67,4 @@ Legrand Conseils Sàrl · courtier indépendant · Vaud & Genève »
   - Aucune mention de plafond / avantage chiffré (volontaire).
   - Lien du guide diffusé seulement après confirmation de l'URL (`URL cible à confirmer`).
 - **KPI principal** : vues + taux de rétention.
-- **Statut** : `Brouillon IA — validation humaine requise`.
+- **Statut** : `Version finale — prête pour validation humaine`.

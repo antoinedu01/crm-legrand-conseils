@@ -1,7 +1,7 @@
 # Stories Instagram — Semaine du 17 au 23 août 2026
 
-> Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
-> Rédigé le 16/07/2026 pour une **diffusion envisagée** entre le 17 et le 23/08/2026
+> **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
+> Diffusion envisagée sur le **compte Instagram existant** entre le 17 et le 23/08/2026
 > (temps fort : mercredi 19/08). Producteur : `social-media-manager` ·
 > Contrôle : `compliance-reviewer`. Legrand Conseils Sàrl — Vaud / Genève.
 > **Aucune publication automatique.** Les réponses aux interactions restent
@@ -68,4 +68,4 @@ Cadence : 3 à 5 séquences sur la semaine. Ci-dessous **4 séquences** prêtes.
 - **Sources** : notions structurelles (rôle du courtier indépendant, 3e pilier).
   Aucune donnée chiffrée.
 - **KPI principal** : vues et taux de réponse/interaction.
-- **Statut global** : `Brouillon IA — validation humaine requise`.
+- **Statut global** : `Version finale — prête pour validation humaine`.

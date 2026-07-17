@@ -1,7 +1,10 @@
 # Facebook — Semaine du 17 au 23 août 2026
 
-> Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
-> Rédigé le 16/07/2026 pour une **diffusion envisagée** le 22/08/2026.
+> **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
+> Diffusion envisagée le 22/08/2026. ⚠️ **La page Facebook de Legrand Conseils
+> Sàrl n'est pas encore créée** (confirmé le 17/07/2026) : ce contenu est prêt
+> mais **non publiable tant que la page n'existe pas** ; ne jamais inventer son
+> URL. Voir `../checklist-creation-pages-linkedin-facebook.md`.
 > Producteur : `social-media-manager` · Contrôle : `compliance-reviewer`.
 > Legrand Conseils Sàrl — Suisse romande (Vaud / Genève).
 > Contenu **réellement adapté à Facebook** (ton proximité, communauté locale) —
@@ -30,7 +33,7 @@ Sans rentrer dans les détails techniques, voici trois points qu'il vaut la pein
 
 3️⃣ La cohérence de l'ensemble — parce qu'avec le temps, on accumule des contrats un peu partout, et il arrive qu'on paie en double… ou qu'il manque quelque chose.
 
-Rien d'urgent, rien d'anxiogène : juste un petit point à faire, tranquillement, quand vous êtes prêts.
+Rien d'urgent : juste un petit point à faire, tranquillement, quand vous serez prêts.
 
 Chez Legrand Conseils Sàrl, on accompagne les familles de Suisse romande à y voir clair, sans pression et à leur rythme.
 
@@ -44,7 +47,7 @@ Chez Legrand Conseils Sàrl, on accompagne les familles de Suisse romande à y v
   - Ne pas introduire de délai ou de montant sans source. `Vérification humaine obligatoire`.
 - **Dépendance signalée** : la ressource « check-list du foyer » (lead magnet 2) **n'est pas encore produite** (prévue en Phase 3). Le CTA a été révisé pour renvoyer vers la **page Contact** (existante) et **ne présente plus** de ressource indisponible.
 - **KPI principal** : portée, engagement, clics vers la page Contact.
-- **Statut** : `Brouillon IA — validation humaine requise`.
+- **Statut** : `Version finale — prête pour validation humaine`.
 
 ---
 
