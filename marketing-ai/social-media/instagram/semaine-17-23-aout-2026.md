@@ -3,7 +3,7 @@
 > **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
 > Diffusion envisagée le 18/08/2026 sur le **compte Instagram existant**.
 > Producteur : `social-media-manager` · Contrôle : `compliance-reviewer`.
-> Legrand Conseils Sàrl — Suisse romande (Vaud / Genève).
+> Legrand conseils Sàrl — Suisse romande (Vaud / Genève).
 > **Aucune publication automatique.** Aucun chiffre non sourcé.
 
 ---
@@ -40,21 +40,21 @@ Titre : « La bonne question »
 Texte : « Ce n'est pas “3a ou 3b ?”. C'est : qu'est-ce que je veux, et pour quand ? Le reste découle de là. »
 
 **Slide 6 — Conclusion + marque**
-Texte : « Chez Legrand Conseils Sàrl, on aime expliquer avant de proposer. Courtier indépendant en Suisse romande. »
-CTA visuel : « Enregistrez ce post pour y revenir 🔖 · Une question ? Écrivez-nous en commentaire. »
+Texte : « Chez Legrand conseils Sàrl, j'explique avant de proposer. Courtier indépendant en Suisse romande. »
+CTA visuel : « Enregistrez ce post pour y revenir 🔖 · Une question ? Écrivez-moi en commentaire. »
 
 - **Légende** :
 « On vous a peut-être déjà dit que le 3e pilier, “c'est compliqué” ou “pas pour vous”. 🤔
 
-Dans ce carrousel, on démonte 3 idées reçues, simplement, sans jargon et sans chiffres à retenir.
+Dans ce carrousel, je démonte 3 idées reçues, simplement, sans jargon et sans chiffres à retenir.
 
-Le but n'est pas de vous vendre quoi que ce soit, mais de vous aider à y voir clair. Le reste — ce qui vous convient vraiment — se discute au cas par cas.
+Mon but n'est pas de vous vendre quoi que ce soit, mais de vous aider à y voir clair. Le reste — ce qui vous convient vraiment — se discute au cas par cas.
 
-Enregistrez le post 🔖 pour le retrouver, et posez votre question en commentaire : on répond volontiers de façon générale — pour votre situation précise, on en parle directement. »
+Enregistrez le post 🔖 pour le retrouver, et posez votre question en commentaire : je réponds volontiers de façon générale — pour votre situation précise, on en parle directement. »
 
 - **Appel à l'action** : « Enregistrez ce post » + « Posez votre question en commentaire ».
 - **Brief graphique** : 6 slides 4:5, fond clair aux couleurs de la marque, une idée par slide, gros titres lisibles sur mobile, pictos simples (ampoule pour les idées reçues), logo discret en pied de slide. Pas de chiffres. Contraste élevé pour l'accessibilité.
-- **Texte alternatif recommandé (alt)** : « Carrousel pédagogique de Legrand Conseils Sàrl présentant trois idées reçues sur le 3e pilier suisse et expliquant la différence entre pilier 3a lié et 3b libre, sans données chiffrées. »
+- **Texte alternatif recommandé (alt)** : « Carrousel pédagogique de Legrand conseils Sàrl présentant trois idées reçues sur le 3e pilier suisse et expliquant la différence entre pilier 3a lié et 3b libre, sans données chiffrées. »
 - **Hashtags (limités et pertinents)** : #3ePilier #prévoyance #SuisseRomande #Vaud #Genève #assurance #financespersonnelles
 - **Sources utilisées** : notions structurelles (3a lié / 3b libre ; prévoyance individuelle en complément AVS + caisse de pension). *Aucune donnée chiffrée.*
 - **Affirmations à vérifier** :

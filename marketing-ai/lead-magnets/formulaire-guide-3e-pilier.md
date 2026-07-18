@@ -3,7 +3,7 @@
 > Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
 > Rédigé le 16/07/2026. Producteur : `lead-magnet-creator` /
 > `conversion-funnel-designer` · Contrôle : `compliance-reviewer`.
-> Legrand Conseils Sàrl — Vaud / Genève.
+> Legrand conseils Sàrl — Vaud / Genève.
 > **Spécification uniquement** : aucune modification du site ni des formulaires
 > existants. La mise en place technique est une **action humaine ultérieure**
 > (respect nLPD, hébergement, événements Analytics). `URL cible à confirmer`.
@@ -33,14 +33,14 @@ Deux cases **distinctes** et **séparées** :
 
 1. **Consentement nécessaire à l'envoi du guide** (obligatoire pour recevoir le
    document) :
-   > ☐ J'accepte que Legrand Conseils Sàrl utilise mon adresse e-mail **pour
+   > ☐ J'accepte que Legrand conseils Sàrl utilise mon adresse e-mail **pour
    > m'envoyer le guide demandé**.
    *(Non pré-coché. Finalité limitée à l'envoi du guide.)*
 
 2. **Consentement marketing — séparé, explicite, facultatif, non pré-coché,
    révocable** :
    > ☐ *(facultatif)* J'accepte de recevoir occasionnellement des informations et
-   > conseils de Legrand Conseils Sàrl. Je peux me désinscrire à tout moment.
+   > conseils de Legrand conseils Sàrl. Je peux me désinscrire à tout moment.
 
 **Règles impératives** :
 - La case 2 est **facultative** : cocher (ou non) la case 2 **ne conditionne pas**
@@ -64,10 +64,10 @@ Deux cases **distinctes** et **séparées** :
 > ### Merci pour votre confiance 🙏
 > Votre **Guide pratique du 3e pilier** vous a été envoyé par e-mail.
 >
-> Nous espérons qu'il vous aidera à y voir plus clair. Prenez le temps de le lire —
+> J'espère qu'il vous aidera à y voir plus clair. Prenez le temps de le lire —
 > il est fait pour ça.
 >
-> *Une question après votre lecture ? Vous pouvez nous écrire quand vous le
+> *Une question après votre lecture ? Vous pouvez m'écrire quand vous le
 > souhaitez, sans engagement.*
 > *(Lien de contact à insérer —* `URL cible à confirmer`.*)*
 
@@ -86,8 +86,8 @@ Deux cases **distinctes** et **séparées** :
   > généraux ; pour votre situation précise, un échange reste le plus utile.
   >
   > Belle lecture,
-  > L'équipe **Legrand Conseils Sàrl**
-  > *Courtier indépendant — Vaud & Genève*
+  > Antoine Legrand
+  > **Legrand conseils Sàrl** — *courtier indépendant, Vaud & Genève*
   >
   > *Vous recevez cet e-mail car vous avez demandé ce guide. Cet envoi concerne
   > uniquement votre demande.*

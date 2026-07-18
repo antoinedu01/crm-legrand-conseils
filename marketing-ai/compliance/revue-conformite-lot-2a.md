@@ -83,7 +83,7 @@ Déroulement honnête de la vérification du 16/07/2026 :
 - **Correction appliquée** : le CTA ne renvoie **plus** à la « check-list du foyer »
   (ressource non encore produite). Il renvoie désormais à la **page Contact**
   (documentée comme existante) : « Vous pouvez présenter votre demande depuis la
-  page Contact de Legrand Conseils Sàrl. » L'objectif de la publication a été
+  page Contact de Legrand conseils Sàrl. » L'objectif de la publication a été
   aligné. Aucune ressource inexistante n'est présentée comme disponible.
 - **Risque résiduel** : URL exacte de la page Contact non fabriquée →
   `URL de la page Contact à confirmer avant publication`.

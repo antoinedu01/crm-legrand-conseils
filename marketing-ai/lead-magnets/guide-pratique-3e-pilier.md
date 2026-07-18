@@ -2,7 +2,7 @@
 
 > Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
 > Rédigé le 16/07/2026. Producteur : `lead-magnet-creator` ·
-> Contrôle : `compliance-reviewer`. Legrand Conseils Sàrl — Vaud / Genève.
+> Contrôle : `compliance-reviewer`. Legrand conseils Sàrl — Vaud / Genève.
 > **Guide général et pédagogique** : il ne remplace pas une analyse individuelle.
 > **Aucun montant, plafond, taux ou avantage chiffré** n'est indiqué sans source
 > officielle récente et date de vérification. Les emplacements concernés portent la
@@ -16,7 +16,7 @@
 # Comprendre le 3e pilier 3A et 3B en Suisse
 ### Y voir clair, sans jargon, avant de décider.
 
-*Un guide offert par Legrand Conseils Sàrl — courtier en assurance indépendant,
+*Un guide offert par Legrand conseils Sàrl — courtier en assurance indépendant,
 Vaud & Genève.*
 
 > Guide général à visée pédagogique. Ne constitue pas un conseil individualisé.
@@ -34,7 +34,7 @@ vous puissiez vous poser les bonnes questions. Il ne vous dira pas « quoi achet
 parce que cela dépend vraiment de votre situation. Il vous aidera en revanche à
 **comprendre le paysage** et à savoir quand un accompagnement peut être utile.
 
-Nous avons volontairement évité les chiffres qui changent d'une année à l'autre
+J'ai volontairement évité les chiffres qui changent d'une année à l'autre
 (plafonds, avantages fiscaux, montants) : ils doivent toujours être vérifiés à
 la source officielle, au moment où vous en avez besoin.
 
@@ -51,7 +51,7 @@ la source officielle, au moment où vous en avez besoin.
 7. Quand une analyse personnalisée peut être utile
 8. Les erreurs fréquentes
 9. Votre check-list finale
-10. À propos de Legrand Conseils Sàrl
+10. À propos de Legrand conseils Sàrl
 11. Pour aller plus loin
 
 ---
@@ -203,12 +203,12 @@ Une analyse personnalisée ne vous engage pas : elle sert d'abord à **faire le 
 
 ---
 
-## 10. À propos de Legrand Conseils Sàrl
+## 10. À propos de Legrand conseils Sàrl
 
-**Legrand Conseils Sàrl** est un courtier en assurance **indépendant et non lié**,
-actif en Suisse romande (Vaud et Genève). Notre approche tient en une phrase :
-**expliquer avant de proposer**. Nous comparons plusieurs assureurs et vous
-accompagnons pour décider en confiance, à votre rythme.
+**Legrand conseils Sàrl** est un courtier en assurance **indépendant et non lié**,
+actif en Suisse romande (Vaud et Genève). Mon approche tient en une phrase :
+**expliquer avant de proposer**. Je compare plusieurs assureurs et je vous
+accompagne pour décider en confiance, à votre rythme.
 
 > `Vérification humaine obligatoire` — statut « indépendant et non lié » à confirmer
 > conforme au statut réel de l'entreprise.
@@ -221,7 +221,7 @@ Vous avez lu ce guide et vous vous posez des questions sur **votre** situation ?
 
 C'est justement là qu'un échange peut aider. Sans engagement, et sans jargon.
 
-**Vous pouvez nous écrire quand vous le souhaitez pour en discuter.**
+**Vous pouvez m'écrire quand vous le souhaitez pour en discuter.**
 *(Coordonnées / lien de contact à insérer après confirmation —* `URL cible à confirmer`.*)*
 
 ---

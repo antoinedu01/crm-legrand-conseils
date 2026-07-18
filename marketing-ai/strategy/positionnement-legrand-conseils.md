@@ -1,4 +1,4 @@
-# Positionnement — Legrand Conseils Sàrl
+# Positionnement — Legrand conseils Sàrl
 
 > Brouillon marketing (LOT 1). Document interne de cadrage. **Aucune diffusion
 > automatique.** Toute affirmation réglementaire, fiscale ou tarifaire reprise
@@ -11,7 +11,7 @@
 
 ## 1. Proposition de valeur
 
-**Legrand Conseils Sàrl est un courtier en assurance indépendant et non lié,
+**Legrand conseils Sàrl est un courtier en assurance indépendant et non lié,
 en Suisse romande (Vaud / Genève), qui aide les particuliers à y voir clair
 dans leur couverture d'assurance et de prévoyance, et à décider en connaissance
 de cause.**
@@ -62,6 +62,9 @@ Pour le prospect particulier :
 ## 4. Ton de communication
 
 - **Professionnel, humain, pédagogique, non agressif.**
+- **Première personne du singulier** : la communication est rédigée avec « je »,
+  « mon », « ma » (voix d'Antoine Legrand) — jamais « nous » / « notre », sauf
+  nécessité juridique particulière.
 - Français de Suisse romande, vouvoiement, vocabulaire simple.
 - Explique le « pourquoi » avant le « quoi » ; jamais culpabilisant.
 - Honnête sur les limites : on informe, le conseil personnalisé vient ensuite,
@@ -70,6 +73,10 @@ Pour le prospect particulier :
   artificielle (« dernière chance », « offre limitée »).
 
 ## 5. Messages principaux
+
+**Slogan officiel** :
+> « Comprendre. Choisir. Protéger. Vos assurances et votre prévoyance, en toute
+> clarté. »
 
 - « Comprendre avant de choisir. »
 - « Un seul interlocuteur pour toutes vos assurances. »
@@ -120,7 +127,7 @@ aucune donnée médicale).
 
 ## 9. Limites du positionnement
 
-- Legrand Conseils **informe et accompagne** ; les contenus marketing ne
+- Legrand conseils Sàrl **informe et accompagne** ; les contenus marketing ne
   constituent **pas un conseil personnalisé** ni une recommandation de produit.
 - Le passage à un conseil individualisé relève de l'**intermédiation en
   assurance réglementée** (LSA / FINMA) et suit une procédure dédiée.

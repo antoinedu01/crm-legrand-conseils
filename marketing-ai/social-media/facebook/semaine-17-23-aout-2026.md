@@ -1,12 +1,12 @@
 # Facebook — Semaine du 17 au 23 août 2026
 
 > **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
-> Diffusion envisagée le 22/08/2026. ⚠️ **La page Facebook de Legrand Conseils
-> Sàrl n'est pas encore créée** (confirmé le 17/07/2026) : ce contenu est prêt
-> mais **non publiable tant que la page n'existe pas** ; ne jamais inventer son
-> URL. Voir `../checklist-creation-pages-linkedin-facebook.md`.
+> Diffusion envisagée le 22/08/2026. **Page Facebook créée — URL publique à
+> confirmer** (ne jamais l'inventer). Le contenu suit le circuit normal :
+> validation humaine + confirmation de l'URL de la page Contact (CTA) avant
+> programmation manuelle. Voir `../checklist-creation-pages-linkedin-facebook.md`.
 > Producteur : `social-media-manager` · Contrôle : `compliance-reviewer`.
-> Legrand Conseils Sàrl — Suisse romande (Vaud / Genève).
+> Legrand conseils Sàrl — Suisse romande (Vaud / Genève).
 > Contenu **réellement adapté à Facebook** (ton proximité, communauté locale) —
 > ce n'est ni le post LinkedIn, ni le carrousel Instagram.
 
@@ -35,9 +35,9 @@ Sans rentrer dans les détails techniques, voici trois points qu'il vaut la pein
 
 Rien d'urgent : juste un petit point à faire, tranquillement, quand vous serez prêts.
 
-Chez Legrand Conseils Sàrl, on accompagne les familles de Suisse romande à y voir clair, sans pression et à leur rythme.
+Avec Legrand conseils Sàrl, j'accompagne les familles de Suisse romande pour y voir clair, sans pression et à leur rythme.
 
-- **Appel à l'action** : « Vous souhaitez faire le point sur votre situation ? Vous pouvez présenter votre demande depuis la page Contact de Legrand Conseils Sàrl. »
+- **Appel à l'action** : « Vous souhaitez faire le point sur votre situation ? Vous pouvez présenter votre demande depuis la page Contact de Legrand conseils Sàrl. »
   - *(La « check-list du foyer » n'existe pas encore — elle est prévue en Phase 3. Elle n'est donc **pas** proposée ici comme ressource disponible.)*
 - **Page du site envisagée** : page **Contact** (documentée comme existante dans le calendrier LOT 1). `URL de la page Contact à confirmer avant publication`.
 - **Visuel suggéré** : photo chaleureuse et sobre (parent et bébé, ambiance douce), sans mise en scène commerciale ; ou visuel « 3 points » aux couleurs de la marque.

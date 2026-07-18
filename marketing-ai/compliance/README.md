@@ -35,7 +35,7 @@ Ce dossier reçoit les **rapports de conformité** produits par l'agent
 
 ## Règles internes de conformité — 10 points (nLPD / LSA / FINMA)
 
-> Règles internes prudentielles de Legrand Conseils Sàrl. **Ni avis juridique, ni
+> Règles internes prudentielles de Legrand conseils Sàrl. **Ni avis juridique, ni
 > certification/approbation FINMA.** En cas de doute : `Vérification humaine obligatoire`.
 
 1. **Aucune donnée réelle de client ou de prospect** transmise à un outil d'IA

@@ -1,6 +1,6 @@
 # Plan d'action marketing — 90 jours
 
-**Legrand Conseils Sàrl — du samedi 1er août 2026 au jeudi 29 octobre 2026 inclus (90 jours).**
+**Legrand conseils Sàrl — du samedi 1er août 2026 au jeudi 29 octobre 2026 inclus (90 jours).**
 
 > Brouillon marketing (LOT 1). Plan de travail pour une **petite structure** :
 > volumes réalistes, priorisés, progressifs. **Aucune publication ni aucun envoi

@@ -2,7 +2,7 @@
 
 Ce dépôt contient **deux choses distinctes** :
 
-1. **Un CRM en production** pour **Legrand Conseils Sàrl** (courtier en assurance
+1. **Un CRM en production** pour **Legrand conseils Sàrl** (courtier en assurance
    indépendant, Suisse romande — Vaud / Genève). C'est une **zone protégée**.
 2. **Un système de travail marketing** (phase « Marketing / Acquisition IA »),
    entièrement contenu dans `marketing-ai/` et `.claude/agents/`.
@@ -135,7 +135,7 @@ migration de numéro **strictement supérieur** aux versions déjà utilisées p
 ## 6bis. Règles internes de conformité — 10 points (nLPD / LSA / FINMA)
 
 > **Nature de ces règles.** Ce sont des **règles internes prudentielles** que
-> Legrand Conseils Sàrl s'impose volontairement. Elles ne constituent **ni un avis
+> Legrand conseils Sàrl s'impose volontairement. Elles ne constituent **ni un avis
 > juridique**, **ni une certification ou une approbation FINMA**. En cas de doute :
 > **`Vérification humaine obligatoire`**.
 
@@ -175,7 +175,7 @@ Règle permanente applicable à **tous les agents** et à tout contenu produit.
 - dénigrer un conseiller, un courtier ou un concurrent ;
 - affirmer qu'un assureur est globalement meilleur ou moins bon ;
 - affirmer qu'un courtier ou conseiller est meilleur qu'un autre ;
-- déclarer que passer par Legrand Conseils Sàrl est systématiquement
+- déclarer que passer par Legrand conseils Sàrl est systématiquement
   préférable à passer directement par une compagnie ;
 - créer des classements publics d'assureurs ou de conseillers ;
 - utiliser des formulations humiliantes, agressives ou inutilement négatives

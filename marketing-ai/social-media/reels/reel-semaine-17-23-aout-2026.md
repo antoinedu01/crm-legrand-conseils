@@ -3,7 +3,7 @@
 > **Version finale — prête pour validation humaine** (finalisée le 17/07/2026).
 > Diffusion envisagée le vendredi 21/08/2026 sur le **compte Instagram existant**.
 > Producteur : `social-media-manager` · Contrôle : `compliance-reviewer`.
-> Legrand Conseils Sàrl — Suisse romande. **Aucune publication automatique.**
+> Legrand conseils Sàrl — Suisse romande. **Aucune publication automatique.**
 > Script naturel, prononçable par une vraie personne. Aucun chiffre non sourcé.
 
 ---
@@ -33,7 +33,7 @@ Aucun des deux n'est “le meilleur”. Tout dépend de ce que vous voulez faire
 
 Le plus important, c'est de comprendre ce que vous avez — ou ce que vous n'avez pas encore.
 
-Si vous voulez creuser tranquillement, on a préparé un petit guide clair. Le lien arrive. »
+Si vous voulez creuser tranquillement, j'ai préparé un petit guide clair. Le lien arrive. »
 
 ### Indications visuelles (plan par plan)
 - Plan 1 (0–3 s) : personne face caméra, extérieur ou intérieur lumineux ; texte d'accroche incrusté.
@@ -55,9 +55,9 @@ police lisible, contraste élevé, une ligne à la fois.
 
 ### Légende
 « Le 3e pilier en moins d'une minute ⏱️
-3a “lié”, 3b “libre” : deux logiques, pas un gagnant. On vous explique l'essentiel, sans jargon et sans chiffres à retenir.
-Le guide complet arrive — dites-nous en commentaire si vous le voulez 👇
-Legrand Conseils Sàrl · courtier indépendant · Vaud & Genève »
+3a “lié”, 3b “libre” : deux logiques, pas un gagnant. Je vous explique l'essentiel, sans jargon et sans chiffres à retenir.
+Le guide complet arrive — dites-moi en commentaire si vous le voulez 👇
+Legrand conseils Sàrl · courtier indépendant · Vaud & Genève »
 
 - **Appel à l'action** : « Commentez “guide” pour être prévenu·e de sa sortie » / « Guide gratuit à venir — lien après mise en ligne ».
 - **Miniature proposée** : visage + gros texte « 3e pilier, simplement » sur fond de marque.

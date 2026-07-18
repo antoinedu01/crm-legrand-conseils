@@ -1,9 +1,13 @@
 # LinkedIn — Semaine du 17 au 23 août 2026
 
-> **Versions finales — prêtes pour validation humaine** (finalisées le 17/07/2026).
+> **Versions finales — prêtes pour validation humaine**.
 > Diffusion envisagée du 17 au 23/08/2026, sur le **profil LinkedIn personnel du
-> dirigeant** (canal prioritaire actuel — la page entreprise n'est **pas encore
-> créée** ; ne pas inventer son URL).
+> dirigeant** (canal prioritaire) :
+> https://www.linkedin.com/in/antoine-legrand-abaa68196/
+> La **page entreprise est active et finalisée** :
+> https://www.linkedin.com/company/legrand-conseils-sarl/
+> Rédaction à la **première personne du singulier** (« je », « mon », « ma ») sur
+> les deux supports — jamais « nous », sauf nécessité juridique.
 > **Aucune publication automatique** : programmation manuelle après validation
 > finale uniquement. Producteur : `linkedin-writer` · Coordination :
 > `marketing-director` · Contrôle : `compliance-reviewer`.
@@ -98,5 +102,5 @@ Si vous êtes indépendant·e en Suisse romande et que vous n'avez jamais vraime
 ### Notes de production (LinkedIn)
 - 2 publications cette semaine (le calendrier en autorise jusqu'à 3 ; 2 suffisent pour un lancement maîtrisé).
 - Aucune promesse d'économie, de rendement ou d'acceptation. Aucun « meilleur produit ».
-- Version « page entreprise » : la page LinkedIn de Legrand Conseils Sàrl **n'existe pas encore** (confirmé 17/07/2026). Une fois créée (voir `../checklist-creation-pages-linkedin-facebook.md`), reformuler les « je » en « nous / chez Legrand Conseils Sàrl » sans changer le fond. Ne jamais inventer l'URL de la page.
+- Version « page entreprise » : la page est **active et finalisée** (https://www.linkedin.com/company/legrand-conseils-sarl/). Les textes y restent **à la première personne du singulier** (« je »), conformément à la ligne éditoriale — pas de passage au « nous ». Un repartage depuis la page du post publié sur le profil personnel est possible.
 - Les liens ne seront insérés qu'après confirmation humaine des URL réelles.

@@ -19,7 +19,7 @@
 
 | Élément | Utilité | État actuel | Information connue | Information manquante | Responsable | Action nécessaire | Date limite | Blocage diffusion | Statut |
 |---|---|---|---|---|---|---|---|---|---|
-| Nom exact | Cohérence marque | Connu | **Legrand Conseils Sàrl** | — | Humain | Aucune | — | Non | `Prêt` |
+| Nom exact | Cohérence marque | Connu | **Legrand conseils Sàrl** | — | Humain | Aucune | — | Non | `Prêt` |
 | Logo | Tous supports | Probablement existant (site) | Site professionnel en ligne | Fichier source vectoriel + droits | Humain/Graph | Récupérer le fichier source + confirmer droits | avant 26/07 | Production finale des visuels (opérationnel, non réglementaire) | `À confirmer` |
 | Couleurs | Charte visuelle | Probablement existant (site) | Site professionnel en ligne | Codes couleurs exacts | Humain/Graph | Récupérer les références exactes | avant 26/07 | Production finale des visuels (opérationnel, non réglementaire) | `À confirmer` |
 | Typographies | Charte visuelle | Probablement existant (site) | Site professionnel en ligne | Polices exactes + droits | Humain/Graph | Récupérer les références + droits | avant 26/07 | Production finale des visuels (opérationnel, non réglementaire) | `À confirmer` |
@@ -39,9 +39,14 @@
 >   et Antoine Legrand, n° **F01569355** — tous deux **intermédiaires d'assurance
 >   non liés**, 1re inscription le 22/06/2026, branches : assurance-maladie
 >   complémentaire et assurance-vie ; UID CHE-376.900.357.
-> - **Marque** : dans la communication, utiliser toujours « **Legrand Conseils
->   Sàrl** » (le registre officiel affiche « Legrand conseils Sàrl » — cette
->   différence de casse est documentaire, pas une variante à reprendre).
+> - **Marque (mise à jour)** : le nom à afficher partout est « **Legrand conseils
+>   Sàrl** » — le mot « conseils » commence par un **c minuscule**, conformément au
+>   registre officiel et à la décision du dirigeant.
+> - **Slogan officiel** : « Comprendre. Choisir. Protéger. Vos assurances et votre
+>   prévoyance, en toute clarté. »
+> - **Voix éditoriale** : toute la communication est rédigée à la **première
+>   personne du singulier** (« je », « mon », « ma ») — jamais « nous » / « notre »,
+>   sauf nécessité juridique particulière.
 > - **Numéros FINMA** : ne **pas** les afficher systématiquement dans chaque
 >   publication ; les réserver aux supports où c'est pertinent (mentions légales,
 >   documents officiels).
@@ -59,10 +64,10 @@
 
 | Élément | Utilité | État actuel | Information connue | Information manquante | Responsable | Action nécessaire | Date limite | Blocage diffusion | Statut |
 |---|---|---|---|---|---|---|---|---|---|
-| Profil LinkedIn perso | Diffusion posts (**canal prioritaire actuel**) | **Existant** (confirmé 17/07/2026) | Profil du dirigeant actif | URL du profil, optimisation bio | Humain | Compléter/optimiser | avant 03/08 | Non (canal utilisable) | `À confirmer` |
-| Page LinkedIn entreprise | Diffusion page | **Non créée** (confirmé 17/07/2026) | N'existe pas encore | Création + admin | Humain | Créer la page (contenus préparables mais **non publiables** avant création ; ne jamais inventer son URL) | avant 09/08 | Contenus destinés à la page entreprise uniquement | `À créer` |
+| Profil LinkedIn perso | Diffusion posts (**canal prioritaire actuel**) | **Existant, complété** (titre professionnel + bannière cohérente) | https://www.linkedin.com/in/antoine-legrand-abaa68196/ | — | Humain | Aucune (entretien courant) | — | Non (canal utilisable) | `Prêt` |
+| Page LinkedIn entreprise | Diffusion page | **Active et finalisée** (logo + bannière) | https://www.linkedin.com/company/legrand-conseils-sarl/ | — | Humain | Aucune (entretien courant) | — | Non (canal utilisable après validation des contenus) | `Prêt` |
 | Compte Instagram | Diffusion | **Existant** (confirmé 17/07/2026) | Compte actif | Handle exact, accès, optimisation | Humain | Compléter/optimiser | avant 09/08 | Non (canal utilisable) | `À confirmer` |
-| Page Facebook | Diffusion | **Non créée** (confirmé 17/07/2026) | N'existe pas encore | Création + admin | Humain | Créer la page (contenus préparables mais **non publiables** avant création ; ne jamais inventer son URL) | avant 09/08 | **Publication Facebook du 22/08** et tout contenu Facebook | `À créer` |
+| Page Facebook | Diffusion | **Page Facebook créée — URL publique à confirmer** | Page créée par le dirigeant | URL publique exacte (ne pas l'inventer) + finalisation du profil | Humain | Confirmer l'URL publique + finaliser le profil (checklist pages, section B) | avant 09/08 | Non (canal utilisable après confirmation URL + validation des contenus) | `À confirmer` |
 | Photo de profil | Cohérence | Inconnu | — | Visuel validé | Humain/Graph | Préparer | avant 09/08 | Non | `À créer` |
 | Bannière | Cohérence | Inconnu | — | Visuel validé | Humain/Graph | Préparer | avant 09/08 | Non | `À créer` |
 | Biographie | Présentation | À rédiger | Positionnement dispo | Texte validé | MD/CR/Humain | Rédiger + valider | avant 09/08 | Non | `À créer` |
@@ -160,7 +165,7 @@ Typologie des blocages (voir détail dans les tableaux ci-dessus) :
 | Type | Éléments concernés | Action précisément bloquée |
 |---|---|---|
 | **Réglementaire / protection des données** | Page Protection des données ; mentions légales *(le statut FINMA est **confirmé** depuis le 17/07/2026 — n° F01569363 société / F01569355 dirigeant — et ne bloque plus)* | **Mise en ligne du formulaire et collecte** ; **impression/diffusion du flyer** (mentions finales) |
-| **Technique** | URL page Contact ; pages téléchargement + remerciement ; QR code ; événements de mesure ; **page Facebook et page LinkedIn entreprise non créées** | Diffusion des **contenus à CTA vers ces pages** ; **lancement du lead magnet** ; **impression/diffusion du flyer** ; **publication des contenus Facebook / page entreprise** tant que ces pages n'existent pas ; fiabilité de l'attribution |
+| **Technique** | URL page Contact ; pages téléchargement + remerciement ; QR code ; événements de mesure ; **URL publique de la page Facebook à confirmer** *(page créée ; la page LinkedIn entreprise est active et finalisée)* | Diffusion des **contenus à CTA vers ces pages** ; **lancement du lead magnet** ; **impression/diffusion du flyer** ; fiabilité de l'attribution |
 | **Éditorial** | Validation humaine finale de chaque contenu (checklist) | **Programmation manuelle** du contenu concerné |
 | **Simple information à confirmer** | Charte visuelle (fichiers sources, droits), coordonnées, accès réseaux sociaux, GA4 | Production **finale** des visuels et finitions des profils — ne bloque ni les brouillons ni la stratégie |
 

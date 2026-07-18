@@ -1,4 +1,4 @@
-# Personas prioritaires — Legrand Conseils Sàrl
+# Personas prioritaires — Legrand conseils Sàrl
 
 > Brouillon marketing (LOT 1). Personas de travail, **fictifs et représentatifs**
 > — aucune donnée réelle de client ou de prospect n'est utilisée.

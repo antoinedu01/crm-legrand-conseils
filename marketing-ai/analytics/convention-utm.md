@@ -1,4 +1,4 @@
-# Convention UTM — Legrand Conseils Sàrl
+# Convention UTM — Legrand conseils Sàrl
 
 > Brouillon marketing (LOT 2B). Convention **simple et stable** pour tracer la
 > source des visites et des leads dans GA4. Rédigée le 16/07/2026 par

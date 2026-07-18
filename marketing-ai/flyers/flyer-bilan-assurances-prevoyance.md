@@ -2,7 +2,7 @@
 
 > Brouillon marketing (LOT 2A). **Brouillon IA — validation humaine requise.**
 > Rédigé le 16/07/2026. Producteur : `visual-flyer-director` ·
-> Contrôle : `compliance-reviewer`. Legrand Conseils Sàrl — Vaud / Genève.
+> Contrôle : `compliance-reviewer`. Legrand conseils Sàrl — Vaud / Genève.
 > **Aucune impression / diffusion automatique.** Le QR code n'est créé qu'après
 > confirmation de l'URL réelle. Aucune promesse d'économie ni d'amélioration de
 > couverture. Aucun chiffre non sourcé.
@@ -34,9 +34,9 @@
 ## VERSO
 
 - **Présentation courte de l'entreprise** :
-  « **Legrand Conseils Sàrl** est un **intermédiaire d'assurance non lié**, actif en
-  Suisse romande (Vaud et Genève). Notre approche : expliquer avant de proposer,
-  comparer plusieurs assureurs, et vous accompagner dans vos choix. »
+  « **Legrand conseils Sàrl** est un **intermédiaire d'assurance non lié**, actif en
+  Suisse romande (Vaud et Genève). Mon approche : expliquer avant de proposer,
+  comparer plusieurs assureurs et vous accompagner dans vos choix. »
   *(Formulation neutre : l'entreprise ne représente pas directement toutes les
   compagnies.)*
   `Statut et références du registre public FINMA à contrôler une dernière
@@ -50,7 +50,7 @@
   *(Aucune mention de gratuité. Aucune promesse d'économie ni d'amélioration de
   couverture.)*
 - **Texte près du QR code** :
-  « Scannez pour nous découvrir et prendre contact. »
+  « Scannez pour me contacter. »
 - **QR code** : **à ne pas générer pour l'instant.**
   `URL cible à confirmer avant création du QR code`
   (cible envisagée : page de contact `/contact` — existante — ou page dédiée
@@ -69,7 +69,7 @@
 
 - **Taille** : A5 vertical (148 × 210 mm) recto + verso ; marges de sécurité 5 mm ;
   fond perdu 3 mm.
-- **Palette** : couleurs de la charte Legrand Conseils Sàrl (à fournir) ; fond
+- **Palette** : couleurs de la charte Legrand conseils Sàrl (à fournir) ; fond
   clair, 1 couleur d'accent pour les titres et le bouton CTA.
 - **Typographie** : une police titre lisible + une police texte ; tailles
   hiérarchisées (accroche > bénéfices > corps).

@@ -1,6 +1,6 @@
 ---
 name: lead-magnet-creator
-description: Créateur de lead magnets pour Legrand Conseils Sàrl (guides, check-lists, comparatifs pédagogiques). À utiliser pour concevoir la structure et le contenu de brouillon d'un aimant à prospects, adapté à la Suisse romande. Produit uniquement des brouillons dans marketing-ai/lead-magnets/. Ne conçoit jamais de formulaire collectant des données médicales sensibles.
+description: Créateur de lead magnets pour Legrand conseils Sàrl (guides, check-lists, comparatifs pédagogiques). À utiliser pour concevoir la structure et le contenu de brouillon d'un aimant à prospects, adapté à la Suisse romande. Produit uniquement des brouillons dans marketing-ai/lead-magnets/. Ne conçoit jamais de formulaire collectant des données médicales sensibles.
 tools: Read, Grep, Glob, Write, Edit
 ---
 
@@ -34,7 +34,7 @@ plein gré**, dans le respect de la nLPD.
 
 ## Règles internes de conformité — 10 points (nLPD / LSA / FINMA)
 
-> Règles internes prudentielles de Legrand Conseils Sàrl. **Ni avis juridique, ni
+> Règles internes prudentielles de Legrand conseils Sàrl. **Ni avis juridique, ni
 > certification/approbation FINMA.** En cas de doute : `Vérification humaine obligatoire`.
 
 1. **Aucune donnée réelle de client ou de prospect** dans un outil d'IA externe
@@ -77,7 +77,7 @@ plein gré**, dans le respect de la nLPD.
   meilleur ou moins bon ; aucun classement public ; jamais de généralisation à
   partir d'un cas isolé ; jamais de client présenté comme « mal conseillé »,
   « arnaqué » ou ayant « jeté son argent ».
-- Ne jamais présenter le passage par Legrand Conseils Sàrl comme
+- Ne jamais présenter le passage par Legrand conseils Sàrl comme
   **systématiquement** préférable à une compagnie en direct.
 - Autorisé : présenter plusieurs possibilités, expliquer les différences, comparer
   des **critères objectifs et vérifiables**, recommander de façon

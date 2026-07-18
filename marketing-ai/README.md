@@ -1,7 +1,7 @@
-# marketing-ai/ — Système de travail marketing (Legrand Conseils Sàrl)
+# marketing-ai/ — Système de travail marketing (Legrand conseils Sàrl)
 
 Ce dossier regroupe **toute** la production de la phase marketing / acquisition IA
-pour Legrand Conseils Sàrl (courtier en assurance indépendant, Suisse romande —
+pour Legrand conseils Sàrl (courtier en assurance indépendant, Suisse romande —
 Vaud / Genève). Il est **isolé du CRM** : aucun fichier ici n'affecte
 l'application en production.
 

@@ -38,7 +38,8 @@
   **intermédiaires d'assurance non liés**, 1re inscription le 22/06/2026,
   branches : assurance-maladie complémentaire et assurance-vie ;
   UID CHE-376.900.357. Dans la **communication de marque**, utiliser « Legrand
-  Conseils Sàrl ». Ne **pas** afficher systématiquement les numéros FINMA dans
+  conseils Sàrl » (« conseils » avec un **c minuscule**, comme au registre).
+  Ne **pas** afficher systématiquement les numéros FINMA dans
   chaque publication (les réserver aux supports où c'est pertinent).
   **Portée stricte** : cette inscription n'est **pas** une autorisation générale
   couvrant toutes les activités, et n'est **pas** un agrément FINMA pour
