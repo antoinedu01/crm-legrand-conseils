@@ -342,3 +342,35 @@ envisagé.
   humaine explicite à chaque occurrence.
 - **Validation humaine systématique** avant tout commit, push, migration ou
   déploiement — jamais d'enchaînement automatique de ces étapes.
+
+---
+
+## 15. Agents techniques (`.claude/agents/`)
+
+Les fichiers présents dans .claude/agents/ constituent la source de vérité. Cette section fournit uniquement une vue d'ensemble destinée à faciliter la reprise du projet.
+
+### security-reviewer
+- **Objectif** : revue statique de sécurité (authentification, sessions, TOTP/2FA, CSRF, CORS, rate limiting, injections SQL, exposition de données, audit).
+- **Outils autorisés** : Read, Grep, Glob.
+- **Périmètre général** : lecture seule de `server/`, `client/`, `test/`, `docs/`, `deploy/`, `package.json`, `PROJECT_HANDOFF.md`, `CLAUDE.md`.
+- **Restrictions principales** : aucune écriture ni exécution, aucun accès à `data/`, aux bases SQLite ou aux secrets.
+
+### migration-reviewer
+- **Objectif** : revue statique de la logique de migration SQLite (numérotation `PRAGMA user_version`, cohérence code/documentation, risques pour les données).
+- **Outils autorisés** : Read, Grep, Glob.
+- **Périmètre général** : lecture seule de `server/db.js`, `docs/MIGRATIONS.md`, `PROJECT_HANDOFF.md`, `CLAUDE.md`, `package.json`.
+- **Restrictions principales** : ne modifie ni ne crée jamais de migration et n'exécute jamais SQLite, sans accès à `data/` ni aux données réelles.
+
+### qa-test-reviewer
+- **Objectif** : analyse statique de la couverture de tests (routes, authentification, autorisations, cas limites, régression, piste multi-utilisateur).
+- **Outils autorisés** : Read, Grep, Glob.
+- **Périmètre général** : lecture seule de `server/`, `client/`, `test/`, `tests/`, `package.json`, `docs/`, `PROJECT_HANDOFF.md`, `CLAUDE.md`.
+- **Restrictions principales** : n'exécute, ne modifie ni ne crée jamais de test, et ne déclare jamais qu'un test passe sans preuve.
+
+### documentation-maintainer
+- **Objectif** : maintien de la documentation technique et de `PROJECT_HANDOFF.md` à partir d'éléments vérifiables.
+- **Outils autorisés** : Read, Grep, Glob, Write, Edit.
+- **Périmètre général** : lecture de `server/`, `client/`, `test/`, `tests/`, `docs/`, `package.json`, `PROJECT_HANDOFF.md`, `CLAUDE.md`, `.claude/agents/` (lecture seule) ; écriture strictement limitée à `docs/**` et `PROJECT_HANDOFF.md`.
+- **Restrictions principales** : n'écrit qu'après autorisation humaine explicite précédée d'un plan et d'un diff prévisionnel, sans jamais toucher au code, aux agents ou à `CLAUDE.md`.
+
+---
