@@ -253,3 +253,92 @@ l'utilisateur (hors dépôt).
   Google Tag Manager (événement `generer_lead` vers GA4).
 - Prochaines étapes envisagées avec l'utilisateur : finaliser le Bloc 4, plan
   90 jours, rédaction des contenus SEO (un plan éditorial a été livré séparément).
+
+---
+
+## 13. Modèle d'accès et prérequis multi-utilisateur
+
+> Constats issus d'un audit de cartographie en lecture seule du code (aucune
+> donnée réelle consultée, aucune exécution). Tout ce qui suit est **confirmé
+> dans le code** sauf mention contraire.
+
+- **Le CRM est actuellement mono-utilisateur.** `POST /api/auth/setup` refuse
+  explicitement de créer un second compte tant qu'un compte existe déjà
+  (`server/auth.js`) : il n'y a qu'un seul courtier possible par instance.
+- **Une session authentifiée dispose de l'ensemble des données métier.**
+  Le contrôle d'accès du CRM repose uniquement sur l'**authentification**
+  (`requireAuth`), pas sur une **autorisation par ressource**. Une fois
+  connecté, un compte voit et peut modifier l'intégralité des clients,
+  contrats, commissions, tâches et activités — il n'existe aucun filtrage
+  « ces données m'appartiennent, celles-là non ».
+- **`clients.owner_user_id` (migration v1) n'assure aujourd'hui aucune
+  séparation effective des ressources.** Cette colonne a été ajoutée pour
+  préparer une future évolution multi-conseiller, mais **aucune route** du
+  code actuel (`server/routes/*.js`) ne filtre ses requêtes par
+  `owner_user_id`. La colonne existe en base ; elle n'est pas exploitée pour
+  restreindre l'accès.
+- **Aucun second utilisateur ou collaborateur ne doit être ajouté** au CRM
+  avant la mise en place d'un contrôle d'autorisation par ressource
+  effectif — c'est-à-dire avant que les routes filtrent réellement les
+  données par propriétaire (ou par un autre mécanisme d'autorisation
+  équivalent). Ajouter un compte aujourd'hui donnerait à ce compte un accès
+  complet à tous les dossiers clients existants, sans distinction.
+- **Toute évolution vers un modèle multi-utilisateur nécessitera** :
+  1. une **revue de sécurité dédiée** du modèle d'autorisation envisagé ;
+  2. des **tests spécifiques** couvrant l'isolation effective des données
+     entre comptes (y compris les cas limites : export nLPD, anonymisation,
+     audit log, formulaire public) ;
+  3. une **migration contrôlée** (nouveau numéro de version, sauvegarde
+     préalable — voir `docs/MIGRATIONS.md`), jamais un simple déploiement de
+     code sans étape de vérification.
+
+Ce constat n'est pas une anomalie à corriger dans l'urgence : il est cohérent
+avec l'usage actuel (« un seul compte, le vôtre » — voir `DEPLOIEMENT.md`).
+Il devient un prérequis bloquant uniquement **si** un second utilisateur est
+envisagé.
+
+---
+
+## 14. Restrictions relatives aux agents IA et aux MCP
+
+> Règles opérationnelles internes destinées à cadrer toute utilisation future
+> d'agents IA ou de serveurs MCP (Model Context Protocol) sur ce dépôt. Ce ne
+> sont pas des règles juridiques ; en cas de doute sur une exigence légale,
+> `Vérification humaine obligatoire`. Ces règles complètent, sans les
+> remplacer, celles déjà posées au §9 et dans `CLAUDE.md`.
+
+### Interdit, en toutes circonstances
+
+- Accès (lecture ou écriture) au dossier **`data/`**.
+- Accès à **`crm.sqlite`** et à ses fichiers associés (`crm.sqlite-wal`,
+  `crm.sqlite-shm`).
+- Accès aux fichiers **`.env`** et à tout fichier contenant un secret,
+  token, mot de passe ou identifiant.
+- Accès direct aux **données clients réelles**, sous quelque forme que ce
+  soit (lecture de base, export, capture d'écran d'un dossier réel, etc.).
+- **Exécution automatique** des scripts de `deploy/` (`install.sh`,
+  `setup-swissbackup.sh`) par un agent ou un MCP, sans supervision humaine
+  directe et en temps réel.
+- **Migrations automatiques non supervisées** : toute nouvelle migration de
+  base de données doit être écrite, relue et déclenchée par un humain,
+  jamais lancée de façon autonome par un agent.
+- **Modification automatisée** de l'authentification, du TOTP ou des
+  sessions (`server/auth.js`, `server/totp.js`, `server/session-store.js`)
+  sans validation humaine explicite préalable, au cas par cas.
+- **Utilisation de Playwright (ou tout outil d'automatisation de
+  navigateur) sur l'environnement de production.**
+- **Tout accès en écriture à une base réelle par un MCP**, quelle que soit
+  la nature de l'écriture envisagée.
+
+### Autorisé uniquement à terme, et après validation humaine
+
+- Tests **Playwright sur un environnement fictif** (jamais de production).
+- Utilisation de **données de démonstration** (`server/seed-demo.js` ou
+  équivalent), jamais de données réelles.
+- Travail sur des **branches de développement** dédiées — jamais directement
+  sur la branche de production (`claude/insurance-broker-crm-exx09v`).
+- **Actions réversibles et journalisées** uniquement — toute action
+  irréversible reste hors périmètre d'un agent ou d'un MCP sans validation
+  humaine explicite à chaque occurrence.
+- **Validation humaine systématique** avant tout commit, push, migration ou
+  déploiement — jamais d'enchaînement automatique de ces étapes.
