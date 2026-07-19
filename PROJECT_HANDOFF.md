@@ -374,3 +374,64 @@ Les fichiers présents dans .claude/agents/ constituent la source de vérité. C
 - **Restrictions principales** : n'écrit qu'après autorisation humaine explicite précédée d'un plan et d'un diff prévisionnel, sans jamais toucher au code, aux agents ou à `CLAUDE.md`.
 
 ---
+
+## 16. Politique MCP
+
+### 16.1 Ligne de base actuelle
+
+Aucun MCP n'est installé ni configuré dans ce dépôt à ce jour. Les outils
+natifs de Claude Code couvrent les besoins actuels. **Aucun MCP ne doit être
+ajouté sans besoin concret identifié, analyse de risque documentée et
+autorisation humaine explicite.**
+
+### 16.2 Principes obligatoires
+
+- **Moindre privilège** : un MCP ne reçoit que les permissions strictement
+  nécessaires à son usage.
+- **Validation humaine préalable** avant toute installation, configuration
+  ou élargissement de permissions d'un MCP.
+- **Aucun commit, push, migration ou déploiement automatique** via un MCP.
+- **Aucun accès aux données clients réelles.**
+- **Aucun accès à `data/**`, aux bases SQLite, aux sauvegardes, aux secrets
+  ou aux fichiers `.env*`.**
+- Aucun MCP à capacité d'écriture n'est accordé à un agent sans décision
+  humaine exceptionnelle et documentée.
+
+### 16.3 Positionnement des MCP évalués
+
+- **Playwright MCP** — candidat prioritaire pour une adoption future,
+  exclusivement dans un environnement E2E fictif isolé.
+- **GitHub MCP** — envisageable plus tard, en lecture seule, principalement
+  pour l'orchestrateur, si la gestion des PR, des issues ou de
+  l'intégration continue le justifie.
+- **Filesystem MCP** — écarté (redondant avec les outils natifs et risqué).
+- **SQLite/Database MCP** — interdit pour les données réelles du CRM.
+- **Browser/Web MCP généraliste** — écarté (redondant avec les outils
+  natifs).
+- **Documentation/context MCP** — envisageable si un besoin concret est
+  démontré.
+
+### 16.4 Critères obligatoires avant l'adoption d'un MCP
+
+- Besoin non couvert autrement par les outils existants.
+- Compatible avec le principe de moindre privilège.
+- Documentation claire du MCP.
+- Projet activement maintenu.
+- Suppression possible sans compromettre le projet.
+- N'expose pas les données du CRM.
+- Permissions, interdictions et utilisateurs autorisés documentés.
+- Validation humaine explicite avant installation.
+- Testé d'abord dans un périmètre non sensible.
+
+### 16.5 Conditions préalables à l'adoption de Playwright
+
+- Environnement entièrement fictif et isolé.
+- Aucune URL de production.
+- Aucune donnée réelle.
+- Base de test distincte de la base de production.
+- Compte de test dédié.
+- Gestion contrôlée du TOTP/2FA de test.
+- Chemins d'artefacts (captures, traces, rapports) définis.
+- Autorisation humaine distincte avant l'installation, la configuration, le
+  premier lancement des tests et la création du futur agent
+  `playwright-tester`.
