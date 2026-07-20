@@ -36,9 +36,13 @@ function validateLamalInput(raw) {
   assert(inEnum(raw.care_model, CARE_MODELS) && raw.care_model != null, 'Modèle de soins LAMal invalide.');
   assert(raw.deductible !== undefined && raw.deductible !== null && raw.deductible !== '',
     'La franchise LAMal est requise.');
-  const deductible = Number(raw.deductible);
-  assert(Number.isInteger(deductible) && LAMAL_DEDUCTIBLES.includes(deductible),
-    `Franchise LAMal invalide (valeurs autorisées : ${LAMAL_DEDUCTIBLES.join(', ')}).`);
+  // G1 : validation stricte, aucune coercition de type — une chaîne, un
+  // booléen ou un objet ne doit jamais être accepté comme franchise.
+  assert(
+    typeof raw.deductible === 'number' && Number.isFinite(raw.deductible) && Number.isInteger(raw.deductible) &&
+      LAMAL_DEDUCTIBLES.includes(raw.deductible),
+    `Franchise LAMal invalide (valeurs autorisées : ${LAMAL_DEDUCTIBLES.join(', ')}).`
+  );
   assert(
     raw.accident_coverage === undefined || typeof raw.accident_coverage === 'boolean' ||
       raw.accident_coverage === 0 || raw.accident_coverage === 1,
@@ -55,7 +59,8 @@ function validateLamalInput(raw) {
 function normalizeLamal(raw) {
   return {
     care_model: raw.care_model,
-    deductible: Number(raw.deductible),
+    // G1 : raw.deductible est déjà un nombre entier validé, aucune coercition.
+    deductible: raw.deductible,
     accident_coverage: raw.accident_coverage === false || raw.accident_coverage === 0 ? 0 : 1,
     canton: raw.canton ? String(raw.canton).trim().toUpperCase() : null,
     tariff_region: raw.tariff_region === '' || raw.tariff_region == null ? null : raw.tariff_region,
@@ -119,22 +124,33 @@ const EXCLUSION_STATUSES = ['aucune', 'presentes'];
 // statut administratif — jamais de diagnostic, de pathologie, de résultat
 // médical ni de contenu de questionnaire de santé.
 function validateLcaInput(raw) {
+  // G1 : les trois enums ci-dessous sont NOT NULL avec DEFAULT SQL — un
+  // champ absent conserve la valeur existante/par défaut (COALESCE dans
+  // writeLca), mais un `null` explicite ne doit jamais être silencieusement
+  // ignoré : il doit être rejeté, comme pour les champs `component_type`/
+  // `benefit_type`/`product_type` des autres blocs (`inEnum` seul ne suffit
+  // pas ici car il traite `v == null` comme valide).
   assert(
-    raw.underwriting_status === undefined || inEnum(raw.underwriting_status, UNDERWRITING_STATUSES),
+    raw.underwriting_status === undefined ||
+      (raw.underwriting_status !== null && inEnum(raw.underwriting_status, UNDERWRITING_STATUSES)),
     'Statut de souscription LCA invalide.'
   );
+  // G1 : validation stricte, aucune coercition de type.
   assert(
     raw.waiting_period_days === undefined || raw.waiting_period_days === null ||
-      (Number.isInteger(Number(raw.waiting_period_days)) && Number(raw.waiting_period_days) >= 0),
+      (typeof raw.waiting_period_days === 'number' && Number.isFinite(raw.waiting_period_days) &&
+        Number.isInteger(raw.waiting_period_days) && raw.waiting_period_days >= 0),
     'Délai d’attente invalide (entier non négatif attendu).'
   );
   assert(
     raw.administrative_reservation_status === undefined ||
-      inEnum(raw.administrative_reservation_status, RESERVATION_STATUSES),
+      (raw.administrative_reservation_status !== null &&
+        inEnum(raw.administrative_reservation_status, RESERVATION_STATUSES)),
     'Statut de réserve administrative invalide.'
   );
   assert(
-    raw.exclusions_status === undefined || inEnum(raw.exclusions_status, EXCLUSION_STATUSES),
+    raw.exclusions_status === undefined ||
+      (raw.exclusions_status !== null && inEnum(raw.exclusions_status, EXCLUSION_STATUSES)),
     'Statut d’exclusion invalide.'
   );
   checkTextFields(
@@ -150,8 +166,10 @@ function validateLcaInput(raw) {
 function normalizeLca(raw) {
   return {
     underwriting_status: raw.underwriting_status ?? null,
-    waiting_period_days: raw.waiting_period_days === '' || raw.waiting_period_days == null
-      ? null : Number(raw.waiting_period_days),
+    // G1 : raw.waiting_period_days est déjà un nombre entier validé (ou
+    // null/undefined), aucune coercition ; la branche `=== ''` n'est plus
+    // atteignable après la validation stricte ci-dessus.
+    waiting_period_days: raw.waiting_period_days ?? null,
     administrative_reservation_status: raw.administrative_reservation_status ?? null,
     reservation_notes: raw.reservation_notes === '' ? null : (raw.reservation_notes ?? null),
     exclusions_status: raw.exclusions_status ?? null,

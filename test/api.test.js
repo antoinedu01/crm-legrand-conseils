@@ -1855,3 +1855,207 @@ test('LPP/IJM — correction audit : une mise à jour partielle sans product_typ
   assert.equal(rowAfterClear.lpp_ijm.retirement_capital, null, 'un champ nullable explicitement mis à null doit rester null');
   assert.equal(rowAfterClear.lpp_ijm.product_type, 'lpp', 'les autres champs non fournis restent inchangés');
 });
+
+// --- Lot G1 : corrections de cohérence des validations -------------------
+// Ces tests reproduisent d'abord les défauts (coercition de type via
+// Number(...) sur LAMal.deductible et LCA.waiting_period_days ; null
+// explicite silencieusement ignoré sur les trois enums NOT NULL DEFAULT de
+// contract_lca), avant correction de server/routes/contracts.js.
+
+test('LAMal — G1 : deductible rejette toute coercition de type (chaîne, décimal, booléen, objet)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'LamalCoercion', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 900 };
+  const invalidValues = ['300', '2500', '0', 'abc', 300.5, null, true, false, {}, []];
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  for (const deductible of invalidValues) {
+    const res = await auth(request(app).post('/api/contracts'))
+      .send({ ...base, lamal: { care_model: 'standard', deductible } });
+    assert.equal(res.status, 400, `deductible=${JSON.stringify(deductible)} doit être rejeté`);
+  }
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat ne doit être créé pour une valeur de deductible rejetée');
+
+  const ok = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lamal: { care_model: 'standard', deductible: 300 } });
+  assert.equal(ok.status, 201, 'une franchise numérique valide doit toujours être acceptée');
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === ok.body.id);
+  assert.equal(row.lamal.deductible, 300);
+});
+
+test('LCA — G1 : waiting_period_days rejette toute coercition de type (chaîne, décimal, négatif, booléen, objet)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'LcaCoercion', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900 };
+  const invalidValues = ['0', '30', '90', 'abc', 1.5, -1, true, false, {}, []];
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  for (const waiting_period_days of invalidValues) {
+    const res = await auth(request(app).post('/api/contracts'))
+      .send({ ...base, lca: { waiting_period_days } });
+    assert.equal(res.status, 400, `waiting_period_days=${JSON.stringify(waiting_period_days)} doit être rejeté`);
+  }
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat ne doit être créé pour une valeur de waiting_period_days rejetée');
+
+  const okZero = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { waiting_period_days: 0 } });
+  assert.equal(okZero.status, 201, '0 (entier réel) doit être accepté');
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === okZero.body.id);
+  assert.equal(row.lca.waiting_period_days, 0);
+
+  const okNull = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { waiting_period_days: null } });
+  assert.equal(okNull.status, 201, 'null doit être accepté (champ nullable)');
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === okNull.body.id);
+  assert.equal(row.lca.waiting_period_days, null);
+});
+
+test('LCA — G1 : null explicite est rejeté sur les trois enums non nullables, en POST, avec rollback complet', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'LcaEnumNullPost', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900 };
+
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+
+  const badUnderwriting = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { underwriting_status: null } });
+  assert.equal(badUnderwriting.status, 400);
+
+  const badReservation = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { administrative_reservation_status: null } });
+  assert.equal(badReservation.status, 400);
+
+  const badExclusions = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { exclusions_status: null } });
+  assert.equal(badExclusions.status, 400);
+
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat créé si un enum LCA est explicitement null');
+});
+
+test('LCA — G1 : null explicite est rejeté sur les trois enums non nullables, en PUT, sans aucune altération', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'LcaEnumNullPut', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    acq_commission_rate: 5, status: 'actif',
+    lca: {
+      underwriting_status: 'acceptee', administrative_reservation_status: 'active',
+      exclusions_status: 'presentes',
+    },
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+
+  const commissionsBefore = await auth(request(app).get('/api/commissions'));
+  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.ok(acqBefore, 'commission d’acquisition générée à la création');
+
+  const fields = ['underwriting_status', 'administrative_reservation_status', 'exclusions_status'];
+  for (const field of fields) {
+    const res = await auth(request(app).put(`/api/contracts/${id}`)).send({ lca: { [field]: null } });
+    assert.equal(res.status, 400, `${field}: null doit être rejeté en PUT`);
+  }
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'acceptee', 'le contrat_lca ne doit pas être altéré après rejet');
+  assert.equal(row.lca.administrative_reservation_status, 'active');
+  assert.equal(row.lca.exclusions_status, 'presentes');
+  assert.equal(row.branch, 'lca', 'le contrat générique ne doit pas être altéré après rejet');
+  assert.equal(row.annual_premium, 900);
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails LCA'));
+  const entry = log.body.find((l) => l.entity_id === id && l.action === 'modification détails LCA');
+  assert.ok(!entry, 'aucun audit de modification LCA ne doit être créé après un rejet de validation');
+
+  const commissionsAfter = await auth(request(app).get('/api/commissions'));
+  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.equal(acqAfter.amount, acqBefore.amount, 'la commission ne doit pas être altérée après un rejet de validation');
+  assert.equal(acqAfter.status, acqBefore.status);
+});
+
+test('LCA — G1 : absence des trois enums en PUT préserve les valeurs existantes ; une valeur valide les met à jour', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'LcaEnumPreserve', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: {
+      underwriting_status: 'acceptee', administrative_reservation_status: 'active',
+      exclusions_status: 'presentes',
+    },
+  });
+  const id = created.body.id;
+
+  // Absence des trois enums (autre champ fourni) : préservation attendue.
+  const preserve = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { reservation_notes: 'suivi administratif' } });
+  assert.equal(preserve.status, 200);
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'acceptee', 'champ non fourni conservé');
+  assert.equal(row.lca.administrative_reservation_status, 'active', 'champ non fourni conservé');
+  assert.equal(row.lca.exclusions_status, 'presentes', 'champ non fourni conservé');
+  assert.equal(row.lca.reservation_notes, 'suivi administratif');
+
+  // Valeur enum valide : mise à jour effective, les deux autres préservés.
+  const update = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { underwriting_status: 'refusee' } });
+  assert.equal(update.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'refusee', 'la nouvelle valeur enum doit être appliquée');
+  assert.equal(row.lca.administrative_reservation_status, 'active', 'champ non fourni conservé');
+  assert.equal(row.lca.exclusions_status, 'presentes', 'champ non fourni conservé');
+});
+
+test('LCA — G1 : non-régression des defaults SQL à la création sans les enums, et de la suppression du bloc via lca: null', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'LcaDefaults', status: 'client',
+  });
+
+  // Création sans les enums : les DEFAULT SQL existants doivent s'appliquer,
+  // comportement inchangé par la correction G1.
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { waiting_period_days: 15 },
+  });
+  assert.equal(created.status, 201);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.lca.underwriting_status, 'non_requis', 'valeur par défaut SQL non modifiée par G1');
+  assert.equal(row.lca.administrative_reservation_status, 'aucune', 'valeur par défaut SQL non modifiée par G1');
+  assert.equal(row.lca.exclusions_status, 'aucune', 'valeur par défaut SQL non modifiée par G1');
+
+  // Suppression du bloc complet via lca: null : comportement inchangé.
+  const del = await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ lca: null });
+  assert.equal(del.status, 200);
+  const rowAfterDelete = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(rowAfterDelete.lca, null, 'lca: null doit toujours supprimer le bloc complet');
+});
+
+test('LAMal/LCA — G1 : la coercition de type reste rejetée en PUT sur un contrat existant', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'G1', last_name: 'CoercionPut', status: 'client',
+  });
+  const lamalContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 900,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  const badLamalPut = await auth(request(app).put(`/api/contracts/${lamalContract.body.id}`))
+    .send({ lamal: { care_model: 'standard', deductible: '2500' } });
+  assert.equal(badLamalPut.status, 400, 'deductible="2500" doit être rejeté en PUT');
+  const lamalRow = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === lamalContract.body.id);
+  assert.equal(lamalRow.lamal.deductible, 300, 'la valeur existante ne doit pas être altérée après rejet');
+
+  const lcaContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { waiting_period_days: 10 },
+  });
+  const badLcaPut = await auth(request(app).put(`/api/contracts/${lcaContract.body.id}`))
+    .send({ lca: { waiting_period_days: '30' } });
+  assert.equal(badLcaPut.status, 400, 'waiting_period_days="30" doit être rejeté en PUT');
+  const lcaRow = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === lcaContract.body.id);
+  assert.equal(lcaRow.lca.waiting_period_days, 10, 'la valeur existante ne doit pas être altérée après rejet');
+});
