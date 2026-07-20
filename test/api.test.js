@@ -1492,3 +1492,366 @@ test('Incapacité — correction audit : une mise à jour partielle sans benefit
   assert.equal(rowAfterClear.income_protection.insured_amount, null, 'un champ nullable explicitement mis à null doit rester null');
   assert.equal(rowAfterClear.income_protection.benefit_type, 'rente', 'les autres champs non fournis restent inchangés');
 });
+
+test('LPP/IJM — création sans bloc lpp_ijm, puis avec détails valides, et lecture', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Chloe', last_name: 'Lpp', status: 'client',
+  });
+
+  const noLppIjm = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 1800,
+  });
+  assert.equal(noLppIjm.status, 201);
+  let list = await auth(request(app).get('/api/contracts'));
+  assert.equal(list.body.find((c) => c.id === noLppIjm.body.id).lpp_ijm, null);
+
+  const withLppIjm = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: {
+      product_type: 'lpp', institution_name: 'Fondation collective XY', retirement_capital: 80000,
+      disability_pension: 12000, daily_allowance: 0, waiting_period_days: 30, benefit_duration_days: 730,
+    },
+  });
+  assert.equal(withLppIjm.status, 201);
+  list = await auth(request(app).get('/api/contracts'));
+  assert.deepEqual(list.body.find((c) => c.id === withLppIjm.body.id).lpp_ijm, {
+    product_type: 'lpp', institution_name: 'Fondation collective XY', retirement_capital: 80000,
+    disability_pension: 12000, daily_allowance: 0, waiting_period_days: 30, benefit_duration_days: 730,
+  });
+});
+
+test('LPP/IJM — les validations rejettent enum, type, borne, texte trop long et branche invalides', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Val', last_name: 'Lpp', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400 };
+
+  const badEnum = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'inexistant' } });
+  assert.equal(badEnum.status, 400);
+
+  const badType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'lpp', retirement_capital: 'abc' } });
+  assert.equal(badType.status, 400);
+
+  const numericString = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'lpp', retirement_capital: '80000' } });
+  assert.equal(numericString.status, 400, 'une chaîne numérique ne doit pas être coercée silencieusement');
+
+  const negativeAmount = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'lpp', disability_pension: -100 } });
+  assert.equal(negativeAmount.status, 400);
+
+  const negativeRetirementCapital = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'lpp', retirement_capital: -1 } });
+  assert.equal(negativeRetirementCapital.status, 400);
+
+  const negativeDailyAllowance = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'ijm', daily_allowance: -1 } });
+  assert.equal(negativeDailyAllowance.status, 400);
+
+  const negativeWaiting = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'ijm', waiting_period_days: -1 } });
+  assert.equal(negativeWaiting.status, 400, 'waiting_period_days doit être non négatif');
+
+  const nonIntegerWaiting = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'ijm', waiting_period_days: 5.5 } });
+  assert.equal(nonIntegerWaiting.status, 400, 'waiting_period_days doit être un entier');
+
+  const zeroDuration = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'ijm', benefit_duration_days: 0 } });
+  assert.equal(zeroDuration.status, 400, 'benefit_duration_days doit être strictement positif');
+
+  const nonIntegerDuration = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'ijm', benefit_duration_days: 10.5 } });
+  assert.equal(nonIntegerDuration.status, 400, 'benefit_duration_days doit être un entier');
+
+  const tooLong = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'lpp', institution_name: 'x'.repeat(201) } });
+  assert.equal(tooLong.status, 400);
+
+  const wrongBranch = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+  });
+  assert.equal(wrongBranch.status, 400);
+});
+
+// contract_lpp_ijm ne comporte aucune colonne booléenne (contrairement à
+// contract_income_protection ou contract_life) : le scénario générique
+// « rejet d'un booléen invalide » ne s'applique donc pas à ce bloc et n'est
+// pas dupliqué ici.
+
+test('LPP/IJM — null explicite est rejeté sur product_type', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Null', last_name: 'Lpp', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400 };
+
+  const nullProductType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: null } });
+  assert.equal(nullProductType.status, 400);
+
+  // Même rejet attendu côté PUT, sur un contrat déjà enrichi.
+  const created = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lpp_ijm: { product_type: 'lpp' } });
+  const nullProductTypeOnUpdate = await auth(request(app).put(`/api/contracts/${created.body.id}`))
+    .send({ lpp_ijm: { product_type: null } });
+  assert.equal(nullProductTypeOnUpdate.status, 400);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.lpp_ijm.product_type, 'lpp', 'un null explicite rejeté ne doit pas altérer la valeur existante');
+});
+
+test('LPP/IJM — rollback complet : aucun contrat créé si le bloc lpp_ijm est invalide', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'Lpp', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'invalide' },
+  });
+  assert.equal(res.status, 400);
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat créé si le bloc lpp_ijm est invalide');
+});
+
+test('LPP/IJM — rollback : une mise à jour invalide n’altère pas les détails existants', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'UpdateLpp', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp', retirement_capital: 60000, waiting_period_days: 90 },
+  });
+  const id = created.body.id;
+
+  const bad = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lpp_ijm: { product_type: 'invalide' } });
+  assert.equal(bad.status, 400);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lpp_ijm.product_type, 'lpp', 'les détails existants ne doivent pas être altérés');
+  assert.equal(row.lpp_ijm.retirement_capital, 60000);
+  assert.equal(row.lpp_ijm.waiting_period_days, 90);
+});
+
+test('LPP/IJM — mise à jour crée puis modifie partiellement les détails ; changement de branche encadré', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Update', last_name: 'Lpp', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+  });
+  const id = created.body.id;
+
+  const createDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lpp_ijm: { product_type: 'ijm', daily_allowance: 150 } });
+  assert.equal(createDetails.status, 200);
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lpp_ijm.product_type, 'ijm');
+  assert.equal(row.lpp_ijm.daily_allowance, 150);
+  assert.equal(row.lpp_ijm.institution_name, null, 'champ nullable non fourni reste null');
+
+  // Mise à jour partielle : seul waiting_period_days est fourni, le reste
+  // (dont daily_allowance déjà enregistré) doit rester inchangé.
+  const partialUpdate = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lpp_ijm: { waiting_period_days: 60 } });
+  assert.equal(partialUpdate.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lpp_ijm.waiting_period_days, 60);
+  assert.equal(row.lpp_ijm.product_type, 'ijm', 'champ non fourni conservé par la mise à jour partielle');
+  assert.equal(row.lpp_ijm.daily_allowance, 150, 'champ non fourni conservé par la mise à jour partielle');
+
+  const blocked = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'lca' });
+  assert.equal(blocked.status, 400);
+
+  const allowed = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'lca', lpp_ijm: null });
+  assert.equal(allowed.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.branch, 'lca');
+  assert.equal(row.lpp_ijm, null);
+});
+
+test('LPP/IJM — suppression explicite des détails via lpp_ijm: null', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Suppr', last_name: 'Lpp', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+  });
+  const del = await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ lpp_ijm: null });
+  assert.equal(del.status, 200);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.lpp_ijm, null);
+});
+
+test('LPP/IJM — la suppression du contrat supprime automatiquement contract_lpp_ijm (CASCADE)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Cascade', last_name: 'Lpp', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+  });
+  const del = await auth(request(app).delete(`/api/contracts/${created.body.id}`));
+  assert.equal(del.status, 200);
+  const list = await auth(request(app).get('/api/contracts'));
+  assert.ok(!list.body.find((c) => c.id === created.body.id), 'le contrat a bien été supprimé');
+});
+
+test('LPP/IJM — coexistence avec LAMal, LCA, vie et incapacité sans régression, et refus de blocs combinés incohérents', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Coexist', last_name: 'Lpp', status: 'client',
+  });
+
+  const lppIjmContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp', retirement_capital: 60000 },
+  });
+  assert.equal(lppIjmContract.status, 201);
+
+  const lamalContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(lamalContract.status, 201);
+
+  const lcaContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(lcaContract.status, 201);
+
+  const lifeContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(lifeContract.status, 201);
+
+  const incomeProtectionContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+  });
+  assert.equal(incomeProtectionContract.status, 201);
+
+  const list = await auth(request(app).get('/api/contracts'));
+  const lppIjmRow = list.body.find((c) => c.id === lppIjmContract.body.id);
+  const lamalRow = list.body.find((c) => c.id === lamalContract.body.id);
+  const lcaRow = list.body.find((c) => c.id === lcaContract.body.id);
+  const lifeRow = list.body.find((c) => c.id === lifeContract.body.id);
+  const incomeProtectionRow = list.body.find((c) => c.id === incomeProtectionContract.body.id);
+  assert.ok(lppIjmRow.lpp_ijm, 'le contrat LPP/IJM conserve ses détails');
+  assert.equal(lppIjmRow.lamal, null);
+  assert.equal(lppIjmRow.lca, null);
+  assert.equal(lppIjmRow.life, null);
+  assert.equal(lppIjmRow.income_protection, null);
+  assert.ok(lamalRow.lamal, 'le contrat LAMal conserve ses détails, non affecté par le support LPP/IJM');
+  assert.equal(lamalRow.lpp_ijm, null);
+  assert.ok(lcaRow.lca, 'le contrat LCA conserve ses détails, non affecté par le support LPP/IJM');
+  assert.equal(lcaRow.lpp_ijm, null);
+  assert.ok(lifeRow.life, 'le contrat vie conserve ses détails, non affecté par le support LPP/IJM');
+  assert.equal(lifeRow.lpp_ijm, null);
+  assert.ok(incomeProtectionRow.income_protection, 'le contrat incapacité conserve ses détails, non affecté par le support LPP/IJM');
+  assert.equal(incomeProtectionRow.lpp_ijm, null);
+
+  // Une même requête combinant lpp_ijm et lamal/lca/life/income_protection
+  // non nuls est refusée quelle que soit la branche : aucune branche n'est
+  // jamais compatible avec deux blocs spécialisés à la fois.
+  const combinedWithLamal = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(combinedWithLamal.status, 400);
+
+  const combinedWithLca = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(combinedWithLca.status, 400);
+
+  const combinedWithLife = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(combinedWithLife.status, 400);
+
+  const combinedWithIncomeProtection = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+    income_protection: { benefit_type: 'rente' },
+  });
+  assert.equal(combinedWithIncomeProtection.status, 400);
+});
+
+test('LPP/IJM — non-régression de la génération de commission sur un contrat enrichi', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Commission', last_name: 'Lpp', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2000,
+    acq_commission_rate: 5, status: 'actif',
+    lpp_ijm: { product_type: 'lpp' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LPP/IJM enrichi');
+  assert.equal(acq.amount, 100);
+});
+
+test('LPP/IJM — les entrées d’audit création/modification/suppression sont journalisées', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Audit', last_name: 'Lpp', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp' },
+  });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`))
+    .send({ lpp_ijm: { product_type: 'ijm' } });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ lpp_ijm: null });
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=détails LPP'));
+  assert.equal(log.status, 200);
+  assert.ok(log.body.some((l) => l.action === 'création détails LPP/IJM'));
+  assert.ok(log.body.some((l) => l.action === 'modification détails LPP/IJM'));
+  assert.ok(log.body.some((l) => l.action === 'suppression détails LPP/IJM'));
+});
+
+test('LPP/IJM — correction audit : une mise à jour partielle sans product_type conserve la vraie valeur (pas de « type null »)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Correction', last_name: 'Lpp', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2400,
+    lpp_ijm: { product_type: 'lpp', retirement_capital: 60000 },
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+
+  const partial = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lpp_ijm: { waiting_period_days: 45 } });
+  assert.equal(partial.status, 200);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lpp_ijm.product_type, 'lpp', 'champ non fourni conservé en base');
+  assert.equal(row.lpp_ijm.waiting_period_days, 45);
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails LPP'));
+  const entry = log.body.find((l) => l.entity_id === id && l.action === 'modification détails LPP/IJM');
+  assert.ok(entry, 'une entrée d’audit de modification doit exister');
+  assert.equal(entry.details, 'type lpp', 'l’audit doit refléter la vraie valeur, jamais « type null »');
+  assert.ok(!String(entry.details).includes('null'), 'l’audit ne doit jamais contenir « null »');
+
+  const clearNullable = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lpp_ijm: { retirement_capital: null } });
+  assert.equal(clearNullable.status, 200);
+  const rowAfterClear = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(rowAfterClear.lpp_ijm.retirement_capital, null, 'un champ nullable explicitement mis à null doit rester null');
+  assert.equal(rowAfterClear.lpp_ijm.product_type, 'lpp', 'les autres champs non fournis restent inchangés');
+});

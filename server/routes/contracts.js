@@ -516,6 +516,138 @@ function serializeIncomeProtection(row) {
   };
 }
 
+// --- Détails LPP/IJM (contract_lpp_ijm, migration v8) --------------------
+
+// Seule branche compatible avec des détails LPP/IJM, déterminée à partir de
+// BRANCHES ci-dessus. Disjointe de LAMAL_COMPATIBLE_BRANCHES,
+// LCA_COMPATIBLE_BRANCHES, LIFE_COMPATIBLE_BRANCHES et
+// INCOME_PROTECTION_COMPATIBLE_BRANCHES : cette disjonction structurelle
+// avec 'incapacite' garantit qu'un contrat ne peut jamais porter à la fois
+// ce bloc et le bloc incapacité de gain privée (contract_income_protection),
+// qui restent des modules entièrement distincts.
+const LPP_IJM_COMPATIBLE_BRANCHES = ['lpp'];
+
+// Signification neutre, strictement dérivée du nom de la table : `lpp`
+// couvre les détails contractuels relevant de la prévoyance professionnelle,
+// `ijm` ceux relevant de l'indemnité journalière maladie, `autre` sert de
+// catégorie de repli. Aucune logique employeur, collective, AI ou de
+// coordination détaillée n'est développée ici : le module reste volontaire-
+// ment minimal, conformément au commentaire du schéma SQL.
+const PRODUCT_TYPES = ['lpp', 'ijm', 'autre'];
+
+// Valide le bloc `lpp_ijm` brut de la requête (avant normalisation). Aucune
+// donnée médicale, aucun diagnostic, aucune pathologie, aucun contenu de
+// questionnaire de santé : ce bloc ne porte que des paramètres contractuels.
+//
+// `product_type` est NOT NULL sans valeur par défaut SQL, comme
+// `component_type`/`benefit_type` : obligatoire à la création (aucune ligne
+// contract_lpp_ijm existante), optionnel lors d'une mise à jour partielle
+// d'une ligne déjà existante (COALESCE conserve la valeur existante).
+// `productTypeRequired` doit être positionné par l'appelant selon
+// l'existence préalable de la ligne.
+function validateLppIjmInput(raw, { productTypeRequired = true } = {}) {
+  assert(raw.product_type !== null, 'Le type de produit ne peut pas être explicitement vide.');
+  if (raw.product_type === undefined) {
+    assert(!productTypeRequired, 'Le type de produit est requis.');
+  } else {
+    assert(inEnum(raw.product_type, PRODUCT_TYPES), 'Type de produit invalide.');
+  }
+  checkTextFields({ institution_name: raw.institution_name }, ['institution_name'], 200);
+  assert(isOptionalNonNegAmount(raw.retirement_capital), 'Capital retraite invalide (nombre positif attendu).');
+  assert(isOptionalNonNegAmount(raw.disability_pension), 'Rente d’invalidité invalide (nombre positif attendu).');
+  assert(isOptionalNonNegAmount(raw.daily_allowance), 'Indemnité journalière invalide (nombre positif attendu).');
+  assert(
+    raw.waiting_period_days === undefined || raw.waiting_period_days === null ||
+      (Number.isInteger(raw.waiting_period_days) && raw.waiting_period_days >= 0),
+    'Délai d’attente invalide (entier non négatif attendu).'
+  );
+  assert(
+    raw.benefit_duration_days === undefined || raw.benefit_duration_days === null ||
+      (Number.isInteger(raw.benefit_duration_days) && raw.benefit_duration_days > 0),
+    'Durée de prestation invalide (entier strictement positif attendu).'
+  );
+}
+
+// Normalise le bloc `lpp_ijm` validé pour l'écriture en base.
+function normalizeLppIjm(raw) {
+  return {
+    product_type: raw.product_type ?? null,
+    institution_name: raw.institution_name === '' ? null : (raw.institution_name ?? null),
+    retirement_capital: raw.retirement_capital === undefined ? null : raw.retirement_capital,
+    disability_pension: raw.disability_pension === undefined ? null : raw.disability_pension,
+    daily_allowance: raw.daily_allowance === undefined ? null : raw.daily_allowance,
+    waiting_period_days: raw.waiting_period_days === undefined ? null : raw.waiting_period_days,
+    benefit_duration_days: raw.benefit_duration_days === undefined ? null : raw.benefit_duration_days,
+  };
+}
+
+// Crée, met à jour ou supprime la ligne contract_lpp_ijm selon lppIjmBody :
+// null → suppression ; objet → upsert (COALESCE/CASE WHEN conservent les
+// valeurs existantes pour les champs non fournis, permettant une mise à jour
+// partielle). Doit être appelée après validation et à l'intérieur d'une
+// transaction (relation stricte 1:1 par contract_id). La branche UPDATE
+// relit systématiquement la ligne persistée : `norm` contient des marqueurs
+// `null` pour les champs absents (utilisés par CASE WHEN pour ne pas les
+// modifier), qui ne représentent pas les vraies valeurs conservées en base.
+function writeLppIjm(contractId, lppIjmBody) {
+  const existing = db.prepare('SELECT * FROM contract_lpp_ijm WHERE contract_id = ?').get(contractId);
+  if (lppIjmBody === null) {
+    if (!existing) return null;
+    db.prepare('DELETE FROM contract_lpp_ijm WHERE contract_id = ?').run(contractId);
+    return { action: 'deleted' };
+  }
+  const norm = normalizeLppIjm(lppIjmBody);
+  if (existing) {
+    db.prepare(
+      `UPDATE contract_lpp_ijm SET
+        product_type = COALESCE(?, product_type),
+        institution_name = CASE WHEN ? THEN ? ELSE institution_name END,
+        retirement_capital = CASE WHEN ? THEN ? ELSE retirement_capital END,
+        disability_pension = CASE WHEN ? THEN ? ELSE disability_pension END,
+        daily_allowance = CASE WHEN ? THEN ? ELSE daily_allowance END,
+        waiting_period_days = CASE WHEN ? THEN ? ELSE waiting_period_days END,
+        benefit_duration_days = CASE WHEN ? THEN ? ELSE benefit_duration_days END,
+        updated_at = datetime('now')
+       WHERE contract_id = ?`
+    ).run(
+      norm.product_type,
+      'institution_name' in lppIjmBody ? 1 : 0, norm.institution_name,
+      'retirement_capital' in lppIjmBody ? 1 : 0, norm.retirement_capital,
+      'disability_pension' in lppIjmBody ? 1 : 0, norm.disability_pension,
+      'daily_allowance' in lppIjmBody ? 1 : 0, norm.daily_allowance,
+      'waiting_period_days' in lppIjmBody ? 1 : 0, norm.waiting_period_days,
+      'benefit_duration_days' in lppIjmBody ? 1 : 0, norm.benefit_duration_days,
+      contractId
+    );
+    const updated = db.prepare('SELECT * FROM contract_lpp_ijm WHERE contract_id = ?').get(contractId);
+    return { action: 'updated', data: updated };
+  }
+  db.prepare(
+    `INSERT INTO contract_lpp_ijm (
+      contract_id, product_type, institution_name, retirement_capital,
+      disability_pension, daily_allowance, waiting_period_days, benefit_duration_days
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    contractId, norm.product_type, norm.institution_name, norm.retirement_capital,
+    norm.disability_pension, norm.daily_allowance, norm.waiting_period_days, norm.benefit_duration_days
+  );
+  const created = db.prepare('SELECT * FROM contract_lpp_ijm WHERE contract_id = ?').get(contractId);
+  return { action: 'created', data: created };
+}
+
+function serializeLppIjm(row) {
+  if (row.lpp_ijm_product_type == null) return null;
+  return {
+    product_type: row.lpp_ijm_product_type,
+    institution_name: row.lpp_ijm_institution_name,
+    retirement_capital: row.lpp_ijm_retirement_capital,
+    disability_pension: row.lpp_ijm_disability_pension,
+    daily_allowance: row.lpp_ijm_daily_allowance,
+    waiting_period_days: row.lpp_ijm_waiting_period_days,
+    benefit_duration_days: row.lpp_ijm_benefit_duration_days,
+  };
+}
+
 function validateContract(data) {
   assert(inEnum(data.status, CONTRACT_STATUSES), 'Statut de contrat inconnu.');
   assert(inEnum(data.payment_frequency, FREQUENCIES), 'Fréquence de paiement inconnue.');
@@ -566,7 +698,11 @@ contractsRouter.get('/', (req, res) => {
       ip.disability_trigger_rate AS income_protection_disability_trigger_rate,
       ip.coordination_ai_lpp AS income_protection_coordination_ai_lpp,
       ip.premium_waiver AS income_protection_premium_waiver,
-      ip.exclusions_notes AS income_protection_exclusions_notes
+      ip.exclusions_notes AS income_protection_exclusions_notes,
+      lppi.product_type AS lpp_ijm_product_type, lppi.institution_name AS lpp_ijm_institution_name,
+      lppi.retirement_capital AS lpp_ijm_retirement_capital, lppi.disability_pension AS lpp_ijm_disability_pension,
+      lppi.daily_allowance AS lpp_ijm_daily_allowance, lppi.waiting_period_days AS lpp_ijm_waiting_period_days,
+      lppi.benefit_duration_days AS lpp_ijm_benefit_duration_days
     FROM contracts ct
     JOIN companies co ON co.id = ct.company_id
     JOIN clients cl ON cl.id = ct.client_id
@@ -574,6 +710,7 @@ contractsRouter.get('/', (req, res) => {
     LEFT JOIN contract_lca lca ON lca.contract_id = ct.id
     LEFT JOIN contract_life life ON life.contract_id = ct.id
     LEFT JOIN contract_income_protection ip ON ip.contract_id = ct.id
+    LEFT JOIN contract_lpp_ijm lppi ON lppi.contract_id = ct.id
     WHERE 1=1`;
   const params = [];
   if (client_id) { sql += ' AND ct.client_id = ?'; params.push(client_id); }
@@ -598,6 +735,8 @@ contractsRouter.get('/', (req, res) => {
         income_protection_benefit_type, income_protection_insured_amount, income_protection_waiting_period_days,
         income_protection_benefit_duration_months, income_protection_disability_trigger_rate,
         income_protection_coordination_ai_lpp, income_protection_premium_waiver, income_protection_exclusions_notes,
+        lpp_ijm_product_type, lpp_ijm_institution_name, lpp_ijm_retirement_capital, lpp_ijm_disability_pension,
+        lpp_ijm_daily_allowance, lpp_ijm_waiting_period_days, lpp_ijm_benefit_duration_days,
         ...rest
       } = r;
       return {
@@ -610,6 +749,7 @@ contractsRouter.get('/', (req, res) => {
         lca: serializeLca(r),
         life: serializeLife(r),
         income_protection: serializeIncomeProtection(r),
+        lpp_ijm: serializeLppIjm(r),
       };
     })
   );
@@ -667,6 +807,15 @@ contractsRouter.post('/', (req, res) => {
     validateIncomeProtectionInput(incomeProtectionBody);
   }
 
+  // Détails LPP/IJM optionnels : mêmes règles de présence/validation.
+  const lppIjmProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'lpp_ijm');
+  const lppIjmBody = lppIjmProvided ? req.body.lpp_ijm : undefined;
+  if (lppIjmProvided && lppIjmBody !== null) {
+    assert(LPP_IJM_COMPATIBLE_BRANCHES.includes(data.branch),
+      'Les détails LPP/IJM ne peuvent être associés qu’à une branche LPP.');
+    validateLppIjmInput(lppIjmBody);
+  }
+
   // Garde-fou conformité : pas de contrat actif sans mandat ni information LSA
   const warnings = [];
   if (!client.mandate_signed) warnings.push('Le mandat de courtage n’est pas signé.');
@@ -676,7 +825,7 @@ contractsRouter.post('/', (req, res) => {
   const premium = Number(data.annual_premium) || 0;
   const acqRate = Number(data.acq_commission_rate) || 0;
 
-  const { contractId, lamalResult, lcaResult, lifeResult, incomeProtectionResult } = db.transaction(() => {
+  const { contractId, lamalResult, lcaResult, lifeResult, incomeProtectionResult, lppIjmResult } = db.transaction(() => {
     const fields = Object.keys(data);
     const info = db
       .prepare(`INSERT INTO contracts (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
@@ -694,7 +843,11 @@ contractsRouter.post('/', (req, res) => {
     const life = lifeProvided && lifeBody !== null ? writeLife(id, lifeBody) : null;
     const incomeProtection = incomeProtectionProvided && incomeProtectionBody !== null
       ? writeIncomeProtection(id, incomeProtectionBody) : null;
-    return { contractId: id, lamalResult: lamal, lcaResult: lca, lifeResult: life, incomeProtectionResult: incomeProtection };
+    const lppIjm = lppIjmProvided && lppIjmBody !== null ? writeLppIjm(id, lppIjmBody) : null;
+    return {
+      contractId: id, lamalResult: lamal, lcaResult: lca, lifeResult: life,
+      incomeProtectionResult: incomeProtection, lppIjmResult: lppIjm,
+    };
   })();
   audit(req, 'création contrat', 'contract', contractId, `${data.branch} — client #${data.client_id}`);
   if (lamalResult?.action === 'created') {
@@ -709,6 +862,9 @@ contractsRouter.post('/', (req, res) => {
   if (incomeProtectionResult?.action === 'created') {
     audit(req, 'création détails incapacité de gain', 'contract', contractId,
       `type ${incomeProtectionResult.data.benefit_type}`);
+  }
+  if (lppIjmResult?.action === 'created') {
+    audit(req, 'création détails LPP/IJM', 'contract', contractId, `type ${lppIjmResult.data.product_type}`);
   }
   res.status(201).json({ id: contractId, warnings });
 });
@@ -733,9 +889,12 @@ contractsRouter.put('/:id', (req, res) => {
   const lifeBody = lifeProvided ? req.body.life : undefined;
   const incomeProtectionProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'income_protection');
   const incomeProtectionBody = incomeProtectionProvided ? req.body.income_protection : undefined;
+  const lppIjmProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'lpp_ijm');
+  const lppIjmBody = lppIjmProvided ? req.body.lpp_ijm : undefined;
 
   if (
-    Object.keys(data).length === 0 && !lamalProvided && !lcaProvided && !lifeProvided && !incomeProtectionProvided
+    Object.keys(data).length === 0 && !lamalProvided && !lcaProvided && !lifeProvided &&
+      !incomeProtectionProvided && !lppIjmProvided
   ) {
     return res.json({ ok: true });
   }
@@ -765,11 +924,17 @@ contractsRouter.put('/:id', (req, res) => {
       .prepare('SELECT contract_id FROM contract_income_protection WHERE contract_id = ?').get(contract.id);
     validateIncomeProtectionInput(incomeProtectionBody, { benefitTypeRequired: !existingIncomeProtectionRow });
   }
+  if (lppIjmProvided && lppIjmBody !== null) {
+    assert(LPP_IJM_COMPATIBLE_BRANCHES.includes(finalBranch),
+      'Les détails LPP/IJM ne peuvent être associés qu’à une branche LPP.');
+    const existingLppIjmRow = db.prepare('SELECT contract_id FROM contract_lpp_ijm WHERE contract_id = ?').get(contract.id);
+    validateLppIjmInput(lppIjmBody, { productTypeRequired: !existingLppIjmRow });
+  }
 
   // Changement de branche vers une branche incompatible alors qu'une ligne
-  // contract_lamal, contract_lca, contract_life ou contract_income_protection
-  // existe déjà : refusé, sauf suppression explicite du bloc concerné dans
-  // la même requête (…: null).
+  // contract_lamal, contract_lca, contract_life, contract_income_protection
+  // ou contract_lpp_ijm existe déjà : refusé, sauf suppression explicite du
+  // bloc concerné dans la même requête (…: null).
   if ('branch' in data && !LAMAL_COMPATIBLE_BRANCHES.includes(finalBranch)) {
     const existingLamal = db.prepare('SELECT contract_id FROM contract_lamal WHERE contract_id = ?').get(contract.id);
     const explicitlyCleared = lamalProvided && lamalBody === null;
@@ -807,9 +972,18 @@ contractsRouter.put('/:id', (req, res) => {
       });
     }
   }
+  if ('branch' in data && !LPP_IJM_COMPATIBLE_BRANCHES.includes(finalBranch)) {
+    const existingLppIjm = db.prepare('SELECT contract_id FROM contract_lpp_ijm WHERE contract_id = ?').get(contract.id);
+    const explicitlyCleared = lppIjmProvided && lppIjmBody === null;
+    if (existingLppIjm && !explicitlyCleared) {
+      return res.status(400).json({
+        error: 'Ce contrat a des détails LPP/IJM enregistrés ; supprimez-les explicitement (lpp_ijm: null) avant de changer de branche.',
+      });
+    }
+  }
 
   const fields = Object.keys(data);
-  const { lamalResult, lcaResult, lifeResult, incomeProtectionResult } = db.transaction(() => {
+  const { lamalResult, lcaResult, lifeResult, incomeProtectionResult, lppIjmResult } = db.transaction(() => {
     if (fields.length > 0) {
       db.prepare(
         `UPDATE contracts SET ${fields.map((f) => `${f} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`
@@ -821,6 +995,7 @@ contractsRouter.put('/:id', (req, res) => {
       lifeResult: lifeProvided ? writeLife(contract.id, lifeBody) : null,
       incomeProtectionResult: incomeProtectionProvided
         ? writeIncomeProtection(contract.id, incomeProtectionBody) : null,
+      lppIjmResult: lppIjmProvided ? writeLppIjm(contract.id, lppIjmBody) : null,
     };
   })();
 
@@ -854,6 +1029,13 @@ contractsRouter.put('/:id', (req, res) => {
       `type ${incomeProtectionResult.data.benefit_type}`);
   } else if (incomeProtectionResult?.action === 'deleted') {
     audit(req, 'suppression détails incapacité de gain', 'contract', contract.id);
+  }
+  if (lppIjmResult?.action === 'created') {
+    audit(req, 'création détails LPP/IJM', 'contract', contract.id, `type ${lppIjmResult.data.product_type}`);
+  } else if (lppIjmResult?.action === 'updated') {
+    audit(req, 'modification détails LPP/IJM', 'contract', contract.id, `type ${lppIjmResult.data.product_type}`);
+  } else if (lppIjmResult?.action === 'deleted') {
+    audit(req, 'suppression détails LPP/IJM', 'contract', contract.id);
   }
   res.json({ ok: true });
 });
