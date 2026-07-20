@@ -185,10 +185,14 @@ par un humain, hors périmètre de ce document technique.)*
 
 **Objectif** : modèle métier « Assurance Suisse » — schéma relationnel pour les
 détails spécialisés par branche de contrat (LAMal, LCA, assurance vie,
-incapacité de gain privée, LPP/IJM), développé sur la branche de travail
-`feature/marketing-ai-90-days` et couvert par une suite de tests automatisés
-(`test/migrations.test.js`, `test/api.test.js`), **non fusionné dans la
-branche de production** (`claude/insurance-broker-crm-exx09v`) à ce jour. La numérotation
+incapacité de gain privée, LPP/IJM), développé initialement sur la branche de
+travail `feature/marketing-ai-90-days` (Lots A à G3), désormais poursuivi sur
+la branche de travail dédiée `feature/swiss-insurance-crm` (créée depuis le
+commit `8ff16ee3241554e1f402d46732e9ad09f066d5b7`, qui partage donc
+l'historique antérieur de `feature/marketing-ai-90-days` — voir `CLAUDE.md`
+§1), et couvert par une suite de tests automatisés (`test/migrations.test.js`,
+`test/api.test.js`), **non fusionné dans la branche de production**
+(`claude/insurance-broker-crm-exx09v`) à ce jour. La numérotation
 saute volontairement de 6 à 8 : la version 7 reste réservée au Bloc 4
 partenaires (`feature/lead-generation-engine`, non fusionné), conformément à
 `PROJECT_HANDOFF.md` §10 et `CLAUDE.md` §6.
@@ -230,8 +234,9 @@ contrat elles-mêmes (colonnes non exploitées par l'API).
 
 **Précautions avant déploiement** : sauvegarde préalable obligatoire si des
 détails spécialisés ont déjà été saisis ; cette migration n'a, à ce jour,
-jamais été exécutée sur la base de production (le code correspondant vit
-uniquement sur `feature/marketing-ai-90-days`).
+jamais été exécutée sur la base de production (le code correspondant vit sur
+la branche de travail `feature/swiss-insurance-crm`, dont l'historique
+antérieur est partagé avec `feature/marketing-ai-90-days`).
 
 *(Statut : structure des 8 tables et des 3 colonnes confirmée dans le code —
 `server/db.js`, bloc `if (version < 8)`. Le support CRUD complet côté API

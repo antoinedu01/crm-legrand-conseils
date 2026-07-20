@@ -3,9 +3,14 @@
 Référence technique du support backend des détails spécialisés par branche de
 contrat (LAMal, LCA, assurance vie, incapacité de gain privée, LPP/IJM).
 
-> **Portée.** Ce module vit exclusivement sur la branche de travail
-> `feature/marketing-ai-90-days` et **n'est pas fusionné dans la branche de
-> production** (`claude/insurance-broker-crm-exx09v`) à la date de rédaction.
+> **Portée.** La branche de travail actuelle de ce module est
+> `feature/swiss-insurance-crm`, créée depuis le commit
+> `8ff16ee3241554e1f402d46732e9ad09f066d5b7` (Lots A à G3, puis Lot H0 de
+> gouvernance) ; elle partage donc l'historique antérieur de
+> `feature/marketing-ai-90-days`, qui reste réservée au marketing et ne
+> reçoit plus de nouveau développement CRM (voir `CLAUDE.md` §1). Ce module
+> **n'est pas fusionné dans la branche de production**
+> (`claude/insurance-broker-crm-exx09v`) à la date de rédaction.
 > Il n'existe aucune interface (frontend) associée : ce document décrit
 > uniquement l'API backend (`server/routes/contracts.js`) et le schéma
 > (`server/db.js`, migration version 8 — voir
