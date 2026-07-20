@@ -2059,3 +2059,279 @@ test('LAMal/LCA — G1 : la coercition de type reste rejetée en PUT sur un cont
   const lcaRow = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === lcaContract.body.id);
   assert.equal(lcaRow.lca.waiting_period_days, 10, 'la valeur existante ne doit pas être altérée après rejet');
 });
+
+// --- Lot G2 : complément de couverture ------------------------------------
+
+test('LAMal — les entrées d’audit création/modification/suppression sont journalisées', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Audit', last_name: 'Lamal', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+
+  const updated = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lamal: { care_model: 'hmo', deductible: 500, accident_coverage: true } });
+  assert.equal(updated.status, 200);
+
+  const deleted = await auth(request(app).put(`/api/contracts/${id}`)).send({ lamal: null });
+  assert.equal(deleted.status, 200);
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=détails LAMal'));
+  assert.equal(log.status, 200);
+  assert.ok(
+    log.body.find((l) => l.entity_id === id && l.action === 'création détails LAMal'),
+    'une entrée « création détails LAMal » doit exister pour ce contrat'
+  );
+  assert.ok(
+    log.body.find((l) => l.entity_id === id && l.action === 'modification détails LAMal'),
+    'une entrée « modification détails LAMal » doit exister pour ce contrat'
+  );
+  assert.ok(
+    log.body.find((l) => l.entity_id === id && l.action === 'suppression détails LAMal'),
+    'une entrée « suppression détails LAMal » doit exister pour ce contrat'
+  );
+  // Aucune donnée médicale ni texte libre sensible n'est journalisée : le
+  // schéma contract_lamal ne comporte aucun champ de cette nature.
+});
+
+test('LAMal — création d’un contrat avec lamal: null explicite (comportement actuel : aucune ligne créée)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'NullCreate', last_name: 'Lamal', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: null,
+  });
+  assert.equal(res.status, 201, 'lamal: null explicite à la création ne doit pas provoquer d’erreur');
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === res.body.id);
+  assert.equal(row.lamal, null, 'aucune ligne contract_lamal ne doit être créée');
+});
+
+test('LAMal — lamal: null en mise à jour : audit de suppression, commissions et contrat générique préservés', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'NullUpdate', last_name: 'Lamal', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    acq_commission_rate: 4, status: 'actif',
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+
+  const commissionsBefore = await auth(request(app).get('/api/commissions'));
+  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.ok(acqBefore, 'commission d’acquisition générée à la création');
+
+  const del = await auth(request(app).put(`/api/contracts/${id}`)).send({ lamal: null });
+  assert.equal(del.status, 200);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lamal, null, 'le bloc LAMal doit être supprimé');
+  assert.equal(row.branch, 'lamal', 'le contrat générique doit rester présent');
+  assert.equal(row.annual_premium, 3000, 'le contrat générique ne doit pas être altéré');
+
+  const commissionsAfter = await auth(request(app).get('/api/commissions'));
+  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.ok(acqAfter, 'la commission existante doit toujours exister');
+  assert.equal(acqAfter.amount, acqBefore.amount, 'la commission ne doit pas être altérée');
+  assert.equal(acqAfter.status, acqBefore.status);
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=suppression détails LAMal'));
+  assert.ok(
+    log.body.find((l) => l.entity_id === id && l.action === 'suppression détails LAMal'),
+    'l’audit de suppression des détails LAMal doit être créé'
+  );
+});
+
+test('LAMal — rejet d’un PUT partiel (care_model ou deductible manquant), sans altération', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'PartialReject', last_name: 'Lamal', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    acq_commission_rate: 4, status: 'actif',
+    lamal: { care_model: 'standard', deductible: 300, canton: 'VD' },
+  });
+  const id = created.body.id;
+
+  const commissionsBefore = await auth(request(app).get('/api/commissions'));
+  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+
+  const missingCareModel = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lamal: { deductible: 500 } });
+  assert.equal(missingCareModel.status, 400, 'un objet LAMal sans care_model doit être rejeté (pas de mise à jour partielle)');
+
+  const missingDeductible = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lamal: { care_model: 'hmo' } });
+  assert.equal(missingDeductible.status, 400, 'un objet LAMal sans deductible doit être rejeté (pas de mise à jour partielle)');
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lamal.care_model, 'standard', 'les détails LAMal existants ne doivent pas être altérés');
+  assert.equal(row.lamal.deductible, 300);
+  assert.equal(row.lamal.canton, 'VD');
+  assert.equal(row.annual_premium, 3000, 'le contrat générique ne doit pas être altéré');
+
+  const commissionsAfter = await auth(request(app).get('/api/commissions'));
+  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas être altérées');
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails LAMal'));
+  assert.ok(
+    !log.body.find((l) => l.entity_id === id && l.action === 'modification détails LAMal'),
+    'aucune entrée d’audit de modification LAMal ne doit être créée après un rejet'
+  );
+});
+
+test('LAMal — rollback logique d’un PUT combinant champ générique valide et bloc LAMal invalide', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'LamalGeneric', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    acq_commission_rate: 4, status: 'actif',
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  const id = created.body.id;
+
+  const commissionsBefore = await auth(request(app).get('/api/commissions'));
+  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+
+  const res = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ notes: 'note générique modifiée', lamal: { care_model: 'invalide', deductible: 300 } });
+  assert.equal(res.status, 400, 'la requête combinée doit être rejetée dans son ensemble');
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.notEqual(row.notes, 'note générique modifiée', 'le champ générique ne doit pas avoir changé');
+  assert.equal(row.lamal.care_model, 'standard', 'le bloc LAMal ne doit pas avoir changé');
+  assert.equal(row.lamal.deductible, 300);
+
+  const commissionsAfter = await auth(request(app).get('/api/commissions'));
+  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas avoir changé');
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification'));
+  assert.ok(
+    !log.body.find((l) => l.entity_id === id && (l.action === 'modification contrat' || l.action === 'modification détails LAMal')),
+    'aucune entrée d’audit de modification ne doit être créée après un rejet atomique'
+  );
+});
+
+test('LAMal — rejet d’un tariff_region dépassant 20 caractères', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'TooLong', last_name: 'Lamal', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300, tariff_region: 'x'.repeat(21) },
+  });
+  assert.equal(res.status, 400, 'tariff_region de 21 caractères doit être rejeté (limite = 20)');
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat ne doit être créé si tariff_region dépasse la limite');
+});
+
+test('Vie — rejet de component_type: null en PUT sur une ligne existante, sans altération', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'PutNull', last_name: 'Vie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    acq_commission_rate: 5, status: 'actif',
+    life: { component_type: 'mixte', insured_death_capital: 50000 },
+  });
+  const id = created.body.id;
+
+  const commissionsBefore = await auth(request(app).get('/api/commissions'));
+  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+
+  const res = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ life: { component_type: null } });
+  assert.equal(res.status, 400, 'component_type: null doit être rejeté en PUT');
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.life.component_type, 'mixte', 'la ligne vie ne doit pas être altérée');
+  assert.equal(row.life.insured_death_capital, 50000);
+  assert.equal(row.annual_premium, 2400, 'le contrat générique ne doit pas être altéré');
+
+  const commissionsAfter = await auth(request(app).get('/api/commissions'));
+  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas être altérées');
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails vie'));
+  assert.ok(
+    !log.body.find((l) => l.entity_id === id && l.action === 'modification détails vie'),
+    'aucune entrée d’audit de modification vie ne doit être créée après un rejet'
+  );
+});
+
+test('Vie — rejet d’une valeur non booléenne invalide pour premium_waiver', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'BadBool', last_name: 'Vie', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte', premium_waiver: 'oui' },
+  });
+  assert.equal(res.status, 400, 'premium_waiver="oui" doit être rejeté (booléen strict attendu)');
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat ne doit être créé si premium_waiver est invalide');
+});
+
+test('Incapacité — rejet de benefit_type: null en PUT sur une ligne existante, sans altération', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'PutNull', last_name: 'Incap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    acq_commission_rate: 5, status: 'actif',
+    income_protection: { benefit_type: 'rente', insured_amount: 60000 },
+  });
+  const id = created.body.id;
+
+  const commissionsBefore = await auth(request(app).get('/api/commissions'));
+  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+
+  const res = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ income_protection: { benefit_type: null } });
+  assert.equal(res.status, 400, 'benefit_type: null doit être rejeté en PUT');
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.income_protection.benefit_type, 'rente', 'la ligne incapacité ne doit pas être altérée');
+  assert.equal(row.income_protection.insured_amount, 60000);
+  assert.equal(row.annual_premium, 1500, 'le contrat générique ne doit pas être altéré');
+
+  const commissionsAfter = await auth(request(app).get('/api/commissions'));
+  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
+  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas être altérées');
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails incapacité'));
+  assert.ok(
+    !log.body.find((l) => l.entity_id === id && l.action === 'modification détails incapacité de gain'),
+    'aucune entrée d’audit de modification incapacité ne doit être créée après un rejet'
+  );
+});
+
+test('Incapacité — rejet de valeurs non booléennes invalides pour coordination_ai_lpp et premium_waiver', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'BadBool', last_name: 'Incap', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500 };
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+
+  const badCoordination = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', coordination_ai_lpp: 'oui' } });
+  assert.equal(badCoordination.status, 400, 'coordination_ai_lpp="oui" doit être rejeté (booléen strict attendu)');
+
+  const badPremiumWaiver = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', premium_waiver: 'oui' } });
+  assert.equal(badPremiumWaiver.status, 400, 'premium_waiver="oui" doit être rejeté (booléen strict attendu)');
+
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat ne doit être créé si coordination_ai_lpp/premium_waiver est invalide');
+});
