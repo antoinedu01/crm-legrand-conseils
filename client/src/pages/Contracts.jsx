@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
 import { BRANCHES, CONTRACT_STATUS, PAYMENT_FREQUENCIES, fmtCHF } from '../labels.js';
+import { buildGenericContractPayload, hasAnySpecializedBlock } from '../components/contracts/contractPayload.js';
 
 export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   const [clients, setClients] = useState([]);
@@ -15,6 +16,8 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     ...initial,
   });
   const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const branchLocked = !!initial?.id && hasAnySpecializedBlock(initial);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   useEffect(() => {
@@ -36,17 +39,22 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
 
   async function submit(e) {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
+      const payload = buildGenericContractPayload(form);
       if (initial?.id) {
-        await api.put(`/api/contracts/${initial.id}`, form);
+        await api.put(`/api/contracts/${initial.id}`, payload);
         onSaved([]);
       } else {
-        const res = await api.post('/api/contracts', form);
+        const res = await api.post('/api/contracts', payload);
         onSaved(res.warnings || []);
       }
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -55,7 +63,7 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   const rec = (premium * (Number(form.rec_commission_rate) || 0)) / 100;
 
   return (
-    <Modal title={initial?.id ? 'Modifier le contrat' : 'Nouveau contrat'} onClose={onClose} wide>
+    <Modal title={initial?.id ? 'Modifier le contrat' : 'Nouveau contrat'} onClose={submitting ? () => {} : onClose} wide>
       {error && <div className="alert error">{error}</div>}
       <form onSubmit={submit}>
         <div className="form-grid">
@@ -72,9 +80,12 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             </select>
           </Field>
           <Field label="Branche">
-            <select value={form.branch} onChange={set('branch')}>
+            <select value={form.branch} onChange={set('branch')} disabled={branchLocked}>
               {Object.entries(BRANCHES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
+            {branchLocked && (
+              <small className="muted">La branche ne peut pas être modifiée tant que les détails spécialisés existent.</small>
+            )}
           </Field>
           <Field label="Statut">
             <select value={form.status} onChange={set('status')}>
@@ -119,8 +130,8 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
           </div>
         )}
         <div className="actions">
-          <button type="button" onClick={onClose}>Annuler</button>
-          <button className="primary">Enregistrer</button>
+          <button type="button" onClick={onClose} disabled={submitting}>Annuler</button>
+          <button className="primary" disabled={submitting}>{submitting ? 'Enregistrement…' : 'Enregistrer'}</button>
         </div>
       </form>
     </Modal>
