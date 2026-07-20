@@ -1076,3 +1076,419 @@ test('Vie — les entrées d’audit création/modification/suppression sont jou
   assert.ok(log.body.some((l) => l.action === 'modification détails vie'));
   assert.ok(log.body.some((l) => l.action === 'suppression détails vie'));
 });
+
+test('Incapacité — création sans bloc income_protection, puis avec détails valides, et lecture', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Chloe', last_name: 'Incap', status: 'client',
+  });
+
+  const noIp = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 800,
+  });
+  assert.equal(noIp.status, 201);
+  let list = await auth(request(app).get('/api/contracts'));
+  assert.equal(list.body.find((c) => c.id === noIp.body.id).income_protection, null);
+
+  const withIp = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: {
+      benefit_type: 'indemnite_journaliere', insured_amount: 200, waiting_period_days: 30,
+      benefit_duration_months: 24, disability_trigger_rate: 25, coordination_ai_lpp: true,
+      premium_waiver: true, exclusions_notes: 'dos, suivi médical en cours',
+    },
+  });
+  assert.equal(withIp.status, 201);
+  list = await auth(request(app).get('/api/contracts'));
+  assert.deepEqual(list.body.find((c) => c.id === withIp.body.id).income_protection, {
+    benefit_type: 'indemnite_journaliere', insured_amount: 200, waiting_period_days: 30,
+    benefit_duration_months: 24, disability_trigger_rate: 25, coordination_ai_lpp: true,
+    premium_waiver: true, exclusions_notes: 'dos, suivi médical en cours',
+  });
+});
+
+test('Incapacité — les validations rejettent enum, type, borne, texte trop long et branche invalides', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Val', last_name: 'Incap', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500 };
+
+  const badEnum = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'inexistant' } });
+  assert.equal(badEnum.status, 400);
+
+  const badType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', insured_amount: 'abc' } });
+  assert.equal(badType.status, 400);
+
+  const numericString = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', insured_amount: '1000' } });
+  assert.equal(numericString.status, 400, 'une chaîne numérique ne doit pas être coercée silencieusement');
+
+  const negativeAmount = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', insured_amount: -100 } });
+  assert.equal(negativeAmount.status, 400);
+
+  const negativeRate = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', disability_trigger_rate: -1 } });
+  assert.equal(negativeRate.status, 400);
+
+  const rateTooHigh = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', disability_trigger_rate: 101 } });
+  assert.equal(rateTooHigh.status, 400, 'disability_trigger_rate doit rester entre 0 et 100');
+
+  const nonIntegerWaiting = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', waiting_period_days: 5.5 } });
+  assert.equal(nonIntegerWaiting.status, 400, 'waiting_period_days doit être un entier');
+
+  const zeroDuration = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', benefit_duration_months: 0 } });
+  assert.equal(zeroDuration.status, 400, 'benefit_duration_months doit être strictement positif');
+
+  const tooLong = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', exclusions_notes: 'x'.repeat(201) } });
+  assert.equal(tooLong.status, 400);
+
+  const wrongBranch = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+  });
+  assert.equal(wrongBranch.status, 400);
+});
+
+// contract_income_protection ne comporte aucun champ date métier (seuls
+// created_at/updated_at techniques) : le scénario générique « date invalide »
+// ne s'applique donc pas à ce bloc et n'est pas dupliqué ici.
+
+test('Incapacité — null explicite est rejeté sur les champs non nullable', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Null', last_name: 'Incap', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500 };
+
+  const nullBenefitType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: null } });
+  assert.equal(nullBenefitType.status, 400);
+
+  const nullCoordination = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', coordination_ai_lpp: null } });
+  assert.equal(nullCoordination.status, 400);
+
+  const nullPremiumWaiver = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, income_protection: { benefit_type: 'rente', premium_waiver: null } });
+  assert.equal(nullPremiumWaiver.status, 400);
+});
+
+test('Incapacité — rollback complet : aucun contrat créé si le bloc income_protection est invalide', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'Incap', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'invalide' },
+  });
+  assert.equal(res.status, 400);
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat créé si le bloc income_protection est invalide');
+});
+
+test('Incapacité — rollback : une mise à jour invalide n’altère pas les détails existants', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'UpdateIncap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente', insured_amount: 60000, disability_trigger_rate: 40 },
+  });
+  const id = created.body.id;
+
+  const bad = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ income_protection: { benefit_type: 'invalide' } });
+  assert.equal(bad.status, 400);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.income_protection.benefit_type, 'rente', 'les détails existants ne doivent pas être altérés');
+  assert.equal(row.income_protection.insured_amount, 60000);
+  assert.equal(row.income_protection.disability_trigger_rate, 40);
+});
+
+test('Incapacité — mise à jour crée puis modifie partiellement les détails ; changement de branche encadré', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Update', last_name: 'Incap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+  });
+  const id = created.body.id;
+
+  const createDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ income_protection: { benefit_type: 'capital', insured_amount: 50000 } });
+  assert.equal(createDetails.status, 200);
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.income_protection.benefit_type, 'capital');
+  assert.equal(row.income_protection.insured_amount, 50000);
+  assert.equal(row.income_protection.coordination_ai_lpp, false, 'valeur par défaut SQL appliquée aux champs non fournis');
+  assert.equal(row.income_protection.premium_waiver, false, 'valeur par défaut SQL appliquée aux champs non fournis');
+
+  // Mise à jour partielle : seul disability_trigger_rate est fourni, le
+  // reste (dont insured_amount déjà enregistré) doit rester inchangé.
+  const partialUpdate = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ income_protection: { disability_trigger_rate: 33 } });
+  assert.equal(partialUpdate.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.income_protection.disability_trigger_rate, 33);
+  assert.equal(row.income_protection.benefit_type, 'capital', 'champ non fourni conservé par la mise à jour partielle');
+  assert.equal(row.income_protection.insured_amount, 50000, 'champ non fourni conservé par la mise à jour partielle');
+
+  const blocked = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'lca' });
+  assert.equal(blocked.status, 400);
+
+  const allowed = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ branch: 'lca', income_protection: null });
+  assert.equal(allowed.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.branch, 'lca');
+  assert.equal(row.income_protection, null);
+});
+
+test('Incapacité — suppression explicite des détails via income_protection: null', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Suppr', last_name: 'Incap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+  });
+  const del = await auth(request(app).put(`/api/contracts/${created.body.id}`))
+    .send({ income_protection: null });
+  assert.equal(del.status, 200);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.income_protection, null);
+});
+
+test('Incapacité — la suppression du contrat supprime automatiquement contract_income_protection (CASCADE)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Cascade', last_name: 'Incap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+  });
+  const del = await auth(request(app).delete(`/api/contracts/${created.body.id}`));
+  assert.equal(del.status, 200);
+  const list = await auth(request(app).get('/api/contracts'));
+  assert.ok(!list.body.find((c) => c.id === created.body.id), 'le contrat a bien été supprimé');
+});
+
+test('Incapacité — coexistence avec LAMal, LCA et vie sans régression, et refus de blocs combinés incohérents', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Coexist', last_name: 'Incap', status: 'client',
+  });
+
+  const ipContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente', insured_amount: 60000 },
+  });
+  assert.equal(ipContract.status, 201);
+
+  const lamalContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(lamalContract.status, 201);
+
+  const lcaContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(lcaContract.status, 201);
+
+  const lifeContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(lifeContract.status, 201);
+
+  const list = await auth(request(app).get('/api/contracts'));
+  const ipRow = list.body.find((c) => c.id === ipContract.body.id);
+  const lamalRow = list.body.find((c) => c.id === lamalContract.body.id);
+  const lcaRow = list.body.find((c) => c.id === lcaContract.body.id);
+  const lifeRow = list.body.find((c) => c.id === lifeContract.body.id);
+  assert.ok(ipRow.income_protection, 'le contrat incapacité conserve ses détails');
+  assert.equal(ipRow.lamal, null);
+  assert.equal(ipRow.lca, null);
+  assert.equal(ipRow.life, null);
+  assert.ok(lamalRow.lamal, 'le contrat LAMal conserve ses détails, non affecté par le support incapacité');
+  assert.equal(lamalRow.income_protection, null);
+  assert.ok(lcaRow.lca, 'le contrat LCA conserve ses détails, non affecté par le support incapacité');
+  assert.equal(lcaRow.income_protection, null);
+  assert.ok(lifeRow.life, 'le contrat vie conserve ses détails, non affecté par le support incapacité');
+  assert.equal(lifeRow.income_protection, null);
+
+  // Une même requête combinant income_protection et lamal/lca/life non nuls
+  // est refusée quelle que soit la branche : aucune branche n'est jamais
+  // compatible avec deux blocs spécialisés à la fois.
+  const combinedWithLamal = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(combinedWithLamal.status, 400);
+
+  const combinedWithLca = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(combinedWithLca.status, 400);
+
+  const combinedWithLife = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(combinedWithLife.status, 400);
+});
+
+test('Incapacité — non-régression de la génération de commission sur un contrat enrichi', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Commission', last_name: 'Incap', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    acq_commission_rate: 5, status: 'actif',
+    income_protection: { benefit_type: 'rente' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat incapacité enrichi');
+  assert.equal(acq.amount, 75);
+});
+
+test('Incapacité — les entrées d’audit création/modification/suppression sont journalisées', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Audit', last_name: 'Incap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente' },
+  });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`))
+    .send({ income_protection: { benefit_type: 'capital' } });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ income_protection: null });
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=détails incapacité'));
+  assert.equal(log.status, 200);
+  assert.ok(log.body.some((l) => l.action === 'création détails incapacité de gain'));
+  assert.ok(log.body.some((l) => l.action === 'modification détails incapacité de gain'));
+  assert.ok(log.body.some((l) => l.action === 'suppression détails incapacité de gain'));
+});
+
+// Correction : une mise à jour partielle qui omet le champ enum non nullable
+// utilisé dans le message d'audit (underwriting_status / component_type /
+// benefit_type) ne doit jamais produire une entrée d'audit affichant "null"
+// pour ce champ — la ligne relue en base après l'UPDATE doit refléter la
+// vraie valeur conservée par COALESCE, pas le marqueur interne de writeLca/
+// writeLife/writeIncomeProtection. Vérifie aussi qu'un champ nullable
+// explicitement mis à null continue de l'être réellement en base.
+
+test('LCA — correction audit : une mise à jour partielle sans underwriting_status conserve la vraie valeur (pas de « statut null »)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Correction', last_name: 'Lca', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee', reservation_notes: 'genou droit' },
+  });
+  const id = created.body.id;
+
+  // Mise à jour partielle omettant underwriting_status : la vraie valeur
+  // doit être conservée en base ET reflétée dans l'audit.
+  const partial = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { reservation_notes: 'genou droit, opéré' } });
+  assert.equal(partial.status, 200);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'acceptee', 'champ non fourni conservé en base');
+  assert.equal(row.lca.reservation_notes, 'genou droit, opéré');
+
+  const log = await auth(request(app).get(`/api/compliance/audit-log?q=modification détails LCA`));
+  const entry = log.body.find((l) => l.entity_id === id && l.action === 'modification détails LCA');
+  assert.ok(entry, 'une entrée d’audit de modification doit exister');
+  assert.equal(entry.details, 'statut acceptee', 'l’audit doit refléter la vraie valeur, jamais « statut null »');
+  assert.ok(!String(entry.details).includes('null'), 'l’audit ne doit jamais contenir « null »');
+
+  // Champ nullable explicitement mis à null : doit continuer à être
+  // réellement effacé en base (distinct de « absent »).
+  const clearNullable = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { reservation_notes: null } });
+  assert.equal(clearNullable.status, 200);
+  const rowAfterClear = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(rowAfterClear.lca.reservation_notes, null, 'un champ nullable explicitement mis à null doit rester null');
+  assert.equal(rowAfterClear.lca.underwriting_status, 'acceptee', 'les autres champs non fournis restent inchangés');
+});
+
+test('Vie — correction audit : une mise à jour partielle sans component_type conserve la vraie valeur (pas de « composante null »)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Correction', last_name: 'Vie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte', insured_rent: 500 },
+  });
+  const id = created.body.id;
+
+  const partial = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ life: { surrender_value: 1000 } });
+  assert.equal(partial.status, 200);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.life.component_type, 'mixte', 'champ non fourni conservé en base');
+  assert.equal(row.life.surrender_value, 1000);
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails vie'));
+  const entry = log.body.find((l) => l.entity_id === id && l.action === 'modification détails vie');
+  assert.ok(entry, 'une entrée d’audit de modification doit exister');
+  assert.equal(entry.details, 'composante mixte', 'l’audit doit refléter la vraie valeur, jamais « composante null »');
+  assert.ok(!String(entry.details).includes('null'), 'l’audit ne doit jamais contenir « null »');
+
+  const clearNullable = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ life: { insured_rent: null } });
+  assert.equal(clearNullable.status, 200);
+  const rowAfterClear = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(rowAfterClear.life.insured_rent, null, 'un champ nullable explicitement mis à null doit rester null');
+  assert.equal(rowAfterClear.life.component_type, 'mixte', 'les autres champs non fournis restent inchangés');
+});
+
+test('Incapacité — correction audit : une mise à jour partielle sans benefit_type conserve la vraie valeur (pas de « type null »)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Correction', last_name: 'Incap', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    income_protection: { benefit_type: 'rente', insured_amount: 60000 },
+  });
+  const id = created.body.id;
+
+  const partial = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ income_protection: { disability_trigger_rate: 40 } });
+  assert.equal(partial.status, 200);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.income_protection.benefit_type, 'rente', 'champ non fourni conservé en base');
+  assert.equal(row.income_protection.disability_trigger_rate, 40);
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails incapacité'));
+  const entry = log.body.find((l) => l.entity_id === id && l.action === 'modification détails incapacité de gain');
+  assert.ok(entry, 'une entrée d’audit de modification doit exister');
+  assert.equal(entry.details, 'type rente', 'l’audit doit refléter la vraie valeur, jamais « type null »');
+  assert.ok(!String(entry.details).includes('null'), 'l’audit ne doit jamais contenir « null »');
+
+  const clearNullable = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ income_protection: { insured_amount: null } });
+  assert.equal(clearNullable.status, 200);
+  const rowAfterClear = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(rowAfterClear.income_protection.insured_amount, null, 'un champ nullable explicitement mis à null doit rester null');
+  assert.equal(rowAfterClear.income_protection.benefit_type, 'rente', 'les autres champs non fournis restent inchangés');
+});

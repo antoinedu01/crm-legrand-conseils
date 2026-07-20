@@ -191,7 +191,12 @@ function writeLca(contractId, lcaBody) {
       'exclusions_notes' in lcaBody ? 1 : 0, norm.exclusions_notes,
       contractId
     );
-    return { action: 'updated', data: { ...existing, ...norm } };
+    // Relecture de la ligne réellement persistée : `norm` contient des
+    // marqueurs `null` pour les champs absents (utilisés par CASE WHEN pour
+    // ne pas les modifier), qui ne représentent pas les vraies valeurs
+    // conservées en base — { ...existing, ...norm } les écraserait à tort.
+    const updated = db.prepare('SELECT * FROM contract_lca WHERE contract_id = ?').get(contractId);
+    return { action: 'updated', data: updated };
   }
   db.prepare(
     `INSERT INTO contract_lca (
@@ -328,7 +333,12 @@ function writeLife(contractId, lifeBody) {
       'policy_term_years' in lifeBody ? 1 : 0, norm.policy_term_years,
       contractId
     );
-    return { action: 'updated', data: { ...existing, ...norm } };
+    // Relecture de la ligne réellement persistée : `norm` contient des
+    // marqueurs `null` pour les champs absents (utilisés par CASE WHEN pour
+    // ne pas les modifier), qui ne représentent pas les vraies valeurs
+    // conservées en base — { ...existing, ...norm } les écraserait à tort.
+    const updated = db.prepare('SELECT * FROM contract_life WHERE contract_id = ?').get(contractId);
+    return { action: 'updated', data: updated };
   }
   db.prepare(
     `INSERT INTO contract_life (
@@ -354,6 +364,155 @@ function serializeLife(row) {
     premium_waiver: Boolean(row.life_premium_waiver),
     indexation_type: row.life_indexation_type,
     policy_term_years: row.life_policy_term_years,
+  };
+}
+
+// --- Détails incapacité de gain (contract_income_protection, migration v8) ---
+
+// Seule branche compatible avec des détails incapacité de gain, déterminée à
+// partir de BRANCHES ci-dessus. Disjointe de LAMAL_COMPATIBLE_BRANCHES,
+// LCA_COMPATIBLE_BRANCHES et LIFE_COMPATIBLE_BRANCHES, ce qui rejette
+// naturellement toute combinaison de blocs spécialisés incompatible avec la
+// branche finale.
+const INCOME_PROTECTION_COMPATIBLE_BRANCHES = ['incapacite'];
+
+// `indemnite_journaliere` désigne ici uniquement une prestation privée
+// relevant du contrat d'incapacité de gain individuel : aucune logique IJM
+// collective, employeur ou LPP n'est portée par cette énumération —
+// contract_lpp_ijm reste entièrement hors périmètre de ce bloc.
+const BENEFIT_TYPES = ['rente', 'indemnite_journaliere', 'capital', 'autre'];
+
+// Valide le bloc `income_protection` brut de la requête (avant
+// normalisation). Aucune donnée médicale, aucun diagnostic, aucune
+// pathologie, aucun contenu de questionnaire de santé : ce bloc ne porte que
+// des paramètres contractuels et un texte administratif court.
+//
+// `benefit_type` est NOT NULL sans valeur par défaut SQL, comme
+// `component_type` pour la vie : obligatoire à la création (aucune ligne
+// contract_income_protection existante), optionnel lors d'une mise à jour
+// partielle d'une ligne déjà existante (COALESCE conserve la valeur
+// existante). `benefitTypeRequired` doit être positionné par l'appelant
+// selon l'existence préalable de la ligne.
+function validateIncomeProtectionInput(raw, { benefitTypeRequired = true } = {}) {
+  assert(raw.benefit_type !== null, 'Le type de prestation ne peut pas être explicitement vide.');
+  if (raw.benefit_type === undefined) {
+    assert(!benefitTypeRequired, 'Le type de prestation est requis.');
+  } else {
+    assert(inEnum(raw.benefit_type, BENEFIT_TYPES), 'Type de prestation invalide.');
+  }
+  assert(isOptionalNonNegAmount(raw.insured_amount), 'Montant assuré invalide (nombre positif attendu).');
+  assert(
+    raw.waiting_period_days === undefined || raw.waiting_period_days === null ||
+      (Number.isInteger(raw.waiting_period_days) && raw.waiting_period_days >= 0),
+    'Délai d’attente invalide (entier non négatif attendu).'
+  );
+  assert(
+    raw.benefit_duration_months === undefined || raw.benefit_duration_months === null ||
+      (Number.isInteger(raw.benefit_duration_months) && raw.benefit_duration_months > 0),
+    'Durée de prestation invalide (entier strictement positif attendu).'
+  );
+  assert(
+    raw.disability_trigger_rate === undefined || raw.disability_trigger_rate === null ||
+      (Number.isInteger(raw.disability_trigger_rate) &&
+        raw.disability_trigger_rate >= 0 && raw.disability_trigger_rate <= 100),
+    'Taux de déclenchement d’invalidité invalide (entier entre 0 et 100 attendu).'
+  );
+  assert(
+    raw.coordination_ai_lpp === undefined || typeof raw.coordination_ai_lpp === 'boolean' ||
+      raw.coordination_ai_lpp === 0 || raw.coordination_ai_lpp === 1,
+    'Coordination AI/LPP invalide (valeur booléenne attendue).'
+  );
+  assert(
+    raw.premium_waiver === undefined || typeof raw.premium_waiver === 'boolean' ||
+      raw.premium_waiver === 0 || raw.premium_waiver === 1,
+    'Libération du paiement des primes invalide (valeur booléenne attendue).'
+  );
+  checkTextFields({ exclusions_notes: raw.exclusions_notes }, ['exclusions_notes'], 200);
+}
+
+// Normalise le bloc `income_protection` validé pour l'écriture en base.
+function normalizeIncomeProtection(raw) {
+  return {
+    benefit_type: raw.benefit_type ?? null,
+    insured_amount: raw.insured_amount === undefined ? null : raw.insured_amount,
+    waiting_period_days: raw.waiting_period_days === undefined ? null : raw.waiting_period_days,
+    benefit_duration_months: raw.benefit_duration_months === undefined ? null : raw.benefit_duration_months,
+    disability_trigger_rate: raw.disability_trigger_rate === undefined ? null : raw.disability_trigger_rate,
+    coordination_ai_lpp: raw.coordination_ai_lpp === true || raw.coordination_ai_lpp === 1 ? 1 : 0,
+    premium_waiver: raw.premium_waiver === true || raw.premium_waiver === 1 ? 1 : 0,
+    exclusions_notes: raw.exclusions_notes === '' ? null : (raw.exclusions_notes ?? null),
+  };
+}
+
+// Crée, met à jour ou supprime la ligne contract_income_protection selon
+// incomeProtectionBody : null → suppression ; objet → upsert (COALESCE/CASE
+// WHEN conservent les valeurs par défaut SQL ou existantes pour les champs
+// non fournis, permettant une mise à jour partielle). Doit être appelée
+// après validation et à l'intérieur d'une transaction (relation stricte 1:1
+// par contract_id).
+function writeIncomeProtection(contractId, incomeProtectionBody) {
+  const existing = db.prepare('SELECT * FROM contract_income_protection WHERE contract_id = ?').get(contractId);
+  if (incomeProtectionBody === null) {
+    if (!existing) return null;
+    db.prepare('DELETE FROM contract_income_protection WHERE contract_id = ?').run(contractId);
+    return { action: 'deleted' };
+  }
+  const norm = normalizeIncomeProtection(incomeProtectionBody);
+  if (existing) {
+    db.prepare(
+      `UPDATE contract_income_protection SET
+        benefit_type = COALESCE(?, benefit_type),
+        insured_amount = CASE WHEN ? THEN ? ELSE insured_amount END,
+        waiting_period_days = CASE WHEN ? THEN ? ELSE waiting_period_days END,
+        benefit_duration_months = CASE WHEN ? THEN ? ELSE benefit_duration_months END,
+        disability_trigger_rate = CASE WHEN ? THEN ? ELSE disability_trigger_rate END,
+        coordination_ai_lpp = CASE WHEN ? THEN ? ELSE coordination_ai_lpp END,
+        premium_waiver = CASE WHEN ? THEN ? ELSE premium_waiver END,
+        exclusions_notes = CASE WHEN ? THEN ? ELSE exclusions_notes END,
+        updated_at = datetime('now')
+       WHERE contract_id = ?`
+    ).run(
+      norm.benefit_type,
+      'insured_amount' in incomeProtectionBody ? 1 : 0, norm.insured_amount,
+      'waiting_period_days' in incomeProtectionBody ? 1 : 0, norm.waiting_period_days,
+      'benefit_duration_months' in incomeProtectionBody ? 1 : 0, norm.benefit_duration_months,
+      'disability_trigger_rate' in incomeProtectionBody ? 1 : 0, norm.disability_trigger_rate,
+      'coordination_ai_lpp' in incomeProtectionBody ? 1 : 0, norm.coordination_ai_lpp,
+      'premium_waiver' in incomeProtectionBody ? 1 : 0, norm.premium_waiver,
+      'exclusions_notes' in incomeProtectionBody ? 1 : 0, norm.exclusions_notes,
+      contractId
+    );
+    // Relecture de la ligne réellement persistée : `norm` contient des
+    // marqueurs `null` pour les champs absents (utilisés par CASE WHEN pour
+    // ne pas les modifier), qui ne représentent pas les vraies valeurs
+    // conservées en base — { ...existing, ...norm } les écraserait à tort.
+    const updated = db.prepare('SELECT * FROM contract_income_protection WHERE contract_id = ?').get(contractId);
+    return { action: 'updated', data: updated };
+  }
+  db.prepare(
+    `INSERT INTO contract_income_protection (
+      contract_id, benefit_type, insured_amount, waiting_period_days, benefit_duration_months,
+      disability_trigger_rate, coordination_ai_lpp, premium_waiver, exclusions_notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    contractId, norm.benefit_type, norm.insured_amount, norm.waiting_period_days, norm.benefit_duration_months,
+    norm.disability_trigger_rate, norm.coordination_ai_lpp, norm.premium_waiver, norm.exclusions_notes
+  );
+  const created = db.prepare('SELECT * FROM contract_income_protection WHERE contract_id = ?').get(contractId);
+  return { action: 'created', data: created };
+}
+
+function serializeIncomeProtection(row) {
+  if (row.income_protection_benefit_type == null) return null;
+  return {
+    benefit_type: row.income_protection_benefit_type,
+    insured_amount: row.income_protection_insured_amount,
+    waiting_period_days: row.income_protection_waiting_period_days,
+    benefit_duration_months: row.income_protection_benefit_duration_months,
+    disability_trigger_rate: row.income_protection_disability_trigger_rate,
+    coordination_ai_lpp: Boolean(row.income_protection_coordination_ai_lpp),
+    premium_waiver: Boolean(row.income_protection_premium_waiver),
+    exclusions_notes: row.income_protection_exclusions_notes,
   };
 }
 
@@ -400,13 +559,21 @@ contractsRouter.get('/', (req, res) => {
       life.component_type AS life_component_type, life.insured_death_capital AS life_insured_death_capital,
       life.insured_disability_capital AS life_insured_disability_capital, life.insured_rent AS life_insured_rent,
       life.surrender_value AS life_surrender_value, life.premium_waiver AS life_premium_waiver,
-      life.indexation_type AS life_indexation_type, life.policy_term_years AS life_policy_term_years
+      life.indexation_type AS life_indexation_type, life.policy_term_years AS life_policy_term_years,
+      ip.benefit_type AS income_protection_benefit_type, ip.insured_amount AS income_protection_insured_amount,
+      ip.waiting_period_days AS income_protection_waiting_period_days,
+      ip.benefit_duration_months AS income_protection_benefit_duration_months,
+      ip.disability_trigger_rate AS income_protection_disability_trigger_rate,
+      ip.coordination_ai_lpp AS income_protection_coordination_ai_lpp,
+      ip.premium_waiver AS income_protection_premium_waiver,
+      ip.exclusions_notes AS income_protection_exclusions_notes
     FROM contracts ct
     JOIN companies co ON co.id = ct.company_id
     JOIN clients cl ON cl.id = ct.client_id
     LEFT JOIN contract_lamal lam ON lam.contract_id = ct.id
     LEFT JOIN contract_lca lca ON lca.contract_id = ct.id
     LEFT JOIN contract_life life ON life.contract_id = ct.id
+    LEFT JOIN contract_income_protection ip ON ip.contract_id = ct.id
     WHERE 1=1`;
   const params = [];
   if (client_id) { sql += ' AND ct.client_id = ?'; params.push(client_id); }
@@ -428,6 +595,9 @@ contractsRouter.get('/', (req, res) => {
         lca_reservation_notes, lca_exclusions_status, lca_exclusions_notes,
         life_component_type, life_insured_death_capital, life_insured_disability_capital, life_insured_rent,
         life_surrender_value, life_premium_waiver, life_indexation_type, life_policy_term_years,
+        income_protection_benefit_type, income_protection_insured_amount, income_protection_waiting_period_days,
+        income_protection_benefit_duration_months, income_protection_disability_trigger_rate,
+        income_protection_coordination_ai_lpp, income_protection_premium_waiver, income_protection_exclusions_notes,
         ...rest
       } = r;
       return {
@@ -439,6 +609,7 @@ contractsRouter.get('/', (req, res) => {
         lamal: serializeLamal(r),
         lca: serializeLca(r),
         life: serializeLife(r),
+        income_protection: serializeIncomeProtection(r),
       };
     })
   );
@@ -487,6 +658,15 @@ contractsRouter.post('/', (req, res) => {
     validateLifeInput(lifeBody);
   }
 
+  // Détails incapacité de gain optionnels : mêmes règles de présence/validation.
+  const incomeProtectionProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'income_protection');
+  const incomeProtectionBody = incomeProtectionProvided ? req.body.income_protection : undefined;
+  if (incomeProtectionProvided && incomeProtectionBody !== null) {
+    assert(INCOME_PROTECTION_COMPATIBLE_BRANCHES.includes(data.branch),
+      'Les détails incapacité de gain ne peuvent être associés qu’à une branche incapacité.');
+    validateIncomeProtectionInput(incomeProtectionBody);
+  }
+
   // Garde-fou conformité : pas de contrat actif sans mandat ni information LSA
   const warnings = [];
   if (!client.mandate_signed) warnings.push('Le mandat de courtage n’est pas signé.');
@@ -496,7 +676,7 @@ contractsRouter.post('/', (req, res) => {
   const premium = Number(data.annual_premium) || 0;
   const acqRate = Number(data.acq_commission_rate) || 0;
 
-  const { contractId, lamalResult, lcaResult, lifeResult } = db.transaction(() => {
+  const { contractId, lamalResult, lcaResult, lifeResult, incomeProtectionResult } = db.transaction(() => {
     const fields = Object.keys(data);
     const info = db
       .prepare(`INSERT INTO contracts (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
@@ -512,7 +692,9 @@ contractsRouter.post('/', (req, res) => {
     const lamal = lamalProvided && lamalBody !== null ? writeLamal(id, lamalBody) : null;
     const lca = lcaProvided && lcaBody !== null ? writeLca(id, lcaBody) : null;
     const life = lifeProvided && lifeBody !== null ? writeLife(id, lifeBody) : null;
-    return { contractId: id, lamalResult: lamal, lcaResult: lca, lifeResult: life };
+    const incomeProtection = incomeProtectionProvided && incomeProtectionBody !== null
+      ? writeIncomeProtection(id, incomeProtectionBody) : null;
+    return { contractId: id, lamalResult: lamal, lcaResult: lca, lifeResult: life, incomeProtectionResult: incomeProtection };
   })();
   audit(req, 'création contrat', 'contract', contractId, `${data.branch} — client #${data.client_id}`);
   if (lamalResult?.action === 'created') {
@@ -523,6 +705,10 @@ contractsRouter.post('/', (req, res) => {
   }
   if (lifeResult?.action === 'created') {
     audit(req, 'création détails vie', 'contract', contractId, `composante ${lifeResult.data.component_type}`);
+  }
+  if (incomeProtectionResult?.action === 'created') {
+    audit(req, 'création détails incapacité de gain', 'contract', contractId,
+      `type ${incomeProtectionResult.data.benefit_type}`);
   }
   res.status(201).json({ id: contractId, warnings });
 });
@@ -545,8 +731,12 @@ contractsRouter.put('/:id', (req, res) => {
   const lcaBody = lcaProvided ? req.body.lca : undefined;
   const lifeProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'life');
   const lifeBody = lifeProvided ? req.body.life : undefined;
+  const incomeProtectionProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'income_protection');
+  const incomeProtectionBody = incomeProtectionProvided ? req.body.income_protection : undefined;
 
-  if (Object.keys(data).length === 0 && !lamalProvided && !lcaProvided && !lifeProvided) {
+  if (
+    Object.keys(data).length === 0 && !lamalProvided && !lcaProvided && !lifeProvided && !incomeProtectionProvided
+  ) {
     return res.json({ ok: true });
   }
 
@@ -568,10 +758,18 @@ contractsRouter.put('/:id', (req, res) => {
     const existingLifeRow = db.prepare('SELECT contract_id FROM contract_life WHERE contract_id = ?').get(contract.id);
     validateLifeInput(lifeBody, { componentTypeRequired: !existingLifeRow });
   }
+  if (incomeProtectionProvided && incomeProtectionBody !== null) {
+    assert(INCOME_PROTECTION_COMPATIBLE_BRANCHES.includes(finalBranch),
+      'Les détails incapacité de gain ne peuvent être associés qu’à une branche incapacité.');
+    const existingIncomeProtectionRow = db
+      .prepare('SELECT contract_id FROM contract_income_protection WHERE contract_id = ?').get(contract.id);
+    validateIncomeProtectionInput(incomeProtectionBody, { benefitTypeRequired: !existingIncomeProtectionRow });
+  }
 
   // Changement de branche vers une branche incompatible alors qu'une ligne
-  // contract_lamal, contract_lca ou contract_life existe déjà : refusé, sauf
-  // suppression explicite du bloc concerné dans la même requête (…: null).
+  // contract_lamal, contract_lca, contract_life ou contract_income_protection
+  // existe déjà : refusé, sauf suppression explicite du bloc concerné dans
+  // la même requête (…: null).
   if ('branch' in data && !LAMAL_COMPATIBLE_BRANCHES.includes(finalBranch)) {
     const existingLamal = db.prepare('SELECT contract_id FROM contract_lamal WHERE contract_id = ?').get(contract.id);
     const explicitlyCleared = lamalProvided && lamalBody === null;
@@ -599,9 +797,19 @@ contractsRouter.put('/:id', (req, res) => {
       });
     }
   }
+  if ('branch' in data && !INCOME_PROTECTION_COMPATIBLE_BRANCHES.includes(finalBranch)) {
+    const existingIncomeProtection = db
+      .prepare('SELECT contract_id FROM contract_income_protection WHERE contract_id = ?').get(contract.id);
+    const explicitlyCleared = incomeProtectionProvided && incomeProtectionBody === null;
+    if (existingIncomeProtection && !explicitlyCleared) {
+      return res.status(400).json({
+        error: 'Ce contrat a des détails incapacité de gain enregistrés ; supprimez-les explicitement (income_protection: null) avant de changer de branche.',
+      });
+    }
+  }
 
   const fields = Object.keys(data);
-  const { lamalResult, lcaResult, lifeResult } = db.transaction(() => {
+  const { lamalResult, lcaResult, lifeResult, incomeProtectionResult } = db.transaction(() => {
     if (fields.length > 0) {
       db.prepare(
         `UPDATE contracts SET ${fields.map((f) => `${f} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`
@@ -611,6 +819,8 @@ contractsRouter.put('/:id', (req, res) => {
       lamalResult: lamalProvided ? writeLamal(contract.id, lamalBody) : null,
       lcaResult: lcaProvided ? writeLca(contract.id, lcaBody) : null,
       lifeResult: lifeProvided ? writeLife(contract.id, lifeBody) : null,
+      incomeProtectionResult: incomeProtectionProvided
+        ? writeIncomeProtection(contract.id, incomeProtectionBody) : null,
     };
   })();
 
@@ -635,6 +845,15 @@ contractsRouter.put('/:id', (req, res) => {
     audit(req, 'modification détails vie', 'contract', contract.id, `composante ${lifeResult.data.component_type}`);
   } else if (lifeResult?.action === 'deleted') {
     audit(req, 'suppression détails vie', 'contract', contract.id);
+  }
+  if (incomeProtectionResult?.action === 'created') {
+    audit(req, 'création détails incapacité de gain', 'contract', contract.id,
+      `type ${incomeProtectionResult.data.benefit_type}`);
+  } else if (incomeProtectionResult?.action === 'updated') {
+    audit(req, 'modification détails incapacité de gain', 'contract', contract.id,
+      `type ${incomeProtectionResult.data.benefit_type}`);
+  } else if (incomeProtectionResult?.action === 'deleted') {
+    audit(req, 'suppression détails incapacité de gain', 'contract', contract.id);
   }
   res.json({ ok: true });
 });
