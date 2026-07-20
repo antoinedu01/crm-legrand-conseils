@@ -181,13 +181,71 @@ jamais supprimer cette table dans le cadre d'une opération de routine.
 `if (version < 6)` ; portée légale exacte de la conservation à faire valider
 par un humain, hors périmètre de ce document technique.)*
 
+## Version 8
+
+**Objectif** : modèle métier « Assurance Suisse » — schéma relationnel pour les
+détails spécialisés par branche de contrat (LAMal, LCA, assurance vie,
+incapacité de gain privée, LPP/IJM), développé sur la branche de travail
+`feature/marketing-ai-90-days` et couvert par une suite de tests automatisés
+(`test/migrations.test.js`, `test/api.test.js`), **non fusionné dans la
+branche de production** (`claude/insurance-broker-crm-exx09v`) à ce jour. La numérotation
+saute volontairement de 6 à 8 : la version 7 reste réservée au Bloc 4
+partenaires (`feature/lead-generation-engine`, non fusionné), conformément à
+`PROJECT_HANDOFF.md` §10 et `CLAUDE.md` §6.
+
+**Colonnes ajoutées à `contracts`** : `review_frequency TEXT DEFAULT 'annuelle'`,
+`review_last_date TEXT`, `review_next_date TEXT` (pilotage de la revue de
+portefeuille, communes à toutes les branches). Ces colonnes sont créées mais ne
+sont à ce jour **pas exposées** par l'API des contrats.
+
+**Tables créées** (chacune en relation 1:1 avec `contracts` via
+`contract_id INTEGER PRIMARY KEY REFERENCES contracts(id) ON DELETE CASCADE`,
+sauf mention contraire) :
+- `contract_lamal` — détails LAMal.
+- `contract_lca` — détails LCA (processus de souscription/décision ; les
+  garanties elles-mêmes restent hors périmètre, dans `contract_coverages`).
+- `contract_life` — détails assurance vie (3a/3b).
+- `contract_income_protection` — détails incapacité de gain privée
+  individuelle.
+- `contract_lpp_ijm` — détails LPP/IJM, module volontairement minimal.
+- `contract_coverages`, `contract_beneficiaries`, `contract_history` — tables
+  créées par cette migration mais **non exploitées par l'API actuelle** (aucune
+  route, aucune validation, aucun test) ; hors périmètre des lots de
+  développement réalisés à ce jour.
+
+Chaque table spécialisée est décrite en détail, champ par champ, dans
+[`CONTRATS_ASSURANCE_SUISSE.md`](./CONTRATS_ASSURANCE_SUISSE.md).
+
+**Compatibilité avec les contrats génériques existants** : migration
+strictement additive. Aucune colonne existante de `contracts` n'est modifiée
+ni supprimée ; aucune donnée existante n'est réécrite. Un contrat sans ligne
+dans une table spécialisée reste pleinement valide (relation 0..1:1).
+
+**Réversibilité** : **partiellement réversible**. Un `DROP TABLE` sur les 8
+tables créées est techniquement possible sans casser le reste du schéma
+(aucune autre table n'y fait référence en clé étrangère), mais entraînerait la
+perte définitive des détails spécialisés déjà saisis. Le retrait des 3
+colonnes `review_*` sur `contracts` est sans risque pour les données de
+contrat elles-mêmes (colonnes non exploitées par l'API).
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire si des
+détails spécialisés ont déjà été saisis ; cette migration n'a, à ce jour,
+jamais été exécutée sur la base de production (le code correspondant vit
+uniquement sur `feature/marketing-ai-90-days`).
+
+*(Statut : structure des 8 tables et des 3 colonnes confirmée dans le code —
+`server/db.js`, bloc `if (version < 8)`. Le support CRUD complet côté API
+n'existe, à ce jour, que pour les 5 premières tables — voir
+`CONTRATS_ASSURANCE_SUISSE.md`.)*
+
 ## Bloc-notes général
 
 - Ne jamais renuméroter ni réécrire une migration déjà appliquée en
   production — toute évolution future doit utiliser un numéro de version
-  strictement supérieur au dernier utilisé (actuellement 6). Voir aussi
-  `PROJECT_HANDOFF.md` §9 et §10 pour le conflit de numérotation identifié
-  avec la branche `feature/lead-generation-engine`.
+  strictement supérieur au dernier utilisé (actuellement 8, avec la version 7
+  toujours réservée au Bloc 4 partenaires). Voir aussi `PROJECT_HANDOFF.md`
+  §9 et §10 pour le conflit de numérotation identifié avec la branche
+  `feature/lead-generation-engine`.
 - Chaque migration ci-dessus s'exécute dans une transaction SQLite
   (`db.transaction(...)`) — en cas d'erreur en cours de migration, SQLite
   annule l'ensemble du bloc (comportement standard des transactions),
