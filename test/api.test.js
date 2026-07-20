@@ -561,3 +561,237 @@ test('LAMal — non-régression de la génération de commission sur un contrat 
   assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LAMal enrichi');
   assert.equal(acq.amount, 90);
 });
+
+// --- Lot C : détails LCA (contract_lca) -------------------------------
+
+test('LCA — création sans bloc lca, puis avec détails valides, et lecture', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Chloe', last_name: 'Lca', status: 'client',
+  });
+
+  const noLca = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 1200,
+  });
+  assert.equal(noLca.status, 201);
+  let list = await auth(request(app).get('/api/contracts'));
+  assert.equal(list.body.find((c) => c.id === noLca.body.id).lca, null);
+
+  const withLca = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: {
+      underwriting_status: 'acceptee_avec_reserve', waiting_period_days: 90,
+      administrative_reservation_status: 'active', reservation_notes: 'genou droit, 3 ans',
+      exclusions_status: 'presentes', exclusions_notes: 'sports à risque',
+    },
+  });
+  assert.equal(withLca.status, 201);
+  list = await auth(request(app).get('/api/contracts'));
+  assert.deepEqual(list.body.find((c) => c.id === withLca.body.id).lca, {
+    underwriting_status: 'acceptee_avec_reserve', waiting_period_days: 90,
+    administrative_reservation_status: 'active', reservation_notes: 'genou droit, 3 ans',
+    exclusions_status: 'presentes', exclusions_notes: 'sports à risque',
+  });
+});
+
+test('LCA — les validations rejettent enum, type, borne, longueur et branche invalides', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Val', last_name: 'Lca', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900 };
+
+  const badEnum = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { underwriting_status: 'inexistant' } });
+  assert.equal(badEnum.status, 400);
+
+  const badType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { waiting_period_days: 'abc' } });
+  assert.equal(badType.status, 400);
+
+  const badRange = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { waiting_period_days: -5 } });
+  assert.equal(badRange.status, 400);
+
+  const tooLong = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lca: { reservation_notes: 'x'.repeat(201) } });
+  assert.equal(tooLong.status, 400);
+
+  const wrongBranch = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(wrongBranch.status, 400);
+});
+
+test('LCA — rollback complet : aucun contrat créé si le bloc lca est invalide', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'Lca', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'invalide' },
+  });
+  assert.equal(res.status, 400);
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat créé si le bloc lca est invalide');
+});
+
+test('LCA — rollback : une mise à jour invalide n’altère pas les détails existants', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'Update', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee', waiting_period_days: 30 },
+  });
+  const id = created.body.id;
+
+  const bad = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { underwriting_status: 'invalide' } });
+  assert.equal(bad.status, 400);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'acceptee', 'les détails existants ne doivent pas être altérés');
+  assert.equal(row.lca.waiting_period_days, 30);
+});
+
+test('LCA — mise à jour crée puis modifie les détails ; changement de branche encadré', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Update', last_name: 'Lca', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+  });
+  const id = created.body.id;
+
+  const createDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { underwriting_status: 'questionnaire_transmis' } });
+  assert.equal(createDetails.status, 200);
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'questionnaire_transmis');
+  assert.equal(row.lca.exclusions_status, 'aucune', 'valeur par défaut SQL appliquée aux champs non fournis');
+
+  const updateDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lca: { underwriting_status: 'acceptee', exclusions_status: 'presentes', exclusions_notes: 'tabac' } });
+  assert.equal(updateDetails.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lca.underwriting_status, 'acceptee');
+  assert.equal(row.lca.exclusions_status, 'presentes');
+  assert.equal(row.lca.exclusions_notes, 'tabac');
+
+  const blocked = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'vie_3a' });
+  assert.equal(blocked.status, 400);
+
+  const allowed = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'vie_3a', lca: null });
+  assert.equal(allowed.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.branch, 'vie_3a');
+  assert.equal(row.lca, null);
+});
+
+test('LCA — suppression explicite des détails via lca: null', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Suppr', last_name: 'Lca', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  const del = await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ lca: null });
+  assert.equal(del.status, 200);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.lca, null);
+});
+
+test('LCA — la suppression du contrat supprime automatiquement contract_lca (CASCADE)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Cascade', last_name: 'Lca', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  const del = await auth(request(app).delete(`/api/contracts/${created.body.id}`));
+  assert.equal(del.status, 200);
+  const list = await auth(request(app).get('/api/contracts'));
+  assert.ok(!list.body.find((c) => c.id === created.body.id), 'le contrat a bien été supprimé');
+});
+
+test('LCA — coexistence avec LAMal sans régression, et refus d’un bloc combiné incohérent', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Coexist', last_name: 'Test', status: 'client',
+  });
+
+  // Un contrat LAMal enrichi continue de fonctionner normalement.
+  const lamalContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(lamalContract.status, 201);
+
+  // Un contrat LCA enrichi coexiste sans interférence.
+  const lcaContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(lcaContract.status, 201);
+
+  const list = await auth(request(app).get('/api/contracts'));
+  const lamalRow = list.body.find((c) => c.id === lamalContract.body.id);
+  const lcaRow = list.body.find((c) => c.id === lcaContract.body.id);
+  assert.ok(lamalRow.lamal, 'le contrat LAMal conserve ses détails');
+  assert.equal(lamalRow.lca, null);
+  assert.ok(lcaRow.lca, 'le contrat LCA conserve ses détails');
+  assert.equal(lcaRow.lamal, null);
+
+  // Une même requête combinant lamal et lca non nuls est refusée quelle que
+  // soit la branche choisie (aucune branche n'est compatible avec les deux).
+  const combinedOnLamal = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(combinedOnLamal.status, 400);
+
+  const combinedOnLca = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lamal: { care_model: 'standard', deductible: 300 },
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(combinedOnLca.status, 400);
+});
+
+test('LCA — non-régression de la génération de commission sur un contrat enrichi', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Commission', last_name: 'Lca', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    acq_commission_rate: 5, status: 'actif',
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LCA enrichi');
+  assert.equal(acq.amount, 45);
+});
+
+test('LCA — les entrées d’audit création/modification/suppression sont journalisées', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Audit', last_name: 'Lca', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`))
+    .send({ lca: { underwriting_status: 'refusee' } });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ lca: null });
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=détails LCA'));
+  assert.equal(log.status, 200);
+  assert.ok(log.body.some((l) => l.action === 'création détails LCA'));
+  assert.ok(log.body.some((l) => l.action === 'modification détails LCA'));
+  assert.ok(log.body.some((l) => l.action === 'suppression détails LCA'));
+});
