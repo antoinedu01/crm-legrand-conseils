@@ -3,7 +3,10 @@
 Ce dépôt contient **deux choses distinctes** :
 
 1. **Un CRM en production** pour **Legrand conseils Sàrl** (courtier en assurance
-   indépendant, Suisse romande — Vaud / Genève). C'est une **zone protégée**.
+   indépendant, Suisse romande — Vaud / Genève). C'est une **zone protégée**. Un
+   chantier de développement CRM (module Assurance Suisse, backend et futur
+   frontend) est en cours sur une branche de travail dédiée, distincte de la
+   production — voir §1.
 2. **Un système de travail marketing** (phase « Marketing / Acquisition IA »),
    entièrement contenu dans `marketing-ai/` et `.claude/agents/`.
 
@@ -16,13 +19,22 @@ travail (humaine ou assistée par IA) sur ce dépôt.
 
 | Branche | Rôle | Règle |
 |---|---|---|
-| `claude/insurance-broker-crm-exx09v` | **Production** (déployée par `deploy/install.sh`) | Ne jamais développer dessus. Ne jamais la modifier. |
+| `claude/insurance-broker-crm-exx09v` | **Production** (déployée par `deploy/install.sh`) | Ne jamais développer dessus. Ne jamais la modifier sans validation humaine explicite. Aucune fusion ni déploiement automatique depuis une branche de travail (marketing ou CRM) : toute intégration doit être revue et validée séparément. |
+| `feature/swiss-insurance-crm` | **Branche de travail CRM Assurance Suisse** (backend + futur frontend) | Contient les Lots A à G3 déjà validés (migration, routes, validations, tests, documentation). Autorisée pour le développement futur du CRM Assurance Suisse (backend et frontend), par lots validés individuellement. Les protections de la §2 restent pleinement applicables — voir §3bis. |
+| `feature/marketing-ai-90-days` | **Branche de travail marketing** | Toute la phase marketing (contenus, outils, agents) se fait ici. Ne plus l'utiliser pour de nouveaux développements CRM ou pour le frontend Assurance Suisse : ce travail se fait désormais sur `feature/swiss-insurance-crm`. |
 | `feature/lead-generation-engine` | Bloc 4 CRM (partenaires) — non fusionné | Hors périmètre marketing. |
-| `feature/marketing-ai-90-days` | **Branche de travail marketing** | Toute la phase marketing se fait ici. |
 
-- La branche de travail marketing est **`feature/marketing-ai-90-days`**.
+- La branche de travail marketing est **`feature/marketing-ai-90-days`** :
+  contenus, outils et agents marketing uniquement (§3).
+- La branche de travail CRM Assurance Suisse est **`feature/swiss-insurance-crm`**,
+  créée depuis le commit `8ff16ee3241554e1f402d46732e9ad09f066d5b7`. Elle partage
+  donc l'historique antérieur de `feature/marketing-ai-90-days` jusqu'à ce commit
+  inclus ; aucun nettoyage, rebase ou réécriture de cet historique n'est prévu.
+  Les futurs commits liés au CRM Assurance Suisse (backend et frontend) doivent
+  être réalisés exclusivement sur cette branche (§3bis).
 - La branche de production est **`claude/insurance-broker-crm-exx09v`** et ne doit
-  **jamais** être modifiée dans le cadre du marketing.
+  **jamais** être modifiée directement, ni dans le cadre du marketing ni dans le
+  cadre du CRM Assurance Suisse, sans validation humaine explicite.
 
 ---
 
@@ -40,12 +52,21 @@ Ne **jamais** modifier, sans autorisation humaine explicite, les éléments suiv
 - **les routes publiques** (`server/routes/public.js`)
 - **l'authentification** (`server/auth.js`, `server/totp.js`, `server/session-store.js`)
 - **les données clients** (toute donnée personnelle réelle)
+- **les permissions Claude Code** (`.claude/settings.json`)
 
 Interdictions absolues côté technique :
 
 - Ne **jamais** lancer de migration.
 - Ne **jamais** créer de migration dans le cadre du travail marketing.
 - Ne jamais toucher à la base de données de production.
+
+**Ces protections s'appliquent quelle que soit la branche de travail**, y
+compris `feature/swiss-insurance-crm` : le fait que cette branche soit
+autorisée pour le développement du CRM Assurance Suisse ne constitue jamais
+une autorisation générale de modifier librement `server/db.js`, les
+migrations, `server/routes/contracts.js` (y compris ses routes `DELETE`),
+l'authentification ou `.claude/settings.json`. Toute modification de ces
+éléments reste soumise à autorisation humaine explicite, lot par lot.
 
 ---
 
@@ -59,6 +80,25 @@ Toutes les créations marketing doivent rester **exclusivement** dans :
 Aucun fichier en dehors de ces deux emplacements ne doit être créé ou modifié
 dans le cadre de la phase marketing (à l'exception de ce `CLAUDE.md`, créé une
 seule fois comme socle de règles).
+
+---
+
+## 3bis. Périmètre autorisé pour le CRM Assurance Suisse
+
+La branche `feature/swiss-insurance-crm` est dédiée au développement du CRM
+Assurance Suisse : migration et modèle de données, routes et validations des
+contrats, tests backend, documentation technique, puis interface utilisateur
+(frontend) à venir.
+
+Ce périmètre reste **entièrement soumis aux protections de la §2** : chaque
+lot de travail y est validé individuellement par l'utilisateur avant toute
+modification de fichier protégé, avec tests rouges avant correction lorsque
+c'est pertinent, suite de tests complète après modification, et revue en
+lecture seule (sécurité, QA ou migration selon le type de lot) avant tout
+commit. Cette autorisation de branche ne remplace ni n'annule les
+autorisations ponctuelles déjà exigées par la §2 pour chaque fichier protégé,
+et ne présume ni d'une fusion vers la production ni d'un frontend déjà
+réalisé.
 
 ---
 
@@ -113,6 +153,13 @@ Aucun agent, aucun contenu ne doit promettre :
   - le **résultat de `git status`**.
 - Ne **jamais** effectuer de **commit, push, merge, rebase ou suppression** sans
   demande explicite de l'utilisateur.
+- Les modifications importantes (notamment sur les fichiers protégés de la §2)
+  sont réalisées **par lots validés individuellement**, avec tests rouges avant
+  correction lorsque c'est pertinent, suite de tests complète après chaque
+  modification, et revue en lecture seule (sécurité, QA ou migration selon le
+  lot) avant tout commit.
+- Aucune fusion vers la branche de production ne doit être effectuée sans une
+  validation humaine explicite et distincte, dédiée à cette fusion.
 
 ---
 
@@ -232,6 +279,10 @@ Règles impératives :
 
 ## 7. Résumé en une phrase
 
-> Le CRM est intouchable sans accord humain ; le marketing vit dans `marketing-ai/`
-> et `.claude/agents/` ; rien n'est publié ni envoyé automatiquement ; tout contenu
-> passe par brouillon → conformité → validation humaine → diffusion manuelle.
+> Le CRM est intouchable sans accord humain, quelle que soit la branche
+> (production, marketing ou CRM Assurance Suisse) ; le marketing vit dans
+> `marketing-ai/` et `.claude/agents/` sur `feature/marketing-ai-90-days` ; le
+> CRM Assurance Suisse (backend et futur frontend) se développe par lots
+> validés sur `feature/swiss-insurance-crm` ; rien n'est publié, envoyé, fusionné
+> ou déployé automatiquement ; tout contenu marketing passe par brouillon →
+> conformité → validation humaine → diffusion manuelle.
