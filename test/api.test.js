@@ -416,3 +416,148 @@ test('formulaire public du site : CORS, consentement, anti-robot, doublons', asy
   const detail2 = (await auth(request(app).get(`/api/clients/${clients[0].id}`))).body;
   assert.ok(detail2.tasks.some((t) => t.title.includes('nouvelle demande via le site')));
 });
+
+// --- Lot B : détails LAMal (contract_lamal) --------------------------
+
+test('LAMal — création sans bloc lamal, puis avec détails valides, et lecture', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Ines', last_name: 'Lamal', status: 'client',
+  });
+
+  const noLamal = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3600,
+  });
+  assert.equal(noLamal.status, 201);
+  let list = await auth(request(app).get('/api/contracts'));
+  assert.equal(list.body.find((c) => c.id === noLamal.body.id).lamal, null);
+
+  const withLamal = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 4200,
+    lamal: { care_model: 'telmed', deductible: 2500, accident_coverage: false, canton: 'ge', tariff_region: '1' },
+  });
+  assert.equal(withLamal.status, 201);
+  list = await auth(request(app).get('/api/contracts'));
+  assert.deepEqual(list.body.find((c) => c.id === withLamal.body.id).lamal, {
+    care_model: 'telmed', deductible: 2500, accident_coverage: false, canton: 'GE', tariff_region: '1',
+  });
+});
+
+test('LAMal — les validations rejettent care_model, franchise, canton, type et branche invalides', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Marc', last_name: 'Validation', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000 };
+
+  const badCareModel = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lamal: { care_model: 'inexistant', deductible: 300 } });
+  assert.equal(badCareModel.status, 400);
+
+  const badDeductible = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lamal: { care_model: 'standard', deductible: 1234 } });
+  assert.equal(badDeductible.status, 400);
+
+  const badCanton = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lamal: { care_model: 'standard', deductible: 300, canton: 'ZZ' } });
+  assert.equal(badCanton.status, 400);
+
+  const badAccident = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, lamal: { care_model: 'standard', deductible: 300, accident_coverage: 'oui' } });
+  assert.equal(badAccident.status, 400);
+
+  const wrongBranch = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(wrongBranch.status, 400);
+});
+
+test('LAMal — rollback complet : aucun contrat créé si le bloc lamal est invalide', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'Test', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'invalide', deductible: 300 },
+  });
+  assert.equal(res.status, 400);
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat créé si le bloc lamal est invalide');
+});
+
+test('LAMal — mise à jour crée puis modifie les détails ; changement de branche encadré', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Update', last_name: 'Lamal', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+  });
+  const id = created.body.id;
+
+  const createDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lamal: { care_model: 'standard', deductible: 300, accident_coverage: true, canton: 'VD' } });
+  assert.equal(createDetails.status, 200);
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lamal.deductible, 300);
+  assert.equal(row.lamal.accident_coverage, true);
+
+  const updateDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ lamal: { care_model: 'hmo', deductible: 2500, accident_coverage: false, canton: 'VD' } });
+  assert.equal(updateDetails.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.lamal.care_model, 'hmo');
+  assert.equal(row.lamal.deductible, 2500);
+
+  const blocked = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'vie_3a' });
+  assert.equal(blocked.status, 400);
+
+  const allowed = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'vie_3a', lamal: null });
+  assert.equal(allowed.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.branch, 'vie_3a');
+  assert.equal(row.lamal, null);
+});
+
+test('LAMal — suppression explicite des détails via lamal: null', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Suppr', last_name: 'Lamal', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  const del = await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ lamal: null });
+  assert.equal(del.status, 200);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.lamal, null);
+});
+
+test('LAMal — la suppression du contrat supprime automatiquement contract_lamal (CASCADE)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Cascade', last_name: 'Lamal', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 1200,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  const del = await auth(request(app).delete(`/api/contracts/${created.body.id}`));
+  assert.equal(del.status, 200);
+  const list = await auth(request(app).get('/api/contracts'));
+  assert.ok(!list.body.find((c) => c.id === created.body.id), 'le contrat a bien été supprimé');
+});
+
+test('LAMal — non-régression de la génération de commission sur un contrat enrichi', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Commission', last_name: 'Lamal', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    acq_commission_rate: 3, status: 'actif',
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LAMal enrichi');
+  assert.equal(acq.amount, 90);
+});
