@@ -219,6 +219,144 @@ function serializeLca(row) {
   };
 }
 
+// --- Détails vie (contract_life, migration v8) --------------------------
+
+// Seules branches compatibles avec des détails vie, déterminées à partir de
+// BRANCHES ci-dessus. Disjointes de LAMAL_COMPATIBLE_BRANCHES et
+// LCA_COMPATIBLE_BRANCHES, ce qui rejette naturellement toute combinaison
+// de blocs spécialisés incompatible avec la branche finale.
+const LIFE_COMPATIBLE_BRANCHES = ['vie_3a', 'vie_3b'];
+
+const COMPONENT_TYPES = ['mixte', 'risque_pur', 'capital_differe', 'rente', 'unit_linked', 'autre'];
+const INDEXATION_TYPES = ['aucune', 'fixe', 'indice_prix_conso', 'autre'];
+
+// Un champ financier optionnel (capital, rente, valeur de rachat) doit être
+// un nombre fini non négatif : pas de chaîne numérique acceptée en silence,
+// pas de NaN ni d'Infinity, et un null explicite est autorisé (le champ est
+// nullable en base) mais une chaîne vide ou un type incorrect est rejeté.
+function isOptionalNonNegAmount(v) {
+  if (v === undefined || v === null) return true;
+  if (typeof v !== 'number') return false;
+  return Number.isFinite(v) && v >= 0;
+}
+
+// Valide le bloc `life` brut de la requête (avant normalisation). Aucune
+// donnée médicale, aucun bénéficiaire nominatif : ce bloc ne porte que des
+// montants assurés, un type de composante et des paramètres contractuels.
+//
+// `component_type` est NOT NULL sans valeur par défaut SQL (contrairement
+// aux enums LCA, qui ont tous un DEFAULT) : il est donc obligatoire lors
+// d'une création (aucune ligne contract_life existante), mais peut être omis
+// lors d'une mise à jour partielle d'une ligne déjà existante — auquel cas
+// COALESCE conserve la valeur déjà enregistrée. `componentTypeRequired` doit
+// être positionné par l'appelant selon l'existence préalable de la ligne.
+function validateLifeInput(raw, { componentTypeRequired = true } = {}) {
+  assert(raw.component_type !== null, 'Le type de composante vie ne peut pas être explicitement vide.');
+  if (raw.component_type === undefined) {
+    assert(!componentTypeRequired, 'Le type de composante vie est requis.');
+  } else {
+    assert(inEnum(raw.component_type, COMPONENT_TYPES), 'Type de composante vie invalide.');
+  }
+  assert(isOptionalNonNegAmount(raw.insured_death_capital), 'Capital décès invalide (nombre positif attendu).');
+  assert(isOptionalNonNegAmount(raw.insured_disability_capital), 'Capital invalidité invalide (nombre positif attendu).');
+  assert(isOptionalNonNegAmount(raw.insured_rent), 'Rente assurée invalide (nombre positif attendu).');
+  assert(isOptionalNonNegAmount(raw.surrender_value), 'Valeur de rachat invalide (nombre positif attendu).');
+  assert(
+    raw.premium_waiver === undefined || typeof raw.premium_waiver === 'boolean' ||
+      raw.premium_waiver === 0 || raw.premium_waiver === 1,
+    'Libération du paiement des primes invalide (valeur booléenne attendue).'
+  );
+  assert(
+    raw.indexation_type === undefined || (raw.indexation_type !== null && inEnum(raw.indexation_type, INDEXATION_TYPES)),
+    'Type d’indexation invalide.'
+  );
+  assert(
+    raw.policy_term_years === undefined || raw.policy_term_years === null ||
+      (Number.isInteger(raw.policy_term_years) && raw.policy_term_years > 0),
+    'Durée de la police invalide (entier strictement positif attendu).'
+  );
+}
+
+// Normalise le bloc `life` validé pour l'écriture en base.
+function normalizeLife(raw) {
+  return {
+    component_type: raw.component_type ?? null,
+    insured_death_capital: raw.insured_death_capital === undefined ? null : raw.insured_death_capital,
+    insured_disability_capital: raw.insured_disability_capital === undefined ? null : raw.insured_disability_capital,
+    insured_rent: raw.insured_rent === undefined ? null : raw.insured_rent,
+    surrender_value: raw.surrender_value === undefined ? null : raw.surrender_value,
+    premium_waiver: raw.premium_waiver === true || raw.premium_waiver === 1 ? 1 : 0,
+    indexation_type: raw.indexation_type ?? null,
+    policy_term_years: raw.policy_term_years === undefined ? null : raw.policy_term_years,
+  };
+}
+
+// Crée, met à jour ou supprime la ligne contract_life selon lifeBody : null →
+// suppression ; objet → upsert (COALESCE/CASE WHEN conservent les valeurs par
+// défaut SQL ou existantes pour les champs non fournis, permettant une mise à
+// jour partielle). Doit être appelée après validation et à l'intérieur d'une
+// transaction (relation stricte 1:1 par contract_id).
+function writeLife(contractId, lifeBody) {
+  const existing = db.prepare('SELECT * FROM contract_life WHERE contract_id = ?').get(contractId);
+  if (lifeBody === null) {
+    if (!existing) return null;
+    db.prepare('DELETE FROM contract_life WHERE contract_id = ?').run(contractId);
+    return { action: 'deleted' };
+  }
+  const norm = normalizeLife(lifeBody);
+  if (existing) {
+    db.prepare(
+      `UPDATE contract_life SET
+        component_type = COALESCE(?, component_type),
+        insured_death_capital = CASE WHEN ? THEN ? ELSE insured_death_capital END,
+        insured_disability_capital = CASE WHEN ? THEN ? ELSE insured_disability_capital END,
+        insured_rent = CASE WHEN ? THEN ? ELSE insured_rent END,
+        surrender_value = CASE WHEN ? THEN ? ELSE surrender_value END,
+        premium_waiver = CASE WHEN ? THEN ? ELSE premium_waiver END,
+        indexation_type = COALESCE(?, indexation_type),
+        policy_term_years = CASE WHEN ? THEN ? ELSE policy_term_years END,
+        updated_at = datetime('now')
+       WHERE contract_id = ?`
+    ).run(
+      norm.component_type,
+      'insured_death_capital' in lifeBody ? 1 : 0, norm.insured_death_capital,
+      'insured_disability_capital' in lifeBody ? 1 : 0, norm.insured_disability_capital,
+      'insured_rent' in lifeBody ? 1 : 0, norm.insured_rent,
+      'surrender_value' in lifeBody ? 1 : 0, norm.surrender_value,
+      'premium_waiver' in lifeBody ? 1 : 0, norm.premium_waiver,
+      norm.indexation_type,
+      'policy_term_years' in lifeBody ? 1 : 0, norm.policy_term_years,
+      contractId
+    );
+    return { action: 'updated', data: { ...existing, ...norm } };
+  }
+  db.prepare(
+    `INSERT INTO contract_life (
+      contract_id, component_type, insured_death_capital, insured_disability_capital,
+      insured_rent, surrender_value, premium_waiver, indexation_type, policy_term_years
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'aucune'), ?)`
+  ).run(
+    contractId, norm.component_type, norm.insured_death_capital, norm.insured_disability_capital,
+    norm.insured_rent, norm.surrender_value, norm.premium_waiver, norm.indexation_type, norm.policy_term_years
+  );
+  const created = db.prepare('SELECT * FROM contract_life WHERE contract_id = ?').get(contractId);
+  return { action: 'created', data: created };
+}
+
+function serializeLife(row) {
+  if (row.life_component_type == null) return null;
+  return {
+    component_type: row.life_component_type,
+    insured_death_capital: row.life_insured_death_capital,
+    insured_disability_capital: row.life_insured_disability_capital,
+    insured_rent: row.life_insured_rent,
+    surrender_value: row.life_surrender_value,
+    premium_waiver: Boolean(row.life_premium_waiver),
+    indexation_type: row.life_indexation_type,
+    policy_term_years: row.life_policy_term_years,
+  };
+}
+
 function validateContract(data) {
   assert(inEnum(data.status, CONTRACT_STATUSES), 'Statut de contrat inconnu.');
   assert(inEnum(data.payment_frequency, FREQUENCIES), 'Fréquence de paiement inconnue.');
@@ -258,12 +396,17 @@ contractsRouter.get('/', (req, res) => {
       lca.underwriting_status AS lca_underwriting_status, lca.waiting_period_days AS lca_waiting_period_days,
       lca.administrative_reservation_status AS lca_administrative_reservation_status,
       lca.reservation_notes AS lca_reservation_notes, lca.exclusions_status AS lca_exclusions_status,
-      lca.exclusions_notes AS lca_exclusions_notes
+      lca.exclusions_notes AS lca_exclusions_notes,
+      life.component_type AS life_component_type, life.insured_death_capital AS life_insured_death_capital,
+      life.insured_disability_capital AS life_insured_disability_capital, life.insured_rent AS life_insured_rent,
+      life.surrender_value AS life_surrender_value, life.premium_waiver AS life_premium_waiver,
+      life.indexation_type AS life_indexation_type, life.policy_term_years AS life_policy_term_years
     FROM contracts ct
     JOIN companies co ON co.id = ct.company_id
     JOIN clients cl ON cl.id = ct.client_id
     LEFT JOIN contract_lamal lam ON lam.contract_id = ct.id
     LEFT JOIN contract_lca lca ON lca.contract_id = ct.id
+    LEFT JOIN contract_life life ON life.contract_id = ct.id
     WHERE 1=1`;
   const params = [];
   if (client_id) { sql += ' AND ct.client_id = ?'; params.push(client_id); }
@@ -283,6 +426,8 @@ contractsRouter.get('/', (req, res) => {
         lamal_care_model, lamal_deductible, lamal_accident_coverage, lamal_canton, lamal_tariff_region,
         lca_underwriting_status, lca_waiting_period_days, lca_administrative_reservation_status,
         lca_reservation_notes, lca_exclusions_status, lca_exclusions_notes,
+        life_component_type, life_insured_death_capital, life_insured_disability_capital, life_insured_rent,
+        life_surrender_value, life_premium_waiver, life_indexation_type, life_policy_term_years,
         ...rest
       } = r;
       return {
@@ -293,6 +438,7 @@ contractsRouter.get('/', (req, res) => {
             : [r.first_name, r.last_name].filter(Boolean).join(' '),
         lamal: serializeLamal(r),
         lca: serializeLca(r),
+        life: serializeLife(r),
       };
     })
   );
@@ -332,6 +478,15 @@ contractsRouter.post('/', (req, res) => {
     validateLcaInput(lcaBody);
   }
 
+  // Détails vie optionnels : mêmes règles de présence/validation que LAMal/LCA.
+  const lifeProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'life');
+  const lifeBody = lifeProvided ? req.body.life : undefined;
+  if (lifeProvided && lifeBody !== null) {
+    assert(LIFE_COMPATIBLE_BRANCHES.includes(data.branch),
+      'Les détails vie ne peuvent être associés qu’à une branche vie (3a/3b).');
+    validateLifeInput(lifeBody);
+  }
+
   // Garde-fou conformité : pas de contrat actif sans mandat ni information LSA
   const warnings = [];
   if (!client.mandate_signed) warnings.push('Le mandat de courtage n’est pas signé.');
@@ -341,7 +496,7 @@ contractsRouter.post('/', (req, res) => {
   const premium = Number(data.annual_premium) || 0;
   const acqRate = Number(data.acq_commission_rate) || 0;
 
-  const { contractId, lamalResult, lcaResult } = db.transaction(() => {
+  const { contractId, lamalResult, lcaResult, lifeResult } = db.transaction(() => {
     const fields = Object.keys(data);
     const info = db
       .prepare(`INSERT INTO contracts (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
@@ -356,7 +511,8 @@ contractsRouter.post('/', (req, res) => {
     }
     const lamal = lamalProvided && lamalBody !== null ? writeLamal(id, lamalBody) : null;
     const lca = lcaProvided && lcaBody !== null ? writeLca(id, lcaBody) : null;
-    return { contractId: id, lamalResult: lamal, lcaResult: lca };
+    const life = lifeProvided && lifeBody !== null ? writeLife(id, lifeBody) : null;
+    return { contractId: id, lamalResult: lamal, lcaResult: lca, lifeResult: life };
   })();
   audit(req, 'création contrat', 'contract', contractId, `${data.branch} — client #${data.client_id}`);
   if (lamalResult?.action === 'created') {
@@ -364,6 +520,9 @@ contractsRouter.post('/', (req, res) => {
   }
   if (lcaResult?.action === 'created') {
     audit(req, 'création détails LCA', 'contract', contractId, `statut ${lcaResult.data.underwriting_status}`);
+  }
+  if (lifeResult?.action === 'created') {
+    audit(req, 'création détails vie', 'contract', contractId, `composante ${lifeResult.data.component_type}`);
   }
   res.status(201).json({ id: contractId, warnings });
 });
@@ -384,8 +543,12 @@ contractsRouter.put('/:id', (req, res) => {
   const lamalBody = lamalProvided ? req.body.lamal : undefined;
   const lcaProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'lca');
   const lcaBody = lcaProvided ? req.body.lca : undefined;
+  const lifeProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'life');
+  const lifeBody = lifeProvided ? req.body.life : undefined;
 
-  if (Object.keys(data).length === 0 && !lamalProvided && !lcaProvided) return res.json({ ok: true });
+  if (Object.keys(data).length === 0 && !lamalProvided && !lcaProvided && !lifeProvided) {
+    return res.json({ ok: true });
+  }
 
   const finalBranch = 'branch' in data ? data.branch : contract.branch;
 
@@ -399,10 +562,16 @@ contractsRouter.put('/:id', (req, res) => {
       'Les détails LCA ne peuvent être associés qu’à une branche LCA.');
     validateLcaInput(lcaBody);
   }
+  if (lifeProvided && lifeBody !== null) {
+    assert(LIFE_COMPATIBLE_BRANCHES.includes(finalBranch),
+      'Les détails vie ne peuvent être associés qu’à une branche vie (3a/3b).');
+    const existingLifeRow = db.prepare('SELECT contract_id FROM contract_life WHERE contract_id = ?').get(contract.id);
+    validateLifeInput(lifeBody, { componentTypeRequired: !existingLifeRow });
+  }
 
   // Changement de branche vers une branche incompatible alors qu'une ligne
-  // contract_lamal ou contract_lca existe déjà : refusé, sauf suppression
-  // explicite du bloc concerné dans la même requête (lamal/lca: null).
+  // contract_lamal, contract_lca ou contract_life existe déjà : refusé, sauf
+  // suppression explicite du bloc concerné dans la même requête (…: null).
   if ('branch' in data && !LAMAL_COMPATIBLE_BRANCHES.includes(finalBranch)) {
     const existingLamal = db.prepare('SELECT contract_id FROM contract_lamal WHERE contract_id = ?').get(contract.id);
     const explicitlyCleared = lamalProvided && lamalBody === null;
@@ -421,9 +590,18 @@ contractsRouter.put('/:id', (req, res) => {
       });
     }
   }
+  if ('branch' in data && !LIFE_COMPATIBLE_BRANCHES.includes(finalBranch)) {
+    const existingLife = db.prepare('SELECT contract_id FROM contract_life WHERE contract_id = ?').get(contract.id);
+    const explicitlyCleared = lifeProvided && lifeBody === null;
+    if (existingLife && !explicitlyCleared) {
+      return res.status(400).json({
+        error: 'Ce contrat a des détails vie enregistrés ; supprimez-les explicitement (life: null) avant de changer de branche.',
+      });
+    }
+  }
 
   const fields = Object.keys(data);
-  const { lamalResult, lcaResult } = db.transaction(() => {
+  const { lamalResult, lcaResult, lifeResult } = db.transaction(() => {
     if (fields.length > 0) {
       db.prepare(
         `UPDATE contracts SET ${fields.map((f) => `${f} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`
@@ -432,6 +610,7 @@ contractsRouter.put('/:id', (req, res) => {
     return {
       lamalResult: lamalProvided ? writeLamal(contract.id, lamalBody) : null,
       lcaResult: lcaProvided ? writeLca(contract.id, lcaBody) : null,
+      lifeResult: lifeProvided ? writeLife(contract.id, lifeBody) : null,
     };
   })();
 
@@ -449,6 +628,13 @@ contractsRouter.put('/:id', (req, res) => {
     audit(req, 'modification détails LCA', 'contract', contract.id, `statut ${lcaResult.data.underwriting_status}`);
   } else if (lcaResult?.action === 'deleted') {
     audit(req, 'suppression détails LCA', 'contract', contract.id);
+  }
+  if (lifeResult?.action === 'created') {
+    audit(req, 'création détails vie', 'contract', contract.id, `composante ${lifeResult.data.component_type}`);
+  } else if (lifeResult?.action === 'updated') {
+    audit(req, 'modification détails vie', 'contract', contract.id, `composante ${lifeResult.data.component_type}`);
+  } else if (lifeResult?.action === 'deleted') {
+    audit(req, 'suppression détails vie', 'contract', contract.id);
   }
   res.json({ ok: true });
 });

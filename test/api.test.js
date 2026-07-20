@@ -795,3 +795,284 @@ test('LCA — les entrées d’audit création/modification/suppression sont jou
   assert.ok(log.body.some((l) => l.action === 'modification détails LCA'));
   assert.ok(log.body.some((l) => l.action === 'suppression détails LCA'));
 });
+
+test('Vie — création sans bloc life, puis avec détails valides, et lecture', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Chloe', last_name: 'Vie', status: 'client',
+  });
+
+  const noLife = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 1200,
+  });
+  assert.equal(noLife.status, 201);
+  let list = await auth(request(app).get('/api/contracts'));
+  assert.equal(list.body.find((c) => c.id === noLife.body.id).life, null);
+
+  const withLife = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: {
+      component_type: 'mixte', insured_death_capital: 100000, insured_disability_capital: 50000,
+      insured_rent: 0, surrender_value: 0, premium_waiver: true,
+      indexation_type: 'fixe', policy_term_years: 20,
+    },
+  });
+  assert.equal(withLife.status, 201);
+  list = await auth(request(app).get('/api/contracts'));
+  assert.deepEqual(list.body.find((c) => c.id === withLife.body.id).life, {
+    component_type: 'mixte', insured_death_capital: 100000, insured_disability_capital: 50000,
+    insured_rent: 0, surrender_value: 0, premium_waiver: true,
+    indexation_type: 'fixe', policy_term_years: 20,
+  });
+});
+
+test('Vie — les validations rejettent enum, type, borne et branche invalides', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Val', last_name: 'Vie', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400 };
+
+  const badEnum = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'inexistant' } });
+  assert.equal(badEnum.status, 400);
+
+  const badIndexationEnum = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', indexation_type: 'inexistant' } });
+  assert.equal(badIndexationEnum.status, 400);
+
+  const badType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', insured_death_capital: 'abc' } });
+  assert.equal(badType.status, 400);
+
+  const numericString = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', insured_death_capital: '1000' } });
+  assert.equal(numericString.status, 400, 'une chaîne numérique ne doit pas être coercée silencieusement');
+
+  const negativeCapital = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', insured_rent: -100 } });
+  assert.equal(negativeCapital.status, 400);
+
+  const badTerm = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', policy_term_years: 0 } });
+  assert.equal(badTerm.status, 400, 'policy_term_years doit être strictement positif');
+
+  const nonIntegerTerm = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', policy_term_years: 5.5 } });
+  assert.equal(nonIntegerTerm.status, 400);
+
+  const wrongBranch = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(wrongBranch.status, 400);
+});
+
+// contract_life ne comporte aucun champ texte libre (pas de *_notes) ni aucun
+// champ date métier : les scénarios génériques « texte trop long » et « date
+// invalide » ne s'appliquent donc pas à ce bloc et ne sont pas dupliqués ici.
+
+test('Vie — null explicite est rejeté sur les champs non nullable', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Null', last_name: 'Vie', status: 'client',
+  });
+  const base = { client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400 };
+
+  const nullComponentType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: null } });
+  assert.equal(nullComponentType.status, 400);
+
+  const nullPremiumWaiver = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', premium_waiver: null } });
+  assert.equal(nullPremiumWaiver.status, 400);
+
+  const nullIndexationType = await auth(request(app).post('/api/contracts'))
+    .send({ ...base, life: { component_type: 'mixte', indexation_type: null } });
+  assert.equal(nullIndexationType.status, 400);
+});
+
+test('Vie — rollback complet : aucun contrat créé si le bloc life est invalide', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'Vie', status: 'client',
+  });
+  const before = (await auth(request(app).get('/api/contracts'))).body.length;
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'invalide' },
+  });
+  assert.equal(res.status, 400);
+  const after = (await auth(request(app).get('/api/contracts'))).body.length;
+  assert.equal(after, before, 'aucun contrat créé si le bloc life est invalide');
+});
+
+test('Vie — rollback : une mise à jour invalide n’altère pas les détails existants', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Rollback', last_name: 'UpdateVie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte', insured_death_capital: 100000, policy_term_years: 15 },
+  });
+  const id = created.body.id;
+
+  const bad = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ life: { component_type: 'invalide' } });
+  assert.equal(bad.status, 400);
+
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.life.component_type, 'mixte', 'les détails existants ne doivent pas être altérés');
+  assert.equal(row.life.insured_death_capital, 100000);
+  assert.equal(row.life.policy_term_years, 15);
+});
+
+test('Vie — mise à jour crée puis modifie partiellement les détails ; changement de branche encadré', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Update', last_name: 'Vie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+  });
+  const id = created.body.id;
+
+  const createDetails = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ life: { component_type: 'risque_pur', insured_death_capital: 80000 } });
+  assert.equal(createDetails.status, 200);
+  let row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.life.component_type, 'risque_pur');
+  assert.equal(row.life.insured_death_capital, 80000);
+  assert.equal(row.life.indexation_type, 'aucune', 'valeur par défaut SQL appliquée aux champs non fournis');
+  assert.equal(row.life.premium_waiver, false, 'valeur par défaut SQL appliquée aux champs non fournis');
+
+  // Mise à jour partielle : seul surrender_value est fourni, le reste (dont
+  // insured_death_capital déjà enregistré) doit rester inchangé (CASE WHEN).
+  const partialUpdate = await auth(request(app).put(`/api/contracts/${id}`))
+    .send({ life: { surrender_value: 5000 } });
+  assert.equal(partialUpdate.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.life.surrender_value, 5000);
+  assert.equal(row.life.component_type, 'risque_pur', 'champ non fourni conservé par la mise à jour partielle');
+  assert.equal(row.life.insured_death_capital, 80000, 'champ non fourni conservé par la mise à jour partielle');
+
+  const blocked = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'lca' });
+  assert.equal(blocked.status, 400);
+
+  const allowed = await auth(request(app).put(`/api/contracts/${id}`)).send({ branch: 'lca', life: null });
+  assert.equal(allowed.status, 200);
+  row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === id);
+  assert.equal(row.branch, 'lca');
+  assert.equal(row.life, null);
+});
+
+test('Vie — suppression explicite des détails via life: null', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Suppr', last_name: 'Vie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+  });
+  const del = await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ life: null });
+  assert.equal(del.status, 200);
+  const row = (await auth(request(app).get('/api/contracts'))).body.find((c) => c.id === created.body.id);
+  assert.equal(row.life, null);
+});
+
+test('Vie — la suppression du contrat supprime automatiquement contract_life (CASCADE)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Cascade', last_name: 'Vie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+  });
+  const del = await auth(request(app).delete(`/api/contracts/${created.body.id}`));
+  assert.equal(del.status, 200);
+  const list = await auth(request(app).get('/api/contracts'));
+  assert.ok(!list.body.find((c) => c.id === created.body.id), 'le contrat a bien été supprimé');
+});
+
+test('Vie — coexistence avec LAMal et LCA sans régression, et refus de blocs combinés incohérents', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Coexist', last_name: 'Vie', status: 'client',
+  });
+
+  const lifeContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte', insured_death_capital: 100000 },
+  });
+  assert.equal(lifeContract.status, 201);
+
+  const lamalContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3000,
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(lamalContract.status, 201);
+
+  const lcaContract = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(lcaContract.status, 201);
+
+  const list = await auth(request(app).get('/api/contracts'));
+  const lifeRow = list.body.find((c) => c.id === lifeContract.body.id);
+  const lamalRow = list.body.find((c) => c.id === lamalContract.body.id);
+  const lcaRow = list.body.find((c) => c.id === lcaContract.body.id);
+  assert.ok(lifeRow.life, 'le contrat vie conserve ses détails');
+  assert.equal(lifeRow.lamal, null);
+  assert.equal(lifeRow.lca, null);
+  assert.ok(lamalRow.lamal, 'le contrat LAMal conserve ses détails, non affecté par le support vie');
+  assert.equal(lamalRow.life, null);
+  assert.ok(lcaRow.lca, 'le contrat LCA conserve ses détails, non affecté par le support vie');
+  assert.equal(lcaRow.life, null);
+
+  // Une même requête combinant life et lamal (ou life et lca) non nuls est
+  // refusée quelle que soit la branche : aucune branche n'est jamais
+  // compatible avec deux blocs spécialisés à la fois.
+  const combinedLifeLamal = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(combinedLifeLamal.status, 400);
+
+  const combinedLifeLca = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(combinedLifeLca.status, 400);
+});
+
+test('Vie — non-régression de la génération de commission sur un contrat enrichi', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Commission', last_name: 'Vie', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    acq_commission_rate: 5, status: 'actif',
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat vie enrichi');
+  assert.equal(acq.amount, 120);
+});
+
+test('Vie — les entrées d’audit création/modification/suppression sont journalisées', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Audit', last_name: 'Vie', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
+    life: { component_type: 'mixte' },
+  });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`))
+    .send({ life: { component_type: 'rente' } });
+  await auth(request(app).put(`/api/contracts/${created.body.id}`)).send({ life: null });
+
+  const log = await auth(request(app).get('/api/compliance/audit-log?q=détails vie'));
+  assert.equal(log.status, 200);
+  assert.ok(log.body.some((l) => l.action === 'création détails vie'));
+  assert.ok(log.body.some((l) => l.action === 'modification détails vie'));
+  assert.ok(log.body.some((l) => l.action === 'suppression détails vie'));
+});
