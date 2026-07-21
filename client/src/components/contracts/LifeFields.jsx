@@ -21,7 +21,7 @@ const INDEXATION_LABELS = {
 // Composant de présentation pur : reçoit values/onChange/disabled depuis
 // ContractForm, ne construit jamais le payload API et ne possède aucune
 // copie indépendante des règles métier (listes importées de lifePayload.js).
-export function LifeFields({ values, onChange, disabled }) {
+export function LifeFields({ values, onChange, disabled, periodicDurationRequired }) {
   const set = (key) => (e) => onChange({ ...values, [key]: e.target.value });
   const setCheckbox = (key) => (e) => onChange({ ...values, [key]: e.target.checked });
 
@@ -78,15 +78,21 @@ export function LifeFields({ values, onChange, disabled }) {
           {INDEXATION_TYPES.map((v) => <option key={v} value={v}>{INDEXATION_LABELS[v] || v}</option>)}
         </select>
       </Field>
-      <Field label="Durée contractuelle (années)">
+      <Field label={periodicDurationRequired ? 'Durée contractuelle (années) *' : 'Durée contractuelle (années)'}>
         <input
           type="number"
           min="1"
           step="1"
+          required={periodicDurationRequired}
           value={values.policy_term_years}
           onChange={set('policy_term_years')}
           disabled={disabled}
         />
+        {periodicDurationRequired && (
+          <small className="muted">
+            Obligatoire pour une prime périodique (non requise et ignorée pour une prime unique).
+          </small>
+        )}
       </Field>
       <Field label="Libération du paiement des primes">
         <label className="flex" style={{ gap: 6 }}>

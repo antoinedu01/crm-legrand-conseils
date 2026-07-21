@@ -282,6 +282,12 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   // enregistré ; ceci n'est qu'un aperçu miroir.
   const isLifeCommissionBranch = LIFE_COMPATIBLE_BRANCHES.includes(form.branch);
   const isLifePeriodic = isLifeCommissionBranch && form.payment_frequency !== 'unique';
+  // Le backend n'exige policy_term_years que pour le calcul de la commission
+  // d'acquisition, généré exclusivement à la création (POST). En édition
+  // (PUT), le bloc vie reste modifiable partiellement sans durée — l'astérisque
+  // ne doit donc apparaître que dans ce cas précis, sous peine d'induire en
+  // erreur un utilisateur qui édite un contrat existant.
+  const lifeDurationRequired = !initial?.id && isLifePeriodic;
   // Ne masquer la partie « acquisition » de l'aperçu générique qu'à la
   // création : en édition, PUT ne recalcule jamais la commission (aucun
   // changement de ce lot), donc l'aperçu de remplacement Vie ci-dessous ne
@@ -435,7 +441,12 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             )}
             {(lifeMode === 'unchanged' || lifeMode === 'value') && (
               <>
-                <LifeFields values={lifeFields} onChange={handleLifeFieldsChange} disabled={submitting} />
+                <LifeFields
+                  values={lifeFields}
+                  onChange={handleLifeFieldsChange}
+                  disabled={submitting}
+                  periodicDurationRequired={lifeDurationRequired}
+                />
                 {hasExistingLife && (
                   <button type="button" className="small danger mt" onClick={requestLifeRemoval} disabled={submitting}>
                     Supprimer les détails Vie

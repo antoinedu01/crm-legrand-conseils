@@ -9,9 +9,8 @@ contrat (LAMal, LCA, assurance vie, incapacité de gain privée, LPP/IJM).
 > (`client/src/pages/Contracts.jsx`, `client/src/components/contracts/`) pour
 > les branches LAMal, LCA et Vie ; les branches incapacité de gain privée et
 > LPP/IJM disposent du schéma et de l'API mais n'ont, à ce jour, aucune
-> interface frontend dédiée. Ce module **n'est pas fusionné dans la branche
-> de production** (`claude/insurance-broker-crm-exx09v`) à la date de
-> rédaction.
+> interface frontend dédiée. Module préparé sur la branche d'intégration
+> `swiss-insurance-crm-v1`.
 >
 > Toute affirmation de ce document est vérifiée contre le code au moment de
 > la rédaction. En cas de divergence future entre ce document et le code,
@@ -103,6 +102,29 @@ dans `contract_beneficiaries`, pas dans ce bloc.
 | `premium_waiver` | `boolean` | non (défaut `false`) | non | non | `null` explicite rejeté |
 | `indexation_type` | `string` (enum) | non (défaut SQL `'aucune'`) | non | non | `['aucune', 'fixe', 'indice_prix_conso', 'autre']` ; `null` explicite rejeté |
 | `policy_term_years` | `number` (entier) | oui | non | non | `> 0` si renseigné ; aucun plafond |
+
+**Règle conditionnelle liée à la commission (à la création uniquement).** Le
+tableau ci-dessus décrit la validation du bloc `life` en tant que tel, où
+`policy_term_years` reste un champ optionnel. Une règle supplémentaire,
+propre au calcul de la commission d'acquisition (`server/commissionCalc.js`),
+s'applique uniquement à la création (`POST /api/contracts`) d'un contrat des
+branches `vie_3a`/`vie_3b` :
+
+- **Prime périodique** (`payment_frequency` différent de `'unique'`) :
+  `policy_term_years` devient **obligatoire** (entier `> 0`). Son absence ou
+  son invalidité fait échouer la création avec un code `400`, avant toute
+  écriture en base. Formule appliquée :
+  `commission = prime annuelle × durée contractuelle × taux d'acquisition / 100`.
+- **Prime unique** (`payment_frequency` égal à `'unique'`) : `policy_term_years`
+  n'est **pas utilisé** dans le calcul, qu'il soit renseigné ou non — la
+  durée est ignorée. Formule appliquée (identique à la règle générale de
+  toutes les autres branches) :
+  `commission = prime annuelle × taux d'acquisition / 100`.
+
+Cette règle ne s'applique qu'à la génération de la commission d'acquisition à
+la création ; elle n'intervient pas en mise à jour (`PUT`), où le champ reste
+optionnel comme indiqué dans le tableau (voir aussi §7). Voir §9.6 pour un
+exemple de rejet et §9.7 pour un exemple de prime unique.
 
 ### 2.4 Incapacité de gain privée — branche `incapacite`, bloc `income_protection`
 
@@ -347,3 +369,43 @@ Réponse `200` : `{ "ok": true }`. Seul `surrender_value` est modifié ; les
 autres champs déjà enregistrés (`component_type`, capitaux, etc.) sont
 préservés — comportement de mise à jour partielle, disponible pour ce bloc
 (contrairement à LAMal, §2.1).
+
+### 9.6 Rejet d'une création Vie périodique sans durée
+
+```
+POST /api/contracts
+{
+  "client_id": 42,
+  "company_id": 3,
+  "branch": "vie_3a",
+  "annual_premium": 6000,
+  "payment_frequency": "annuelle",
+  "acq_commission_rate": 4,
+  "life": { "component_type": "mixte" }
+}
+```
+Réponse `400` : `{ "error": "La durée contractuelle est nécessaire pour
+calculer la commission d’acquisition d’un contrat Vie." }`. Aucun contrat
+n'est créé — `payment_frequency` étant différent de `'unique'`,
+`policy_term_years` est requis pour calculer la commission (voir §2.3) et son
+absence bloque la création avant toute écriture.
+
+### 9.7 Création Vie à prime unique, durée ignorée
+
+```
+POST /api/contracts
+{
+  "client_id": 42,
+  "company_id": 3,
+  "branch": "vie_3a",
+  "annual_premium": 50000,
+  "payment_frequency": "unique",
+  "acq_commission_rate": 3,
+  "life": { "component_type": "capital_differe" }
+}
+```
+Réponse `201` : `{ "id": 789, "warnings": [] }`. `policy_term_years` est
+absent et n'est pas requis : pour une prime unique, la commission
+d'acquisition suit la formule générale
+(`50000 × 3 / 100 = 1500.00` CHF), sans intervention de la durée
+contractuelle.
