@@ -100,6 +100,10 @@ test('création d’un contrat : commission d’acquisition automatique + averti
     client_id: client.body.id, company_id: 1, branch: 'vie_3a',
     annual_premium: 7056, acq_commission_rate: 4, rec_commission_rate: 1,
     status: 'actif', start_date: '2026-01-01',
+    // Lot I4.1 : un contrat Vie à primes périodiques (fréquence par défaut
+    // 'annuelle') avec taux et prime positifs exige une durée contractuelle
+    // valide pour le calcul de la commission d'acquisition sur le volume.
+    life: { component_type: 'mixte', policy_term_years: 20 },
   });
   assert.equal(res.status, 201);
   contractId = res.body.id;
@@ -109,7 +113,10 @@ test('création d’un contrat : commission d’acquisition automatique + averti
   const commissions = await auth(request(app).get('/api/commissions?year=2026'));
   const acq = commissions.body.find((c) => c.contract_id === contractId && c.type === 'acquisition');
   assert.ok(acq, 'commission d’acquisition créée automatiquement');
-  assert.equal(acq.amount, 282.24);
+  // Lot I4.1 : 7056 (prime annuelle) × 20 (durée) × 4 (taux) / 100 = 5644.80
+  // — remplace l'ancien montant 282.24 (= 7056 × 4 / 100), qui ignorait la
+  // durée contractuelle du contrat Vie.
+  assert.equal(acq.amount, 5644.80);
 });
 
 test('un taux de commission invalide est refusé', async () => {
@@ -1049,13 +1056,267 @@ test('Vie — non-régression de la génération de commission sur un contrat en
   const res = await auth(request(app).post('/api/contracts')).send({
     client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
     acq_commission_rate: 5, status: 'actif',
-    life: { component_type: 'mixte' },
+    // Lot I4.1 : policy_term_years requis pour une Vie périodique avec
+    // prime et taux positifs (fréquence par défaut 'annuelle').
+    life: { component_type: 'mixte', policy_term_years: 10 },
   });
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
   assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat vie enrichi');
-  assert.equal(acq.amount, 120);
+  // Lot I4.1 : 2400 × 10 (durée) × 5 (taux) / 100 = 1200 — remplace l'ancien
+  // montant 120 (= 2400 × 5 / 100), qui ignorait la durée contractuelle.
+  assert.equal(acq.amount, 1200);
+});
+
+// --- Lot I4.1 : commission d'acquisition Vie calculée sur le volume ------
+// contractuel estimé (prime annuelle × durée × taux), au lieu de la seule
+// prime annuelle.
+
+test('Vie — commission d’acquisition calculée sur le volume contractuel (prime × durée × taux)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Volume', last_name: 'Vie3a', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'annuelle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 20 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.ok(acq);
+  assert.equal(acq.amount, 4800);
+});
+
+test('Vie 3b — même formule volume contractuel', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Volume', last_name: 'Vie3b', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3b', annual_premium: 6000,
+    payment_frequency: 'annuelle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 20 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 4800);
+});
+
+test('Vie mensuelle — annual_premium reste la prime annuelle, aucun facteur 12 supplémentaire', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Freq', last_name: 'Mensuelle', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'mensuelle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 20 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 4800);
+});
+
+test('Vie trimestrielle — aucun facteur 4 supplémentaire', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Freq', last_name: 'Trimestrielle', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'trimestrielle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 20 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 4800);
+});
+
+test('Vie semestrielle — aucun facteur 2 supplémentaire', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Freq', last_name: 'Semestrielle', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'semestrielle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 20 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 4800);
+});
+
+test('Vie prime unique — prime × taux, sans durée', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Freq', last_name: 'Unique', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'unique', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 240);
+});
+
+test('Vie périodique, taux positif, durée absente -> requête rejetée (400), aucun contrat créé', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Gate', last_name: 'DureeAbsente', status: 'client',
+  });
+  const before = await auth(request(app).get('/api/contracts'));
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'annuelle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /durée contractuelle/i);
+  const after = await auth(request(app).get('/api/contracts'));
+  assert.equal(after.body.length, before.body.length, 'aucun contrat orphelin créé après rejet');
+});
+
+test('Vie périodique, taux zéro, durée absente -> création autorisée, aucune commission d’acquisition', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Gate', last_name: 'TauxZero', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'annuelle', acq_commission_rate: 0, status: 'actif',
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq, undefined);
+});
+
+test('Vie périodique, prime zéro, durée absente -> aucune commission inventée', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Gate', last_name: 'PrimeZero', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 0,
+    payment_frequency: 'annuelle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq, undefined);
+});
+
+test('Vie — durée = 1 -> commission = prime annuelle × taux', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Duree', last_name: 'Un', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'annuelle', acq_commission_rate: 4, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 1 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 240);
+});
+
+test('Vie — montant décimal arrondi à deux décimales, une seule fois à la fin', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Arrondi', last_name: 'Decimal', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 1999.99,
+    payment_frequency: 'annuelle', acq_commission_rate: 3.5, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 7 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  const expected = Math.round(1999.99 * 7 * 3.5) / 100;
+  assert.equal(acq.amount, expected);
+});
+
+test('LAMal — la formule de commission actuelle reste inchangée par le Lot I4.1 (pas de facteur durée)', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Regression', last_name: 'Lamal', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lamal', annual_premium: 3600,
+    payment_frequency: 'annuelle', acq_commission_rate: 5, status: 'actif',
+    lamal: { care_model: 'standard', deductible: 300 },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 180);
+});
+
+test('LCA — la formule de commission actuelle reste inchangée par le Lot I4.1', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Regression', last_name: 'Lca', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lca', annual_premium: 900,
+    payment_frequency: 'annuelle', acq_commission_rate: 5, status: 'actif',
+    lca: { underwriting_status: 'acceptee' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 45);
+});
+
+test('Incapacité — la formule de commission actuelle reste inchangée par le Lot I4.1', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Regression', last_name: 'Incap', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'incapacite', annual_premium: 1500,
+    payment_frequency: 'annuelle', acq_commission_rate: 5, status: 'actif',
+    income_protection: { benefit_type: 'rente' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 75);
+});
+
+test('LPP/IJM — la formule de commission actuelle reste inchangée par le Lot I4.1', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Regression', last_name: 'Lpp', status: 'client',
+  });
+  const res = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'lpp', annual_premium: 2000,
+    payment_frequency: 'annuelle', acq_commission_rate: 5, status: 'actif',
+    lpp_ijm: { product_type: 'lpp' },
+  });
+  assert.equal(res.status, 201);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
+  assert.equal(acq.amount, 100);
+});
+
+test('commission récurrente (generate-recurring) reste inchangée pour un contrat Vie de longue durée', async () => {
+  const client = await auth(request(app).post('/api/clients')).send({
+    first_name: 'Recurrente', last_name: 'VieLongue', status: 'client',
+  });
+  const created = await auth(request(app).post('/api/contracts')).send({
+    client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 6000,
+    payment_frequency: 'annuelle', acq_commission_rate: 0, rec_commission_rate: 2, status: 'actif',
+    life: { component_type: 'mixte', policy_term_years: 20 },
+  });
+  assert.equal(created.status, 201);
+  const gen = await auth(request(app).post('/api/commissions/generate-recurring')).send({ year: 2099 });
+  assert.equal(gen.status, 200);
+  const commissions = await auth(request(app).get('/api/commissions'));
+  const rec = commissions.body.find((c) => c.contract_id === created.body.id && c.type === 'recurrente');
+  assert.ok(rec, 'commission récurrente générée');
+  assert.equal(rec.amount, 120, 'pas de facteur durée appliqué à la commission récurrente (120 = 6000×2/100, pas ×20)');
 });
 
 test('Vie — les entrées d’audit création/modification/suppression sont journalisées', async () => {
@@ -2242,8 +2503,11 @@ test('Vie — rejet de component_type: null en PUT sur une ligne existante, sans
   const created = await auth(request(app).post('/api/contracts')).send({
     client_id: client.body.id, company_id: 1, branch: 'vie_3a', annual_premium: 2400,
     acq_commission_rate: 5, status: 'actif',
-    life: { component_type: 'mixte', insured_death_capital: 50000 },
+    // Lot I4.1 : policy_term_years requis pour une Vie périodique avec
+    // prime et taux positifs (fréquence par défaut 'annuelle').
+    life: { component_type: 'mixte', insured_death_capital: 50000, policy_term_years: 10 },
   });
+  assert.equal(created.status, 201);
   const id = created.body.id;
 
   const commissionsBefore = await auth(request(app).get('/api/commissions'));

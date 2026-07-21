@@ -10,6 +10,7 @@ import { buildLcaBlock, composeLcaPayload, LCA_NEUTRAL_FIELDS } from '../compone
 import { LcaFields } from '../components/contracts/LcaFields.jsx';
 import { buildLifeBlock, composeLifePayload, LIFE_COMPATIBLE_BRANCHES, LIFE_INITIAL_FIELDS } from '../components/contracts/lifePayload.js';
 import { LifeFields } from '../components/contracts/LifeFields.jsx';
+import { estimateLifeAcquisitionCommission, LifeCommissionError } from '../components/contracts/lifeCommissionEstimate.js';
 
 const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
 
@@ -226,6 +227,28 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
         return;
       }
     }
+    // Garde de pré-soumission (Lot I4.1) : la commission d'acquisition n'est
+    // générée qu'à la création, sur le volume contractuel Vie (prime × durée
+    // × taux) pour une fréquence périodique. Rejette avant tout appel réseau
+    // si la durée manque, en miroir exact de la règle backend
+    // (server/commissionCalc.js), pour éviter un aller-retour inutile.
+    if (!initial?.id && LIFE_COMPATIBLE_BRANCHES.includes(form.branch)) {
+      try {
+        estimateLifeAcquisitionCommission({
+          branch: form.branch,
+          annual_premium: form.annual_premium,
+          payment_frequency: form.payment_frequency,
+          acq_commission_rate: form.acq_commission_rate,
+          policy_term_years: lifeMode === 'value' ? lifeFields.policy_term_years : null,
+        });
+      } catch (err) {
+        if (err instanceof LifeCommissionError) {
+          setError(err.message);
+          return;
+        }
+        throw err;
+      }
+    }
 
     setSubmitting(true);
     try {
@@ -248,8 +271,39 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   }
 
   const premium = Number(form.annual_premium) || 0;
-  const acq = (premium * (Number(form.acq_commission_rate) || 0)) / 100;
+  const acqRateValue = Number(form.acq_commission_rate) || 0;
+  const acq = (premium * acqRateValue) / 100;
   const rec = (premium * (Number(form.rec_commission_rate) || 0)) / 100;
+
+  // Aperçu Vie (Lot I4.1) : uniquement à la création, pour une branche Vie à
+  // fréquence périodique (payment_frequency !== 'unique') — c'est le seul
+  // cas où la formule sur volume contractuel diverge de l'aperçu générique
+  // acq/rec ci-dessus. Le backend reste seul décideur du montant réellement
+  // enregistré ; ceci n'est qu'un aperçu miroir.
+  const isLifeCommissionBranch = LIFE_COMPATIBLE_BRANCHES.includes(form.branch);
+  const isLifePeriodic = isLifeCommissionBranch && form.payment_frequency !== 'unique';
+  // Ne masquer la partie « acquisition » de l'aperçu générique qu'à la
+  // création : en édition, PUT ne recalcule jamais la commission (aucun
+  // changement de ce lot), donc l'aperçu de remplacement Vie ci-dessous ne
+  // s'affiche pas non plus — masquer sans remplacement laisserait un aperçu
+  // vide, une régression d'affichage que ce lot ne doit pas introduire.
+  const hideGenericAcqForLife = !initial?.id && isLifePeriodic;
+  let lifeCommissionAmount = null;
+  let lifeCommissionUnavailable = false;
+  if (!initial?.id && isLifePeriodic) {
+    try {
+      lifeCommissionAmount = estimateLifeAcquisitionCommission({
+        branch: form.branch,
+        annual_premium: form.annual_premium,
+        payment_frequency: form.payment_frequency,
+        acq_commission_rate: form.acq_commission_rate,
+        policy_term_years: lifeMode === 'value' ? lifeFields.policy_term_years : null,
+      });
+    } catch (err) {
+      if (err instanceof LifeCommissionError) lifeCommissionUnavailable = true;
+      else throw err;
+    }
+  }
 
   return (
     <Modal title={initial?.id ? 'Modifier le contrat' : 'Nouveau contrat'} onClose={submitting ? () => {} : onClose} wide>
@@ -401,12 +455,26 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             )}
           </div>
         )}
-        {premium > 0 && (acq > 0 || rec > 0) && (
+        {premium > 0 && ((!hideGenericAcqForLife && acq > 0) || rec > 0) && (
           <div className="alert ok mt">
-            Commissions estimées : acquisition <strong>{fmtCHF(acq)}</strong>
-            {rec > 0 && <> · portefeuille <strong>{fmtCHF(rec)}/an</strong></>}
-            {!initial?.id && <> — la commission d’acquisition sera créée automatiquement.</>}
+            Commissions estimées :{' '}
+            {!hideGenericAcqForLife && acq > 0 && <>acquisition <strong>{fmtCHF(acq)}</strong></>}
+            {!hideGenericAcqForLife && acq > 0 && rec > 0 && ' · '}
+            {rec > 0 && <>portefeuille <strong>{fmtCHF(rec)}/an</strong></>}
+            {!initial?.id && !hideGenericAcqForLife && acq > 0 && <> — la commission d’acquisition sera créée automatiquement.</>}
           </div>
+        )}
+        {!initial?.id && isLifePeriodic && premium > 0 && acqRateValue > 0 && (
+          lifeCommissionUnavailable ? (
+            <div className="alert warn mt">
+              La durée contractuelle est nécessaire pour calculer la commission d’acquisition d’un contrat Vie.
+            </div>
+          ) : lifeCommissionAmount != null ? (
+            <div className="alert ok mt">
+              Commission estimée (Vie, volume contractuel) : <strong>{fmtCHF(lifeCommissionAmount)}</strong>
+              {' '}— la commission d’acquisition sera créée automatiquement.
+            </div>
+          ) : null
         )}
         <div className="actions">
           <button type="button" onClick={onClose} disabled={submitting}>Annuler</button>

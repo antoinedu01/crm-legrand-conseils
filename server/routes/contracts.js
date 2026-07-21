@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
 import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields } from '../validate.js';
+import { computeAcquisitionCommission, CommissionCalcError } from '../commissionCalc.js';
 
 export const contractsRouter = Router();
 
@@ -847,8 +848,23 @@ contractsRouter.post('/', (req, res) => {
   if (!client.info_lsa_date) warnings.push('L’information selon l’art. 45 LSA n’a pas été remise.');
   if (!client.consent_data) warnings.push('Le consentement nLPD au traitement des données n’est pas enregistré.');
 
-  const premium = Number(data.annual_premium) || 0;
-  const acqRate = Number(data.acq_commission_rate) || 0;
+  // Commission d'acquisition : calculée et validée avant toute écriture, afin
+  // de garantir l'atomicité observable (un contrat Vie périodique sans durée
+  // contractuelle valide est rejeté avant toute insertion, jamais créé avec
+  // une commission tronquée à une année).
+  let commissionAmount;
+  try {
+    commissionAmount = computeAcquisitionCommission({
+      branch: data.branch,
+      annual_premium: data.annual_premium,
+      payment_frequency: data.payment_frequency,
+      acq_commission_rate: data.acq_commission_rate,
+      policy_term_years: lifeProvided && lifeBody != null ? lifeBody.policy_term_years : null,
+    });
+  } catch (err) {
+    if (err instanceof CommissionCalcError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
 
   const { contractId, lamalResult, lcaResult, lifeResult, incomeProtectionResult, lppIjmResult } = db.transaction(() => {
     const fields = Object.keys(data);
@@ -857,11 +873,11 @@ contractsRouter.post('/', (req, res) => {
       .run(...fields.map((f) => data[f]));
     const id = info.lastInsertRowid;
     // Commission d'acquisition générée automatiquement
-    if (premium > 0 && acqRate > 0) {
+    if (commissionAmount != null) {
       db.prepare(
         `INSERT INTO commissions (contract_id, type, label, amount, due_date, status)
          VALUES (?, 'acquisition', 'Commission d''acquisition', ?, ?, 'attendue')`
-      ).run(id, Math.round(premium * acqRate) / 100, data.start_date || null);
+      ).run(id, commissionAmount, data.start_date || null);
     }
     const lamal = lamalProvided && lamalBody !== null ? writeLamal(id, lamalBody) : null;
     const lca = lcaProvided && lcaBody !== null ? writeLca(id, lcaBody) : null;
