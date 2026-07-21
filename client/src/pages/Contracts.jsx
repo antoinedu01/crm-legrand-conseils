@@ -4,6 +4,20 @@ import { api } from '../api.js';
 import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
 import { BRANCHES, CONTRACT_STATUS, PAYMENT_FREQUENCIES, fmtCHF } from '../labels.js';
 import { buildGenericContractPayload, hasAnySpecializedBlock } from '../components/contracts/contractPayload.js';
+import { buildLamalBlock, composeLamalPayload } from '../components/contracts/lamalPayload.js';
+import { LamalFields } from '../components/contracts/LamalFields.jsx';
+
+const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
+
+function lamalFieldsFromBlock(block) {
+  return {
+    care_model: block.care_model,
+    deductible: block.deductible,
+    accident_coverage: block.accident_coverage,
+    canton: block.canton ?? '',
+    tariff_region: block.tariff_region ?? '',
+  };
+}
 
 export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   const [clients, setClients] = useState([]);
@@ -19,6 +33,47 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const branchLocked = !!initial?.id && hasAnySpecializedBlock(initial);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const hasExistingLamal = initial?.lamal != null;
+  const [lamalMode, setLamalMode] = useState(hasExistingLamal ? 'unchanged' : 'absent');
+  const [lamalFields, setLamalFields] = useState(
+    hasExistingLamal ? lamalFieldsFromBlock(initial.lamal) : DEFAULT_LAMAL_FIELDS
+  );
+  const [lamalModeBeforeRemoval, setLamalModeBeforeRemoval] = useState(null);
+
+  function handleBranchChange(e) {
+    const nextBranch = e.target.value;
+    setForm((f) => ({ ...f, branch: nextBranch }));
+    // Activation automatique uniquement à la création, lors de la première
+    // sélection de la branche lamal (règle I2 §6). En édition d'un contrat
+    // lamal sans bloc, l'activation passe par le bouton « Ajouter les
+    // détails LAMal » ci-dessous, jamais automatiquement.
+    if (nextBranch === 'lamal' && !initial?.id && lamalMode === 'absent') {
+      setLamalFields(DEFAULT_LAMAL_FIELDS);
+      setLamalMode('value');
+    }
+  }
+
+  function handleLamalFieldsChange(nextFields) {
+    setLamalFields(nextFields);
+    if (lamalMode === 'unchanged') setLamalMode('value');
+  }
+
+  function addLamalDetails() {
+    setLamalFields(DEFAULT_LAMAL_FIELDS);
+    setLamalMode('value');
+  }
+
+  function requestLamalRemoval() {
+    if (!window.confirm('Supprimer les détails LAMal de ce contrat ? La suppression sera appliquée à l’enregistrement.')) return;
+    setLamalModeBeforeRemoval(lamalMode);
+    setLamalMode('removed');
+  }
+
+  function cancelLamalRemoval() {
+    setLamalMode(lamalModeBeforeRemoval || 'unchanged');
+    setLamalModeBeforeRemoval(null);
+  }
 
   useEffect(() => {
     api.get('/api/clients').then((rows) => setClients(rows.filter((c) => c.status !== 'anonymise')));
@@ -41,9 +96,24 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     e.preventDefault();
     if (submitting) return;
     setError(null);
+
+    // Construction et validation du bloc LAMal avant tout appel API : une
+    // erreur de saisie ne doit jamais partir en requête incomplète, et ne
+    // doit pas non plus faire passer le bouton en état "Enregistrement…".
+    let lamalBlock;
+    if (form.branch === 'lamal' && lamalMode === 'value') {
+      try {
+        lamalBlock = buildLamalBlock(lamalFields);
+      } catch (err) {
+        setError(err.message);
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
-      const payload = buildGenericContractPayload(form);
+      const generic = buildGenericContractPayload(form);
+      const payload = composeLamalPayload(generic, { mode: lamalMode, branch: form.branch, block: lamalBlock });
       if (initial?.id) {
         await api.put(`/api/contracts/${initial.id}`, payload);
         onSaved([]);
@@ -80,7 +150,7 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             </select>
           </Field>
           <Field label="Branche">
-            <select value={form.branch} onChange={set('branch')} disabled={branchLocked}>
+            <select value={form.branch} onChange={handleBranchChange} disabled={branchLocked}>
               {Object.entries(BRANCHES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             {branchLocked && (
@@ -122,6 +192,36 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             <textarea rows={2} value={form.notes || ''} onChange={set('notes')} />
           </Field>
         </div>
+        {form.branch === 'lamal' && (
+          <div className="card mt">
+            <h3>Détails LAMal</h3>
+            {lamalMode === 'absent' && (
+              <button type="button" className="small" onClick={addLamalDetails} disabled={submitting}>
+                Ajouter les détails LAMal
+              </button>
+            )}
+            {(lamalMode === 'unchanged' || lamalMode === 'value') && (
+              <>
+                <LamalFields values={lamalFields} onChange={handleLamalFieldsChange} disabled={submitting} />
+                {hasExistingLamal && (
+                  <button type="button" className="small danger mt" onClick={requestLamalRemoval} disabled={submitting}>
+                    Supprimer les détails LAMal
+                  </button>
+                )}
+              </>
+            )}
+            {lamalMode === 'removed' && (
+              <div className="alert warn">
+                Les détails LAMal seront supprimés à l’enregistrement.
+                <div className="mt">
+                  <button type="button" className="small" onClick={cancelLamalRemoval} disabled={submitting}>
+                    Annuler la suppression
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {premium > 0 && (acq > 0 || rec > 0) && (
           <div className="alert ok mt">
             Commissions estimées : acquisition <strong>{fmtCHF(acq)}</strong>
