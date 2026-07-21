@@ -692,6 +692,24 @@ function pick(body) {
   return out;
 }
 
+// Colonnes SQL aplaties (alias lamal_*/lca_*/life_*/income_protection_*/
+// lpp_ijm_*, cf. SELECT ci-dessous) à retirer de la copie brute de la ligne
+// avant de la spreader dans la réponse : les valeurs exposées au client
+// proviennent exclusivement des serializeX(r) ci-dessous, jamais de ces
+// colonnes aplaties elles-mêmes.
+const SPECIALIZED_FLAT_COLUMNS = [
+  'lamal_care_model', 'lamal_deductible', 'lamal_accident_coverage', 'lamal_canton', 'lamal_tariff_region',
+  'lca_underwriting_status', 'lca_waiting_period_days', 'lca_administrative_reservation_status',
+  'lca_reservation_notes', 'lca_exclusions_status', 'lca_exclusions_notes',
+  'life_component_type', 'life_insured_death_capital', 'life_insured_disability_capital', 'life_insured_rent',
+  'life_surrender_value', 'life_premium_waiver', 'life_indexation_type', 'life_policy_term_years',
+  'income_protection_benefit_type', 'income_protection_insured_amount', 'income_protection_waiting_period_days',
+  'income_protection_benefit_duration_months', 'income_protection_disability_trigger_rate',
+  'income_protection_coordination_ai_lpp', 'income_protection_premium_waiver', 'income_protection_exclusions_notes',
+  'lpp_ijm_product_type', 'lpp_ijm_institution_name', 'lpp_ijm_retirement_capital', 'lpp_ijm_disability_pension',
+  'lpp_ijm_daily_allowance', 'lpp_ijm_waiting_period_days', 'lpp_ijm_benefit_duration_days',
+];
+
 contractsRouter.get('/', (req, res) => {
   const { client_id, company_id, status, branch, q } = req.query;
   let sql = `
@@ -744,19 +762,8 @@ contractsRouter.get('/', (req, res) => {
   sql += ' ORDER BY ct.created_at DESC';
   res.json(
     db.prepare(sql).all(...params).map((r) => {
-      const {
-        lamal_care_model, lamal_deductible, lamal_accident_coverage, lamal_canton, lamal_tariff_region,
-        lca_underwriting_status, lca_waiting_period_days, lca_administrative_reservation_status,
-        lca_reservation_notes, lca_exclusions_status, lca_exclusions_notes,
-        life_component_type, life_insured_death_capital, life_insured_disability_capital, life_insured_rent,
-        life_surrender_value, life_premium_waiver, life_indexation_type, life_policy_term_years,
-        income_protection_benefit_type, income_protection_insured_amount, income_protection_waiting_period_days,
-        income_protection_benefit_duration_months, income_protection_disability_trigger_rate,
-        income_protection_coordination_ai_lpp, income_protection_premium_waiver, income_protection_exclusions_notes,
-        lpp_ijm_product_type, lpp_ijm_institution_name, lpp_ijm_retirement_capital, lpp_ijm_disability_pension,
-        lpp_ijm_daily_allowance, lpp_ijm_waiting_period_days, lpp_ijm_benefit_duration_days,
-        ...rest
-      } = r;
+      const rest = { ...r };
+      for (const key of SPECIALIZED_FLAT_COLUMNS) delete rest[key];
       return {
         ...rest,
         client_name:
