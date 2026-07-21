@@ -6,6 +6,8 @@ import { BRANCHES, CONTRACT_STATUS, PAYMENT_FREQUENCIES, fmtCHF } from '../label
 import { buildGenericContractPayload, hasAnySpecializedBlock } from '../components/contracts/contractPayload.js';
 import { buildLamalBlock, composeLamalPayload } from '../components/contracts/lamalPayload.js';
 import { LamalFields } from '../components/contracts/LamalFields.jsx';
+import { buildLcaBlock, composeLcaPayload, LCA_NEUTRAL_FIELDS } from '../components/contracts/lcaPayload.js';
+import { LcaFields } from '../components/contracts/LcaFields.jsx';
 
 const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
 
@@ -16,6 +18,17 @@ function lamalFieldsFromBlock(block) {
     accident_coverage: block.accident_coverage,
     canton: block.canton ?? '',
     tariff_region: block.tariff_region ?? '',
+  };
+}
+
+function lcaFieldsFromBlock(block) {
+  return {
+    underwriting_status: block.underwriting_status,
+    waiting_period_days: block.waiting_period_days ?? '',
+    administrative_reservation_status: block.administrative_reservation_status,
+    reservation_notes: block.reservation_notes ?? '',
+    exclusions_status: block.exclusions_status,
+    exclusions_notes: block.exclusions_notes ?? '',
   };
 }
 
@@ -52,6 +65,13 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
       setLamalFields(DEFAULT_LAMAL_FIELDS);
       setLamalMode('value');
     }
+    // Même règle pour LCA (I3 §8) : activation automatique uniquement à la
+    // création, lors de la première sélection de la branche lca, avec les
+    // valeurs neutres prévues (aucun statut favorable/défavorable présélectionné).
+    if (nextBranch === 'lca' && !initial?.id && lcaMode === 'absent') {
+      setLcaFields(LCA_NEUTRAL_FIELDS);
+      setLcaMode('value');
+    }
   }
 
   function handleLamalFieldsChange(nextFields) {
@@ -73,6 +93,34 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   function cancelLamalRemoval() {
     setLamalMode(lamalModeBeforeRemoval || 'unchanged');
     setLamalModeBeforeRemoval(null);
+  }
+
+  const hasExistingLca = initial?.lca != null;
+  const [lcaMode, setLcaMode] = useState(hasExistingLca ? 'unchanged' : 'absent');
+  const [lcaFields, setLcaFields] = useState(
+    hasExistingLca ? lcaFieldsFromBlock(initial.lca) : LCA_NEUTRAL_FIELDS
+  );
+  const [lcaModeBeforeRemoval, setLcaModeBeforeRemoval] = useState(null);
+
+  function handleLcaFieldsChange(nextFields) {
+    setLcaFields(nextFields);
+    if (lcaMode === 'unchanged') setLcaMode('value');
+  }
+
+  function addLcaDetails() {
+    setLcaFields(LCA_NEUTRAL_FIELDS);
+    setLcaMode('value');
+  }
+
+  function requestLcaRemoval() {
+    if (!window.confirm('Supprimer les détails LCA de ce contrat ? La suppression sera appliquée à l’enregistrement.')) return;
+    setLcaModeBeforeRemoval(lcaMode);
+    setLcaMode('removed');
+  }
+
+  function cancelLcaRemoval() {
+    setLcaMode(lcaModeBeforeRemoval || 'unchanged');
+    setLcaModeBeforeRemoval(null);
   }
 
   useEffect(() => {
@@ -109,11 +157,21 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
         return;
       }
     }
+    let lcaBlock;
+    if (form.branch === 'lca' && lcaMode === 'value') {
+      try {
+        lcaBlock = buildLcaBlock(lcaFields);
+      } catch (err) {
+        setError(err.message);
+        return;
+      }
+    }
 
     setSubmitting(true);
     try {
       const generic = buildGenericContractPayload(form);
-      const payload = composeLamalPayload(generic, { mode: lamalMode, branch: form.branch, block: lamalBlock });
+      const withLamal = composeLamalPayload(generic, { mode: lamalMode, branch: form.branch, block: lamalBlock });
+      const payload = composeLcaPayload(withLamal, { mode: lcaMode, branch: form.branch, block: lcaBlock });
       if (initial?.id) {
         await api.put(`/api/contracts/${initial.id}`, payload);
         onSaved([]);
@@ -215,6 +273,36 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
                 Les détails LAMal seront supprimés à l’enregistrement.
                 <div className="mt">
                   <button type="button" className="small" onClick={cancelLamalRemoval} disabled={submitting}>
+                    Annuler la suppression
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {form.branch === 'lca' && (
+          <div className="card mt">
+            <h3>Détails LCA</h3>
+            {lcaMode === 'absent' && (
+              <button type="button" className="small" onClick={addLcaDetails} disabled={submitting}>
+                Ajouter les détails LCA
+              </button>
+            )}
+            {(lcaMode === 'unchanged' || lcaMode === 'value') && (
+              <>
+                <LcaFields values={lcaFields} onChange={handleLcaFieldsChange} disabled={submitting} />
+                {hasExistingLca && (
+                  <button type="button" className="small danger mt" onClick={requestLcaRemoval} disabled={submitting}>
+                    Supprimer les détails LCA
+                  </button>
+                )}
+              </>
+            )}
+            {lcaMode === 'removed' && (
+              <div className="alert warn">
+                Les détails LCA seront supprimés à l’enregistrement.
+                <div className="mt">
+                  <button type="button" className="small" onClick={cancelLcaRemoval} disabled={submitting}>
                     Annuler la suppression
                   </button>
                 </div>
