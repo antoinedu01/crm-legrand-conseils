@@ -303,6 +303,192 @@ if (version < 6) {
   migrate();
 }
 
+// Note : il n'existe pas de bloc « version < 7 » dans cette branche. La
+// version 7 reste conceptuellement réservée au Bloc 4 (partenaires,
+// branche feature/lead-generation-engine, non fusionnée) — voir
+// PROJECT_HANDOFF.md §10. Cette migration passe donc directement de 6 à 8,
+// sans collision, conformément à la décision humaine validée.
+if (version < 8) {
+  // Modèle métier « Assurance Suisse » (Lot A) : schéma relationnel
+  // uniquement — aucune route ni interface n'est encore branchée dessus.
+  const migrate = db.transaction(() => {
+    // Champs communs de pilotage de la revue de portefeuille, valables
+    // pour toutes les branches (évite toute duplication par famille).
+    const contractCols = db.prepare('PRAGMA table_info(contracts)').all().map((c) => c.name);
+    if (!contractCols.includes('review_frequency')) {
+      db.exec("ALTER TABLE contracts ADD COLUMN review_frequency TEXT DEFAULT 'annuelle'");
+    }
+    if (!contractCols.includes('review_last_date')) {
+      db.exec('ALTER TABLE contracts ADD COLUMN review_last_date TEXT');
+    }
+    if (!contractCols.includes('review_next_date')) {
+      db.exec('ALTER TABLE contracts ADD COLUMN review_next_date TEXT');
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_contracts_review_next ON contracts(review_next_date)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_contracts_branch_status ON contracts(branch, status)');
+
+    // LAMal — uniquement les données propres à la LAMal ; ni prime, ni
+    // date contractuelle (déjà portées par contracts).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_lamal (
+        contract_id INTEGER PRIMARY KEY REFERENCES contracts(id) ON DELETE CASCADE,
+        care_model TEXT NOT NULL,
+        deductible INTEGER NOT NULL CHECK (deductible >= 0),
+        accident_coverage INTEGER NOT NULL DEFAULT 1 CHECK (accident_coverage IN (0, 1)),
+        canton TEXT,
+        tariff_region TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_contract_lamal_deductible ON contract_lamal(deductible);
+    `);
+
+    // LCA — uniquement le processus de souscription/décision ; les
+    // garanties elles-mêmes vivent dans contract_coverages. Aucun
+    // diagnostic, pathologie ni contenu de questionnaire médical : les
+    // champs *_notes sont de courts statuts administratifs uniquement.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_lca (
+        contract_id INTEGER PRIMARY KEY REFERENCES contracts(id) ON DELETE CASCADE,
+        underwriting_status TEXT NOT NULL DEFAULT 'non_requis',
+        waiting_period_days INTEGER CHECK (waiting_period_days IS NULL OR waiting_period_days >= 0),
+        administrative_reservation_status TEXT NOT NULL DEFAULT 'aucune',
+        reservation_notes TEXT,
+        exclusions_status TEXT NOT NULL DEFAULT 'aucune',
+        exclusions_notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_contract_lca_underwriting_status ON contract_lca(underwriting_status);
+    `);
+
+    // Vie 3a/3b — le type 3a/3b n'est pas dupliqué ici : il est déjà
+    // porté par contracts.branch. Les bénéficiaires vivent dans
+    // contract_beneficiaries, pas dans un champ texte de cette table.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_life (
+        contract_id INTEGER PRIMARY KEY REFERENCES contracts(id) ON DELETE CASCADE,
+        component_type TEXT NOT NULL,
+        insured_death_capital REAL CHECK (insured_death_capital IS NULL OR insured_death_capital >= 0),
+        insured_disability_capital REAL CHECK (insured_disability_capital IS NULL OR insured_disability_capital >= 0),
+        insured_rent REAL CHECK (insured_rent IS NULL OR insured_rent >= 0),
+        surrender_value REAL CHECK (surrender_value IS NULL OR surrender_value >= 0),
+        premium_waiver INTEGER NOT NULL DEFAULT 0 CHECK (premium_waiver IN (0, 1)),
+        indexation_type TEXT NOT NULL DEFAULT 'aucune',
+        policy_term_years INTEGER CHECK (policy_term_years IS NULL OR policy_term_years > 0),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+
+    // Risque pur / incapacité / invalidité.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_income_protection (
+        contract_id INTEGER PRIMARY KEY REFERENCES contracts(id) ON DELETE CASCADE,
+        benefit_type TEXT NOT NULL,
+        insured_amount REAL CHECK (insured_amount IS NULL OR insured_amount >= 0),
+        waiting_period_days INTEGER CHECK (waiting_period_days IS NULL OR waiting_period_days >= 0),
+        benefit_duration_months INTEGER CHECK (benefit_duration_months IS NULL OR benefit_duration_months > 0),
+        disability_trigger_rate INTEGER CHECK (
+          disability_trigger_rate IS NULL OR (disability_trigger_rate >= 0 AND disability_trigger_rate <= 100)
+        ),
+        coordination_ai_lpp INTEGER NOT NULL DEFAULT 0 CHECK (coordination_ai_lpp IN (0, 1)),
+        premium_waiver INTEGER NOT NULL DEFAULT 0 CHECK (premium_waiver IN (0, 1)),
+        exclusions_notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+
+    // LPP / IJM — volontairement minimal, usage particulier uniquement,
+    // pas un module entreprise.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_lpp_ijm (
+        contract_id INTEGER PRIMARY KEY REFERENCES contracts(id) ON DELETE CASCADE,
+        product_type TEXT NOT NULL,
+        institution_name TEXT,
+        retirement_capital REAL CHECK (retirement_capital IS NULL OR retirement_capital >= 0),
+        disability_pension REAL CHECK (disability_pension IS NULL OR disability_pension >= 0),
+        daily_allowance REAL CHECK (daily_allowance IS NULL OR daily_allowance >= 0),
+        waiting_period_days INTEGER CHECK (waiting_period_days IS NULL OR waiting_period_days >= 0),
+        benefit_duration_days INTEGER CHECK (benefit_duration_days IS NULL OR benefit_duration_days > 0),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+
+    // Garanties combinables (principalement LCA) — évite une colonne par
+    // garantie dans contract_lca.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_coverages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+        coverage_type TEXT NOT NULL,
+        coverage_level TEXT,
+        insured_amount REAL CHECK (insured_amount IS NULL OR insured_amount >= 0),
+        annual_limit REAL CHECK (annual_limit IS NULL OR annual_limit >= 0),
+        reimbursement_rate INTEGER CHECK (
+          reimbursement_rate IS NULL OR (reimbursement_rate >= 0 AND reimbursement_rate <= 100)
+        ),
+        waiting_period_days INTEGER CHECK (waiting_period_days IS NULL OR waiting_period_days >= 0),
+        status TEXT NOT NULL DEFAULT 'active',
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (contract_id, coverage_type)
+      );
+      CREATE INDEX IF NOT EXISTS idx_contract_coverages_contract ON contract_coverages(contract_id);
+      CREATE INDEX IF NOT EXISTS idx_contract_coverages_type ON contract_coverages(coverage_type);
+    `);
+
+    // Bénéficiaires — désignation juridique courte uniquement ; pas
+    // d'identité complète obligatoire de tiers non consentants au CRM.
+    // beneficiary_client_id permet un lien optionnel si le bénéficiaire
+    // est déjà client du CRM, sans dupliquer son identité.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_beneficiaries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+        beneficiary_client_id INTEGER REFERENCES clients(id),
+        beneficiary_type TEXT NOT NULL,
+        designation TEXT,
+        percentage REAL CHECK (percentage IS NULL OR (percentage >= 0 AND percentage <= 100)),
+        priority_order INTEGER CHECK (priority_order IS NULL OR priority_order >= 0),
+        revocable INTEGER NOT NULL DEFAULT 1 CHECK (revocable IN (0, 1)),
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_contract_beneficiaries_contract ON contract_beneficiaries(contract_id);
+      CREATE INDEX IF NOT EXISTS idx_contract_beneficiaries_client ON contract_beneficiaries(beneficiary_client_id);
+    `);
+
+    // Historique métier du contrat — distinct du journal d'audit
+    // technique (audit_log) : événements de cycle de vie, immuables,
+    // valeurs simples en texte (pas de JSON libre), jamais de contenu
+    // médical détaillé. Aucun événement n'est généré ici pour les
+    // contrats existants.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS contract_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        effective_date TEXT,
+        field_name TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        description TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_contract_history_contract_created ON contract_history(contract_id, created_at);
+    `);
+
+    db.pragma('user_version = 8');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

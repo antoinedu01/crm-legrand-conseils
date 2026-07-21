@@ -3,6 +3,50 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
 import { BRANCHES, CONTRACT_STATUS, PAYMENT_FREQUENCIES, fmtCHF } from '../labels.js';
+import { buildGenericContractPayload, hasAnySpecializedBlock } from '../components/contracts/contractPayload.js';
+import { buildLamalBlock, composeLamalPayload } from '../components/contracts/lamalPayload.js';
+import { LamalFields } from '../components/contracts/LamalFields.jsx';
+import { buildLcaBlock, composeLcaPayload, LCA_NEUTRAL_FIELDS } from '../components/contracts/lcaPayload.js';
+import { LcaFields } from '../components/contracts/LcaFields.jsx';
+import { buildLifeBlock, composeLifePayload, LIFE_COMPATIBLE_BRANCHES, LIFE_INITIAL_FIELDS } from '../components/contracts/lifePayload.js';
+import { LifeFields } from '../components/contracts/LifeFields.jsx';
+import { estimateLifeAcquisitionCommission, LifeCommissionError } from '../components/contracts/lifeCommissionEstimate.js';
+
+const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
+
+function lamalFieldsFromBlock(block) {
+  return {
+    care_model: block.care_model,
+    deductible: block.deductible,
+    accident_coverage: block.accident_coverage,
+    canton: block.canton ?? '',
+    tariff_region: block.tariff_region ?? '',
+  };
+}
+
+function lcaFieldsFromBlock(block) {
+  return {
+    underwriting_status: block.underwriting_status,
+    waiting_period_days: block.waiting_period_days ?? '',
+    administrative_reservation_status: block.administrative_reservation_status,
+    reservation_notes: block.reservation_notes ?? '',
+    exclusions_status: block.exclusions_status,
+    exclusions_notes: block.exclusions_notes ?? '',
+  };
+}
+
+function lifeFieldsFromBlock(block) {
+  return {
+    component_type: block.component_type,
+    insured_death_capital: block.insured_death_capital ?? '',
+    insured_disability_capital: block.insured_disability_capital ?? '',
+    insured_rent: block.insured_rent ?? '',
+    surrender_value: block.surrender_value ?? '',
+    premium_waiver: Boolean(block.premium_waiver),
+    indexation_type: block.indexation_type,
+    policy_term_years: block.policy_term_years ?? '',
+  };
+}
 
 export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   const [clients, setClients] = useState([]);
@@ -15,7 +59,121 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     ...initial,
   });
   const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const branchLocked = !!initial?.id && hasAnySpecializedBlock(initial);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const hasExistingLamal = initial?.lamal != null;
+  const [lamalMode, setLamalMode] = useState(hasExistingLamal ? 'unchanged' : 'absent');
+  const [lamalFields, setLamalFields] = useState(
+    hasExistingLamal ? lamalFieldsFromBlock(initial.lamal) : DEFAULT_LAMAL_FIELDS
+  );
+  const [lamalModeBeforeRemoval, setLamalModeBeforeRemoval] = useState(null);
+
+  function handleBranchChange(e) {
+    const nextBranch = e.target.value;
+    setForm((f) => ({ ...f, branch: nextBranch }));
+    // Activation automatique uniquement à la création, lors de la première
+    // sélection de la branche lamal (règle I2 §6). En édition d'un contrat
+    // lamal sans bloc, l'activation passe par le bouton « Ajouter les
+    // détails LAMal » ci-dessous, jamais automatiquement.
+    if (nextBranch === 'lamal' && !initial?.id && lamalMode === 'absent') {
+      setLamalFields(DEFAULT_LAMAL_FIELDS);
+      setLamalMode('value');
+    }
+    // Même règle pour LCA (I3 §8) : activation automatique uniquement à la
+    // création, lors de la première sélection de la branche lca, avec les
+    // valeurs neutres prévues (aucun statut favorable/défavorable présélectionné).
+    if (nextBranch === 'lca' && !initial?.id && lcaMode === 'absent') {
+      setLcaFields(LCA_NEUTRAL_FIELDS);
+      setLcaMode('value');
+    }
+    // Même règle pour Vie (I4 §12) : activation automatique uniquement à la
+    // création, lors de la première sélection d'une branche vie compatible
+    // (vie_3a ou vie_3b), avec les valeurs initiales d'interface — aucune
+    // catégorie de composante n'est jamais présélectionnée.
+    if (LIFE_COMPATIBLE_BRANCHES.includes(nextBranch) && !initial?.id && lifeMode === 'absent') {
+      setLifeFields(LIFE_INITIAL_FIELDS);
+      setLifeMode('value');
+    }
+  }
+
+  function handleLamalFieldsChange(nextFields) {
+    setLamalFields(nextFields);
+    if (lamalMode === 'unchanged') setLamalMode('value');
+  }
+
+  function addLamalDetails() {
+    setLamalFields(DEFAULT_LAMAL_FIELDS);
+    setLamalMode('value');
+  }
+
+  function requestLamalRemoval() {
+    if (!window.confirm('Supprimer les détails LAMal de ce contrat ? La suppression sera appliquée à l’enregistrement.')) return;
+    setLamalModeBeforeRemoval(lamalMode);
+    setLamalMode('removed');
+  }
+
+  function cancelLamalRemoval() {
+    setLamalMode(lamalModeBeforeRemoval || 'unchanged');
+    setLamalModeBeforeRemoval(null);
+  }
+
+  const hasExistingLca = initial?.lca != null;
+  const [lcaMode, setLcaMode] = useState(hasExistingLca ? 'unchanged' : 'absent');
+  const [lcaFields, setLcaFields] = useState(
+    hasExistingLca ? lcaFieldsFromBlock(initial.lca) : LCA_NEUTRAL_FIELDS
+  );
+  const [lcaModeBeforeRemoval, setLcaModeBeforeRemoval] = useState(null);
+
+  function handleLcaFieldsChange(nextFields) {
+    setLcaFields(nextFields);
+    if (lcaMode === 'unchanged') setLcaMode('value');
+  }
+
+  function addLcaDetails() {
+    setLcaFields(LCA_NEUTRAL_FIELDS);
+    setLcaMode('value');
+  }
+
+  function requestLcaRemoval() {
+    if (!window.confirm('Supprimer les détails LCA de ce contrat ? La suppression sera appliquée à l’enregistrement.')) return;
+    setLcaModeBeforeRemoval(lcaMode);
+    setLcaMode('removed');
+  }
+
+  function cancelLcaRemoval() {
+    setLcaMode(lcaModeBeforeRemoval || 'unchanged');
+    setLcaModeBeforeRemoval(null);
+  }
+
+  const hasExistingLife = initial?.life != null;
+  const [lifeMode, setLifeMode] = useState(hasExistingLife ? 'unchanged' : 'absent');
+  const [lifeFields, setLifeFields] = useState(
+    hasExistingLife ? lifeFieldsFromBlock(initial.life) : LIFE_INITIAL_FIELDS
+  );
+  const [lifeModeBeforeRemoval, setLifeModeBeforeRemoval] = useState(null);
+
+  function handleLifeFieldsChange(nextFields) {
+    setLifeFields(nextFields);
+    if (lifeMode === 'unchanged') setLifeMode('value');
+  }
+
+  function addLifeDetails() {
+    setLifeFields(LIFE_INITIAL_FIELDS);
+    setLifeMode('value');
+  }
+
+  function requestLifeRemoval() {
+    if (!window.confirm('Supprimer les détails Vie de ce contrat ? La suppression sera appliquée à l’enregistrement.')) return;
+    setLifeModeBeforeRemoval(lifeMode);
+    setLifeMode('removed');
+  }
+
+  function cancelLifeRemoval() {
+    setLifeMode(lifeModeBeforeRemoval || 'unchanged');
+    setLifeModeBeforeRemoval(null);
+  }
 
   useEffect(() => {
     api.get('/api/clients').then((rows) => setClients(rows.filter((c) => c.status !== 'anonymise')));
@@ -36,26 +194,125 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
 
   async function submit(e) {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
+
+    // Construction et validation du bloc LAMal avant tout appel API : une
+    // erreur de saisie ne doit jamais partir en requête incomplète, et ne
+    // doit pas non plus faire passer le bouton en état "Enregistrement…".
+    let lamalBlock;
+    if (form.branch === 'lamal' && lamalMode === 'value') {
+      try {
+        lamalBlock = buildLamalBlock(lamalFields);
+      } catch (err) {
+        setError(err.message);
+        return;
+      }
+    }
+    let lcaBlock;
+    if (form.branch === 'lca' && lcaMode === 'value') {
+      try {
+        lcaBlock = buildLcaBlock(lcaFields);
+      } catch (err) {
+        setError(err.message);
+        return;
+      }
+    }
+    let lifeBlock;
+    if (LIFE_COMPATIBLE_BRANCHES.includes(form.branch) && lifeMode === 'value') {
+      try {
+        lifeBlock = buildLifeBlock(lifeFields);
+      } catch (err) {
+        setError(err.message);
+        return;
+      }
+    }
+    // Garde de pré-soumission (Lot I4.1) : la commission d'acquisition n'est
+    // générée qu'à la création, sur le volume contractuel Vie (prime × durée
+    // × taux) pour une fréquence périodique. Rejette avant tout appel réseau
+    // si la durée manque, en miroir exact de la règle backend
+    // (server/commissionCalc.js), pour éviter un aller-retour inutile.
+    if (!initial?.id && LIFE_COMPATIBLE_BRANCHES.includes(form.branch)) {
+      try {
+        estimateLifeAcquisitionCommission({
+          branch: form.branch,
+          annual_premium: form.annual_premium,
+          payment_frequency: form.payment_frequency,
+          acq_commission_rate: form.acq_commission_rate,
+          policy_term_years: lifeMode === 'value' ? lifeFields.policy_term_years : null,
+        });
+      } catch (err) {
+        if (err instanceof LifeCommissionError) {
+          setError(err.message);
+          return;
+        }
+        throw err;
+      }
+    }
+
+    setSubmitting(true);
     try {
+      const generic = buildGenericContractPayload(form);
+      const withLamal = composeLamalPayload(generic, { mode: lamalMode, branch: form.branch, block: lamalBlock });
+      const withLca = composeLcaPayload(withLamal, { mode: lcaMode, branch: form.branch, block: lcaBlock });
+      const payload = composeLifePayload(withLca, { mode: lifeMode, branch: form.branch, block: lifeBlock });
       if (initial?.id) {
-        await api.put(`/api/contracts/${initial.id}`, form);
+        await api.put(`/api/contracts/${initial.id}`, payload);
         onSaved([]);
       } else {
-        const res = await api.post('/api/contracts', form);
+        const res = await api.post('/api/contracts', payload);
         onSaved(res.warnings || []);
       }
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
   const premium = Number(form.annual_premium) || 0;
-  const acq = (premium * (Number(form.acq_commission_rate) || 0)) / 100;
+  const acqRateValue = Number(form.acq_commission_rate) || 0;
+  const acq = (premium * acqRateValue) / 100;
   const rec = (premium * (Number(form.rec_commission_rate) || 0)) / 100;
 
+  // Aperçu Vie (Lot I4.1) : uniquement à la création, pour une branche Vie à
+  // fréquence périodique (payment_frequency !== 'unique') — c'est le seul
+  // cas où la formule sur volume contractuel diverge de l'aperçu générique
+  // acq/rec ci-dessus. Le backend reste seul décideur du montant réellement
+  // enregistré ; ceci n'est qu'un aperçu miroir.
+  const isLifeCommissionBranch = LIFE_COMPATIBLE_BRANCHES.includes(form.branch);
+  const isLifePeriodic = isLifeCommissionBranch && form.payment_frequency !== 'unique';
+  // Le backend n'exige policy_term_years que pour le calcul de la commission
+  // d'acquisition, généré exclusivement à la création (POST). En édition
+  // (PUT), le bloc vie reste modifiable partiellement sans durée — l'astérisque
+  // ne doit donc apparaître que dans ce cas précis, sous peine d'induire en
+  // erreur un utilisateur qui édite un contrat existant.
+  const lifeDurationRequired = !initial?.id && isLifePeriodic;
+  // Ne masquer la partie « acquisition » de l'aperçu générique qu'à la
+  // création : en édition, PUT ne recalcule jamais la commission (aucun
+  // changement de ce lot), donc l'aperçu de remplacement Vie ci-dessous ne
+  // s'affiche pas non plus — masquer sans remplacement laisserait un aperçu
+  // vide, une régression d'affichage que ce lot ne doit pas introduire.
+  const hideGenericAcqForLife = !initial?.id && isLifePeriodic;
+  let lifeCommissionAmount = null;
+  let lifeCommissionUnavailable = false;
+  if (!initial?.id && isLifePeriodic) {
+    try {
+      lifeCommissionAmount = estimateLifeAcquisitionCommission({
+        branch: form.branch,
+        annual_premium: form.annual_premium,
+        payment_frequency: form.payment_frequency,
+        acq_commission_rate: form.acq_commission_rate,
+        policy_term_years: lifeMode === 'value' ? lifeFields.policy_term_years : null,
+      });
+    } catch (err) {
+      if (err instanceof LifeCommissionError) lifeCommissionUnavailable = true;
+      else throw err;
+    }
+  }
+
   return (
-    <Modal title={initial?.id ? 'Modifier le contrat' : 'Nouveau contrat'} onClose={onClose} wide>
+    <Modal title={initial?.id ? 'Modifier le contrat' : 'Nouveau contrat'} onClose={submitting ? () => {} : onClose} wide>
       {error && <div className="alert error">{error}</div>}
       <form onSubmit={submit}>
         <div className="form-grid">
@@ -72,9 +329,12 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             </select>
           </Field>
           <Field label="Branche">
-            <select value={form.branch} onChange={set('branch')}>
+            <select value={form.branch} onChange={handleBranchChange} disabled={branchLocked}>
               {Object.entries(BRANCHES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
+            {branchLocked && (
+              <small className="muted">La branche ne peut pas être modifiée tant que les détails spécialisés existent.</small>
+            )}
           </Field>
           <Field label="Statut">
             <select value={form.status} onChange={set('status')}>
@@ -111,16 +371,125 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             <textarea rows={2} value={form.notes || ''} onChange={set('notes')} />
           </Field>
         </div>
-        {premium > 0 && (acq > 0 || rec > 0) && (
-          <div className="alert ok mt">
-            Commissions estimées : acquisition <strong>{fmtCHF(acq)}</strong>
-            {rec > 0 && <> · portefeuille <strong>{fmtCHF(rec)}/an</strong></>}
-            {!initial?.id && <> — la commission d’acquisition sera créée automatiquement.</>}
+        {form.branch === 'lamal' && (
+          <div className="card mt">
+            <h3>Détails LAMal</h3>
+            {lamalMode === 'absent' && (
+              <button type="button" className="small" onClick={addLamalDetails} disabled={submitting}>
+                Ajouter les détails LAMal
+              </button>
+            )}
+            {(lamalMode === 'unchanged' || lamalMode === 'value') && (
+              <>
+                <LamalFields values={lamalFields} onChange={handleLamalFieldsChange} disabled={submitting} />
+                {hasExistingLamal && (
+                  <button type="button" className="small danger mt" onClick={requestLamalRemoval} disabled={submitting}>
+                    Supprimer les détails LAMal
+                  </button>
+                )}
+              </>
+            )}
+            {lamalMode === 'removed' && (
+              <div className="alert warn">
+                Les détails LAMal seront supprimés à l’enregistrement.
+                <div className="mt">
+                  <button type="button" className="small" onClick={cancelLamalRemoval} disabled={submitting}>
+                    Annuler la suppression
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
+        {form.branch === 'lca' && (
+          <div className="card mt">
+            <h3>Détails LCA</h3>
+            {lcaMode === 'absent' && (
+              <button type="button" className="small" onClick={addLcaDetails} disabled={submitting}>
+                Ajouter les détails LCA
+              </button>
+            )}
+            {(lcaMode === 'unchanged' || lcaMode === 'value') && (
+              <>
+                <LcaFields values={lcaFields} onChange={handleLcaFieldsChange} disabled={submitting} />
+                {hasExistingLca && (
+                  <button type="button" className="small danger mt" onClick={requestLcaRemoval} disabled={submitting}>
+                    Supprimer les détails LCA
+                  </button>
+                )}
+              </>
+            )}
+            {lcaMode === 'removed' && (
+              <div className="alert warn">
+                Les détails LCA seront supprimés à l’enregistrement.
+                <div className="mt">
+                  <button type="button" className="small" onClick={cancelLcaRemoval} disabled={submitting}>
+                    Annuler la suppression
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {LIFE_COMPATIBLE_BRANCHES.includes(form.branch) && (
+          <div className="card mt">
+            <h3>Détails Vie</h3>
+            {lifeMode === 'absent' && (
+              <button type="button" className="small" onClick={addLifeDetails} disabled={submitting}>
+                Ajouter les détails Vie
+              </button>
+            )}
+            {(lifeMode === 'unchanged' || lifeMode === 'value') && (
+              <>
+                <LifeFields
+                  values={lifeFields}
+                  onChange={handleLifeFieldsChange}
+                  disabled={submitting}
+                  periodicDurationRequired={lifeDurationRequired}
+                />
+                {hasExistingLife && (
+                  <button type="button" className="small danger mt" onClick={requestLifeRemoval} disabled={submitting}>
+                    Supprimer les détails Vie
+                  </button>
+                )}
+              </>
+            )}
+            {lifeMode === 'removed' && (
+              <div className="alert warn">
+                Les détails Vie seront supprimés à l’enregistrement.
+                <div className="mt">
+                  <button type="button" className="small" onClick={cancelLifeRemoval} disabled={submitting}>
+                    Annuler la suppression
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {premium > 0 && ((!hideGenericAcqForLife && acq > 0) || rec > 0) && (
+          <div className="alert ok mt">
+            Commissions estimées :{' '}
+            {!hideGenericAcqForLife && acq > 0 && <>acquisition <strong>{fmtCHF(acq)}</strong></>}
+            {!hideGenericAcqForLife && acq > 0 && rec > 0 && ' · '}
+            {rec > 0 && <>portefeuille <strong>{fmtCHF(rec)}/an</strong></>}
+            {!initial?.id && !hideGenericAcqForLife && acq > 0 && <> — la commission d’acquisition sera créée automatiquement.</>}
+          </div>
+        )}
+        {!initial?.id && isLifePeriodic && premium > 0 && acqRateValue > 0 && (
+          lifeCommissionUnavailable ? (
+            <div className="alert warn mt">
+              La durée contractuelle est nécessaire pour calculer la commission d’acquisition d’un contrat Vie.
+            </div>
+          ) : lifeCommissionAmount != null ? (
+            <div className="alert ok mt">
+              Commission estimée (Vie, volume contractuel) : <strong>{fmtCHF(lifeCommissionAmount)}</strong>
+              {' '}— la commission d’acquisition sera créée automatiquement.
+            </div>
+          ) : null
+        )}
         <div className="actions">
-          <button type="button" onClick={onClose}>Annuler</button>
-          <button className="primary">Enregistrer</button>
+          <button type="button" onClick={onClose} disabled={submitting}>Annuler</button>
+          <button className="primary" disabled={submitting}>{submitting ? 'Enregistrement…' : 'Enregistrer'}</button>
         </div>
       </form>
     </Modal>
