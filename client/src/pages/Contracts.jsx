@@ -8,6 +8,8 @@ import { buildLamalBlock, composeLamalPayload } from '../components/contracts/la
 import { LamalFields } from '../components/contracts/LamalFields.jsx';
 import { buildLcaBlock, composeLcaPayload, LCA_NEUTRAL_FIELDS } from '../components/contracts/lcaPayload.js';
 import { LcaFields } from '../components/contracts/LcaFields.jsx';
+import { buildLifeBlock, composeLifePayload, LIFE_COMPATIBLE_BRANCHES, LIFE_INITIAL_FIELDS } from '../components/contracts/lifePayload.js';
+import { LifeFields } from '../components/contracts/LifeFields.jsx';
 
 const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
 
@@ -29,6 +31,19 @@ function lcaFieldsFromBlock(block) {
     reservation_notes: block.reservation_notes ?? '',
     exclusions_status: block.exclusions_status,
     exclusions_notes: block.exclusions_notes ?? '',
+  };
+}
+
+function lifeFieldsFromBlock(block) {
+  return {
+    component_type: block.component_type,
+    insured_death_capital: block.insured_death_capital ?? '',
+    insured_disability_capital: block.insured_disability_capital ?? '',
+    insured_rent: block.insured_rent ?? '',
+    surrender_value: block.surrender_value ?? '',
+    premium_waiver: Boolean(block.premium_waiver),
+    indexation_type: block.indexation_type,
+    policy_term_years: block.policy_term_years ?? '',
   };
 }
 
@@ -71,6 +86,14 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     if (nextBranch === 'lca' && !initial?.id && lcaMode === 'absent') {
       setLcaFields(LCA_NEUTRAL_FIELDS);
       setLcaMode('value');
+    }
+    // Même règle pour Vie (I4 §12) : activation automatique uniquement à la
+    // création, lors de la première sélection d'une branche vie compatible
+    // (vie_3a ou vie_3b), avec les valeurs initiales d'interface — aucune
+    // catégorie de composante n'est jamais présélectionnée.
+    if (LIFE_COMPATIBLE_BRANCHES.includes(nextBranch) && !initial?.id && lifeMode === 'absent') {
+      setLifeFields(LIFE_INITIAL_FIELDS);
+      setLifeMode('value');
     }
   }
 
@@ -123,6 +146,34 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     setLcaModeBeforeRemoval(null);
   }
 
+  const hasExistingLife = initial?.life != null;
+  const [lifeMode, setLifeMode] = useState(hasExistingLife ? 'unchanged' : 'absent');
+  const [lifeFields, setLifeFields] = useState(
+    hasExistingLife ? lifeFieldsFromBlock(initial.life) : LIFE_INITIAL_FIELDS
+  );
+  const [lifeModeBeforeRemoval, setLifeModeBeforeRemoval] = useState(null);
+
+  function handleLifeFieldsChange(nextFields) {
+    setLifeFields(nextFields);
+    if (lifeMode === 'unchanged') setLifeMode('value');
+  }
+
+  function addLifeDetails() {
+    setLifeFields(LIFE_INITIAL_FIELDS);
+    setLifeMode('value');
+  }
+
+  function requestLifeRemoval() {
+    if (!window.confirm('Supprimer les détails Vie de ce contrat ? La suppression sera appliquée à l’enregistrement.')) return;
+    setLifeModeBeforeRemoval(lifeMode);
+    setLifeMode('removed');
+  }
+
+  function cancelLifeRemoval() {
+    setLifeMode(lifeModeBeforeRemoval || 'unchanged');
+    setLifeModeBeforeRemoval(null);
+  }
+
   useEffect(() => {
     api.get('/api/clients').then((rows) => setClients(rows.filter((c) => c.status !== 'anonymise')));
     api.get('/api/companies').then((rows) => setCompanies(rows.filter((c) => c.active)));
@@ -166,12 +217,22 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
         return;
       }
     }
+    let lifeBlock;
+    if (LIFE_COMPATIBLE_BRANCHES.includes(form.branch) && lifeMode === 'value') {
+      try {
+        lifeBlock = buildLifeBlock(lifeFields);
+      } catch (err) {
+        setError(err.message);
+        return;
+      }
+    }
 
     setSubmitting(true);
     try {
       const generic = buildGenericContractPayload(form);
       const withLamal = composeLamalPayload(generic, { mode: lamalMode, branch: form.branch, block: lamalBlock });
-      const payload = composeLcaPayload(withLamal, { mode: lcaMode, branch: form.branch, block: lcaBlock });
+      const withLca = composeLcaPayload(withLamal, { mode: lcaMode, branch: form.branch, block: lcaBlock });
+      const payload = composeLifePayload(withLca, { mode: lifeMode, branch: form.branch, block: lifeBlock });
       if (initial?.id) {
         await api.put(`/api/contracts/${initial.id}`, payload);
         onSaved([]);
@@ -303,6 +364,36 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
                 Les détails LCA seront supprimés à l’enregistrement.
                 <div className="mt">
                   <button type="button" className="small" onClick={cancelLcaRemoval} disabled={submitting}>
+                    Annuler la suppression
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {LIFE_COMPATIBLE_BRANCHES.includes(form.branch) && (
+          <div className="card mt">
+            <h3>Détails Vie</h3>
+            {lifeMode === 'absent' && (
+              <button type="button" className="small" onClick={addLifeDetails} disabled={submitting}>
+                Ajouter les détails Vie
+              </button>
+            )}
+            {(lifeMode === 'unchanged' || lifeMode === 'value') && (
+              <>
+                <LifeFields values={lifeFields} onChange={handleLifeFieldsChange} disabled={submitting} />
+                {hasExistingLife && (
+                  <button type="button" className="small danger mt" onClick={requestLifeRemoval} disabled={submitting}>
+                    Supprimer les détails Vie
+                  </button>
+                )}
+              </>
+            )}
+            {lifeMode === 'removed' && (
+              <div className="alert warn">
+                Les détails Vie seront supprimés à l’enregistrement.
+                <div className="mt">
+                  <button type="button" className="small" onClick={cancelLifeRemoval} disabled={submitting}>
                     Annuler la suppression
                   </button>
                 </div>
