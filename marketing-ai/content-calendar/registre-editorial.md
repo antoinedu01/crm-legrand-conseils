@@ -191,3 +191,4 @@ sont pas formellement validés. Cette règle est contrôlée à l'étape
 - **SEO-001** : brief stratégique créé, article non rédigé.
 - **SEO-001** : lot de sources officielles intégré ; article non rédigé.
 - **SEO-001** : outline créé, article non rédigé.
+- **SEO-001** : brouillon v1 rédigé, non validé et non publié.
