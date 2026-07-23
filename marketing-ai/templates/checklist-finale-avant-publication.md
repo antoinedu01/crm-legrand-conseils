@@ -12,7 +12,7 @@
 
 ## Identification du contenu
 - **Titre / référence :** _______________________
-- **Canal :** ☐ LinkedIn ☐ Instagram ☐ Facebook ☐ Reels ☐ Story ☐ Flyer ☐ Guide ☐ Formulaire
+- **Canal :** ☐ LinkedIn ☐ Instagram ☐ Facebook ☐ Reels ☐ Story ☐ Flyer ☐ Guide ☐ Formulaire ☐ Article SEO
 - **Date de diffusion prévue :** _______________________
 - **Responsable de la validation :** _______________________
 
@@ -45,12 +45,29 @@
 - [ ] **Politique de confidentialité** accessible et à jour (si collecte de données).
 - [ ] **Conformité mobile** du parcours complet (page, formulaire, remerciement).
 
-## 5. Validation
+## 5. Contrôle SEO des articles
+> À remplir uniquement si Canal = Article SEO. Ne transforme pas cette checklist
+> en outil de publication automatique : chaque case reste une vérification
+> manuelle, la publication reste un acte humain (cf. § 6 « Validation »).
+- [ ] **Intention de recherche** clairement satisfaite par l'article.
+- [ ] **Un seul H1**.
+- [ ] **Structure H2/H3** cohérente, sans saut de niveau.
+- [ ] **Title** et **meta-description** vérifiés (longueur, mot-clé, absence de bourrage).
+- [ ] **Page pilier** liée naturellement (ancre non forcée).
+- [ ] **Deux à quatre liens associés** maximum, lorsque pertinents.
+- [ ] **Ancres** naturelles et variées (pas de répétition excessive d'une même ancre).
+- [ ] **Absence de cannibalisation non résolue** (cf. fiche de validation, champ « Risque de cannibalisation »).
+- [ ] **Source et année de validité** visibles dans la fiche de validation, pour toute donnée sensible.
+- [ ] **Aucune URL** vers `/comparateur-lamal`, ni en lien, ni en simple mention.
+- [ ] **Index/noindex** contrôlé explicitement dans Rank Math (statut voulu confirmé avant publication).
+- [ ] **Aperçu mobile et ordinateur** vérifié.
+
+## 6. Validation
 - [ ] **Validation conformité** (`compliance-reviewer`) : statut `Prêt pour validation humaine`.
-- [ ] **Validation humaine** finale (nom + date) : _______________________
+- [ ] **Validation humaine obligatoire** finale (nom + date) : _______________________
 - [ ] **Programmation manuelle** effectuée par un humain (pas d'automatisation).
 
-## 6. Après publication
+## 7. Après publication
 - [ ] **Contrôle après publication** : rendu correct, lien fonctionnel, UTM reçus dans GA4.
 - [ ] Remarques / correctifs éventuels : _______________________
 
