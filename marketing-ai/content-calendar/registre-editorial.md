@@ -195,3 +195,4 @@ sont pas formellement validés. Cette règle est contrôlée à l'étape
 - **SEO-001** : review SEO v1 effectuée — verdict : corrections importantes requises.
 - **SEO-001** : brouillon v2 créé après corrections SEO ; nouvelle review requise.
 - **SEO-001** : validation SEO v2 effectuée — SEO validé.
+- **SEO-001** : review conformité v2 effectuée — verdict conforme.
