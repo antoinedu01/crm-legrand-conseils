@@ -168,3 +168,16 @@ contenir de lien — direct ou en simple mention — vers `/comparateur-lamal`,
 tant que la fiabilité, la maintenance et le rôle de conversion de cet outil ne
 sont pas formellement validés. Cette règle est contrôlée à l'étape
 `seo_review` et confirmée à l'étape `compliance_review`.
+
+---
+
+## 11. Historique des contenus
+
+- **23/07/2026** — Initialisation des 6 premiers contenus du trimestre
+  (`SEO-001` à `SEO-006`), avec uniquement les champs déjà connus renseignés
+  (titre, silo, persona, mot-clé principal, intention, priorité, page pilier,
+  statut, CTA principal — et l'angle différenciant pour `SEO-001` uniquement).
+  Aucun brief, aucun brouillon, aucune source, aucune date de publication,
+  aucune URL et aucune validation ne sont renseignés à ce stade — ces champs
+  restent volontairement vides jusqu'à ce que l'information soit réellement
+  disponible, conformément à la règle §1.
