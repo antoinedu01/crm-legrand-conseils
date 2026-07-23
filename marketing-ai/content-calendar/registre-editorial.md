@@ -181,3 +181,4 @@ sont pas formellement validés. Cette règle est contrôlée à l'étape
   aucune URL et aucune validation ne sont renseignés à ce stade — ces champs
   restent volontairement vides jusqu'à ce que l'information soit réellement
   disponible, conformément à la règle §1.
+- **SEO-001** : brief stratégique créé, article non rédigé.
