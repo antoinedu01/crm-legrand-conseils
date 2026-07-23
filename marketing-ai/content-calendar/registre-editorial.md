@@ -193,3 +193,4 @@ sont pas formellement validés. Cette règle est contrôlée à l'étape
 - **SEO-001** : outline créé, article non rédigé.
 - **SEO-001** : brouillon v1 rédigé, non validé et non publié.
 - **SEO-001** : review SEO v1 effectuée — verdict : corrections importantes requises.
+- **SEO-001** : brouillon v2 créé après corrections SEO ; nouvelle review requise.
