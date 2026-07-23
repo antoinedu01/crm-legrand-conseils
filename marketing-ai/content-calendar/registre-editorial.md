@@ -69,17 +69,22 @@ Dans l'ordre attendu du cycle de vie d'un contenu :
 1. `idée`
 2. `brief à créer`
 3. `brief prêt`
-4. `rédaction en cours`
-5. `brouillon prêt`
-6. `SEO à vérifier`
-7. `conformité à vérifier`
-8. `corrections requises`
-9. `prêt pour validation humaine`
-10. `validé`
-11. `brouillon WordPress`
-12. `publié`
-13. `à mettre à jour`
-14. `archivé`
+4. `sources partiellement validées`
+5. `rédaction en cours`
+6. `brouillon prêt`
+7. `SEO à vérifier`
+8. `conformité à vérifier`
+9. `corrections requises`
+10. `prêt pour validation humaine`
+11. `validé`
+12. `brouillon WordPress`
+13. `publié`
+14. `à mettre à jour`
+15. `archivé`
+
+**`sources partiellement validées`** : les sources principales sont
+documentées, mais certains points sensibles restent à vérifier avant
+rédaction ou validation finale.
 
 Un contenu peut revenir à `corrections requises` depuis `SEO à vérifier` ou
 `conformité à vérifier` à tout moment — le cycle n'est pas strictement linéaire
@@ -90,6 +95,8 @@ dans ce sens (retour en arrière possible, jamais de saut direct vers `publié`)
 ## 4. Workflow de changement de statut
 
 `idée` → `brief à créer` → `brief prêt` (par `content-strategist`) →
+`sources partiellement validées` (recherche/vérification des sources
+officielles, humaine ou par lot vérifié) →
 `rédaction en cours` → `brouillon prêt` (par `seo-writer`) →
 `SEO à vérifier` → corrigé si besoin (par `seo-strategist`) →
 `conformité à vérifier` → corrigé si besoin (par `compliance-reviewer`) →
@@ -182,3 +189,4 @@ sont pas formellement validés. Cette règle est contrôlée à l'étape
   restent volontairement vides jusqu'à ce que l'information soit réellement
   disponible, conformément à la règle §1.
 - **SEO-001** : brief stratégique créé, article non rédigé.
+- **SEO-001** : lot de sources officielles intégré ; article non rédigé.

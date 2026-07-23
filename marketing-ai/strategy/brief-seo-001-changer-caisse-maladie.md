@@ -155,24 +155,37 @@ pas été consultées.
 
 ## 8. Sources officielles attendues
 
-> Aucun contenu de source n'est inventé ici. Liste des sources à vérifier avant
-> rédaction :
-> - LAMal et textes d'application pertinents ;
-> - OFSP ;
-> - ch.ch ;
-> - éventuellement l'autorité ou les informations officielles cantonales, si
->   une situation locale l'exige.
+> Dossier de recherche détaillé : voir
+> `marketing-ai/research/sources-seo-001-changer-caisse-maladie.md` (créé le
+> 23/07/2026). **Lot de sources officielles vérifié humainement le
+> 23/07/2026** — S01 à S06 (Priminfo/OFSP ×4, Fedlex, ch.ch), transmis pour
+> intégration structurée. Claude Code n'a pas effectué lui-même la
+> consultation intégrale des pages ; aucune recherche web autonome n'a été
+> menée pour cette mise à jour. **Ce brief reste un brief stratégique — aucun
+> article rédigé.**
 
-### Matrice de vérification (résultats volontairement vides)
+### Matrice de vérification
 
-| Affirmation à vérifier | Source attendue | Date de vérification | Résultat | Validité temporelle |
-|---|---|---|---|---|
-| Principe de liberté de changement d'assureur LAMal | LAMal / OFSP | _(à faire)_ | _(à faire)_ | _(à faire)_ |
-| Délai(s) légal/légaux de résiliation | LAMal / OFSP | _(à faire)_ | _(à faire)_ | _(à faire)_ |
-| Date d'envoi vs date de réception faisant foi | LAMal / OFSP | _(à faire)_ | _(à faire)_ | _(à faire)_ |
-| Conséquences de primes impayées sur un changement | LAMal / OFSP / ch.ch | _(à faire)_ | _(à faire)_ | _(à faire)_ |
-| Lien entre résiliation de l'assurance de base et sort des complémentaires LCA | LAMal / LCA / OFSP | _(à faire)_ | _(à faire)_ | _(à faire)_ |
-| Documents usuellement requis pour un changement | ch.ch / assureurs (à titre illustratif uniquement) | _(à faire)_ | _(à faire)_ | _(à faire)_ |
+| Affirmation | Résultat | Source(s) | Nuance |
+|---|---|---|---|
+| A01 — Principe général du changement d'assureur pour l'assurance obligatoire | **Validé** | S03 (LAMal art. 7), S04 (ch.ch) | — |
+| A02 — Changement au 1er janvier, réception avant le 30 novembre | **Validé** | S01, S02, S05 | — |
+| A03 — La réception fait foi, pas l'envoi ni le cachet postal | **Validé** | S01, S02 | — |
+| A04 — Changement au 1er janvier possible avec une forme particulière d'assurance | **Validé avec nuance** | S05 | Ne pas généraliser aux résiliations en cours d'année ni aux autres cas particuliers de l'art. 7 LAMal |
+| A05 — Conséquences exactes des arriérés sur le changement d'assureur | À vérifier manuellement | S06 (procédure générale uniquement) | S06 ne suffit pas seule pour affirmer un blocage exact |
+| A06 — Inscription parallèle auprès du nouvel assureur | **Validé** | S01 | — |
+| A07 — Distinction juridique complète LAMal / LCA | À vérifier manuellement | — | Non couvert par le lot (S01-S06 portent sur l'assurance obligatoire) |
+| A08 — La résiliation LAMal n'entraîne pas automatiquement celle des complémentaires | À vérifier manuellement | — | Non couvert par le lot |
+| A09 — Sélection/questionnaire médical pour les complémentaires | À vérifier manuellement | — | Non couvert par le lot |
+| A10 — Documents à conserver | **Validé avec nuance** | S01, S02 | Précaution pratique, pas une liste légale exhaustive |
+| A11 — Envoi recommandé/A Plus avant la mi-novembre | **Validé avec nuance** | S01 | Recommandation pratique de l'OFSP, pas le délai légal lui-même |
+| A12 — Exceptions et situations individuelles | À vérifier manuellement | — | Cas particuliers de l'art. 7 LAMal non simplifiables sans examen complémentaire |
+
+**Points restant à vérifier avant toute rédaction** : conséquences exactes
+des arriérés (A05), distinction LAMal/LCA complète (A07), sort des
+complémentaires (A08), sélection médicale (A09), exceptions individuelles
+(A12). Détail complet : voir le dossier de recherche (§8 « Consignes au
+seo-writer »).
 
 ## 9. Sensibilité réglementaire
 
