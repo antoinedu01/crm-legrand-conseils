@@ -60,7 +60,7 @@ inclus dans ce lot.
 | A02 | Changement au 1er janvier et réception de la résiliation avant le 30 novembre | **validé** | S01, S02, S05 | — |
 | A03 | La réception par l'assureur est déterminante, pas uniquement l'envoi ou le cachet postal | **validé** | S01, S02 | — |
 | A04 | Possibilité de changer au 1er janvier même avec une forme particulière d'assurance | **validé avec nuance** | S05 | Ne pas généraliser cette règle à toute résiliation en cours d'année ou à tous les cas particuliers de l'article 7 LAMal |
-| A05 | Conséquences exactes des arriérés sur le changement d'assureur | **à vérifier manuellement** | S06 (procédure générale de rappel/sommation/poursuite uniquement) | S06 ne suffit pas seule à affirmer un blocage exact du changement |
+| A05 | Conséquences des primes et participations aux coûts impayées sur le changement d'assureur | **validé avec nuance** | S01, S02 (Priminfo — vérification manuelle externe documentée le 24/07/2026) ; S06 conservée comme contexte de procédure générale (rappel/sommation/poursuite) | Règle générale confirmée par S01/S02 : non-paiement intégral, au 31 décembre, des primes arriérées, participations aux coûts arriérées, intérêts moratoires et frais de poursuite concernés ayant fait l'objet d'un rappel jusqu'au 30 novembre → changement en principe impossible ; si ces montants n'ont pas fait l'objet de cette réclamation, le changement reste possible. Ne remplace pas une analyse individuelle en cas de dette contestée, paiement très récent, erreur administrative, procédure particulière, ou désaccord sur l'existence/la date du rappel. La décision humaine du 24/07/2026 est à l'origine de la demande de vérification éditoriale, non la source juridique de la règle |
 | A06 | Inscription parallèle auprès du nouvel assureur | **validé** | S01 | — |
 | A07 | Distinction juridique complète LAMal / LCA | **à vérifier manuellement** | — | Le lot (S01-S06) porte principalement sur l'assurance obligatoire, base insuffisante pour documenter la LCA |
 | A08 | La résiliation de la LAMal n'entraîne pas automatiquement celle des complémentaires | **à vérifier manuellement** | — | Non couvert par le lot |
@@ -69,7 +69,7 @@ inclus dans ce lot.
 | A11 | Envoi recommandé ou A Plus avant la mi-novembre | **validé avec nuance** | S01 | Recommandation pratique de l'OFSP, pas le délai légal lui-même |
 | A12 | Exceptions et situations individuelles | **à vérifier manuellement** | — | L'article 7 LAMal contient des règles et cas particuliers qui ne doivent pas être simplifiés sans examen complémentaire |
 
-**Synthèse** : 4 affirmations `validé` (A01, A02, A03, A06) ; 3 `validé avec nuance` (A04, A10, A11) ; 5 `à vérifier manuellement` (A05, A07, A08, A09, A12).
+**Synthèse** : 4 affirmations `validé` (A01, A02, A03, A06) ; 4 `validé avec nuance` (A04, A05, A10, A11) ; 4 `à vérifier manuellement` (A07, A08, A09, A12).
 
 ---
 
@@ -129,14 +129,24 @@ Documentées ici sans être transformées en paragraphes publiables :
   pas cette mécanique faute d'un passage plus précis dans le lot transmis —
   à traiter comme un point à formuler prudemment plutôt que comme une règle
   chiffrée dans le futur article.
+- **A05** — pour un changement au 1er janvier, les assurés n'ayant pas réglé
+  intégralement, au 31 décembre, les primes arriérées, les participations aux
+  coûts arriérées, les intérêts moratoires et les frais de poursuite
+  concernés — lorsque ces montants ont fait l'objet d'un rappel jusqu'au
+  30 novembre — ne peuvent, en principe, pas changer d'assureur (S01, S02).
+  Si ces montants n'ont pas fait l'objet de cette réclamation, le changement
+  reste possible. Cette règle générale ne remplace pas une analyse
+  individuelle en cas de dette contestée, de paiement très récent, d'erreur
+  administrative, de procédure particulière, ou de désaccord sur l'existence
+  ou la date du rappel. Vérification manuelle externe documentée le
+  24/07/2026 ; la décision humaine du 24/07/2026 est à l'origine de la
+  demande de vérification éditoriale, mais n'est pas elle-même la source
+  juridique de la règle.
 
 ---
 
 ## 8. Points encore non confirmés
 
-- Conséquence précise des arriérés de primes sur le changement d'assureur
-  (A05) — S06 ne documente que la procédure générale (rappel, sommation,
-  poursuite), pas l'effet exact sur un changement de caisse.
 - Règles détaillées pour un changement en cours d'année (hors 1er janvier).
 - Effets exacts de la franchise ordinaire ou optionnelle dans chaque cas.
 - Distinction juridique complète LAMal / LCA (A07).
@@ -154,13 +164,15 @@ Aucune de ces lacunes n'a été comblée par déduction non sourcée.
 - **Informations autorisées** : les 9 règles confirmées listées au §6, ainsi
   que les 3 règles confirmées avec nuance du §7 — en respectant strictement
   les nuances indiquées.
-- **Formulations à nuancer** : A04, A10, A11 — ne jamais présenter ces
+- **Formulations à nuancer** : A04, A05, A10, A11 — ne jamais présenter ces
   éléments comme des règles générales ou des listes exhaustives.
 - **Affirmations interdites sans nouvelle vérification** : tout ce qui touche
-  à A05 (arriérés), A07/A08/A09 (LCA, résiliation des complémentaires,
-  sélection médicale), A12 (exceptions individuelles) — ne rédiger aucun
-  passage sur ces points tant qu'une vérification complémentaire n'a pas eu
-  lieu.
+  à A07/A08/A09 (LCA, résiliation des complémentaires, sélection médicale),
+  A12 (exceptions individuelles) — ne rédiger aucun passage sur ces points
+  tant qu'une vérification complémentaire n'a pas eu lieu. A05 (primes et
+  participations impayées) est désormais `validé avec nuance` (S01, S02 ;
+  vérification manuelle externe du 24/07/2026) — voir §7 pour la formulation
+  autorisée et ses limites.
 - **Dates qui devront être accompagnées d'un contexte** : 30 novembre (A02),
   15 novembre (A11, recommandation pratique), 31 octobre (communication de la
   nouvelle prime) — toujours présentées comme des repères observés à l'année
@@ -170,9 +182,12 @@ Aucune de ces lacunes n'a été comblée par déduction non sourcée.
   reste `à vérifier manuellement` (renvoi possible vers SEO-003 une fois ce
   contenu lui-même sourcé).
 - **Avertissements nécessaires** : la procédure de recouvrement en cas
-  d'arriérés existe (S06) mais son effet exact sur un changement de caisse
-  n'est pas confirmé — ne jamais l'affirmer comme bloquant ou non bloquant
-  sans nouvelle vérification.
+  d'arriérés existe (S06, contexte de procédure générale) ; son effet sur un
+  changement de caisse est désormais confirmé par S01/S02, avec la nuance
+  indiquée en §7 — présenter la règle générale sans jamais la substituer à
+  une analyse individuelle en cas de dette contestée, de paiement très
+  récent, d'erreur administrative, de procédure particulière, ou de
+  désaccord sur l'existence ou la date du rappel.
 
 **Aucun passage de l'article n'est rédigé dans ce document.**
 
@@ -191,5 +206,7 @@ Aucune de ces lacunes n'a été comblée par déduction non sourcée.
   - le changement annuel de procédure (montants de primes, franchises,
     échéances) ;
   - tout doute signalé par `compliance-reviewer` lors de son contrôle ;
-  - toute tentative future de compléter A05, A07, A08, A09 ou A12 par une
-    source officielle supplémentaire.
+  - toute tentative future de compléter A07, A08, A09 ou A12 par une source
+    officielle supplémentaire, ou de préciser A05 au-delà de la règle
+    générale validée le 24/07/2026 (cas individuels non couverts par
+    S01/S02).
