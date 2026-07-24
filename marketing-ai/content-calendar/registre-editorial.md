@@ -197,3 +197,4 @@ sont pas formellement validés. Cette règle est contrôlée à l'étape
 - **SEO-001** : validation SEO v2 effectuée — SEO validé.
 - **SEO-001** : review conformité v2 effectuée — verdict conforme.
 - **SEO-001** : version courante passée en v3 après décision humaine (v2 non validée en l'état) ; review SEO v3 effectuée — verdict conforme avec améliorations optionnelles, aucune correction obligatoire, améliorations optionnelles non retenues ; review conformité v3 encore à faire ; validation humaine finale non réalisée ; aucune publication.
+- **SEO-001 v3** : review conformité enregistrée — verdict validable avec observations non bloquantes (11 contrôles conformes, 5 conformes avec nuance, 0 non-conforme, aucune correction obligatoire) ; v3 inchangée ; statut prêt pour validation humaine ; validation humaine non réalisée ; aucune publication.
