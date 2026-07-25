@@ -173,6 +173,40 @@ plutôt que d'inventer une valeur pour les séquences manquantes.
 
 ---
 
+## 7bis. Mission 3 — vérification des sources officielles (25/07/2026)
+
+Dans le cadre de `feature/marketing-source-verification-v1`, un inventaire
+exhaustif des affirmations sensibles de `marketing-ai/**` a été mené et
+documenté dans trois nouveaux fichiers :
+
+- `marketing-ai/compliance/verification-sources-officielles-2026.md` —
+  16 affirmations inventoriées (FACT-001 à FACT-016), avec tentative réelle
+  d'accès direct (`WebFetch`) aux domaines officiels suisses (Fedlex,
+  Priminfo, OFSP/BAG, ch.ch, ESTV, BSV, FINMA) : accès bloqué (HTTP 403) sur
+  l'ensemble de ces domaines, de façon reproductible avec le blocage déjà
+  documenté le 16/07/2026. Aucune validation n'a été tirée d'un simple
+  extrait de moteur de recherche.
+- `marketing-ai/compliance/revue-conformite-posts-lancement.md` — première
+  revue de conformité formelle de `SOC-LI-001` et `SOC-LI-002` (post de
+  lancement officiel), non couverts par `revue-conformite-lot-2a.md`.
+  Verdict : prêts pour validation humaine.
+- `marketing-ai/compliance/classement-contenus-publiables.md` — classement
+  des 14 contenus du registre selon 4 catégories (publiable après validation
+  humaine finale / correction factuelle requise / bloqué — source officielle
+  insuffisante / non rédigé — hors publication).
+
+**Corrections factuelles appliquées** : reformulation de « beaucoup plus
+souple » en « généralement plus souple » à propos du pilier 3b, dans
+`social-media/linkedin/semaine-17-23-aout-2026.md` et
+`social-media/reels/reel-semaine-17-23-aout-2026.md` (FACT-003) — pour éviter
+de présenter la souplesse du 3b comme une règle absolue.
+
+**Aucune régression** : `SEO-001` conserve son statut et sa validation
+humaine du 24/07/2026 ; aucun contenu déjà `Prêt pour validation humaine`
+n'a été rétrogradé. **Aucune validation humaine** n'a été ajoutée par cette
+mission : `validation_humaine` reste `Non` pour les 13 contenus autres que
+SEO-001.
+
 ## 7. Ce que ce registre ne fait pas
 
 - Il ne fixe **aucune** date de publication pour SEO-001 ou pour aucun contenu
