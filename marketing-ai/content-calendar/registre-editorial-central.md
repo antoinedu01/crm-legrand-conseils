@@ -236,6 +236,32 @@ complet (URL, éléments confirmés, mapping FACT-XXX) figure dans
   finale des contenus** : aucune validation humaine positive n'a été ajoutée
   par cette mission au-delà de celle déjà existante pour SEO-001.
 
+## 7quater. Versions finales SOC-LI-001 / SOC-LI-002 (25/07/2026)
+
+Antoine Legrand a transmis des versions finales réécrites pour les deux posts
+de lancement LinkedIn. Avant écriture dans le fichier source, ces deux textes
+ont été relus par l'agent `compliance-reviewer`, qui a consigné son verdict
+dans `marketing-ai/compliance/revue-conformite-posts-lancement.md` (section
+« Revue des versions finales proposées — 25/07/2026 ») : **prêt pour
+validation humaine** pour les deux contenus, aucune correction de fond
+nécessaire, raison sociale « Legrand conseils Sàrl » (c minuscule) utilisée
+systématiquement et sans erreur.
+
+Les textes ont ensuite été écrits dans
+`marketing-ai/social-media/linkedin/post-lancement-officiel.md`, en
+remplacement intégral des versions précédentes (conservées dans l'historique
+Git). `SOC-LI-002` conserve la formulation d'indépendance corrigée en
+Mission 3B (« j'examine différentes solutions parmi les compagnies avec
+lesquelles je travaille, tout en conservant mon statut d'intermédiaire non
+lié »).
+
+**Aucune validation humaine positive n'a été ajoutée.** `SOC-LI-001` et
+`SOC-LI-002` passent tous deux en classification
+`Corrections appliquées — nouvelle validation humaine requise` dans
+`marketing-ai/compliance/classement-contenus-publiables.md` : toute
+validation humaine antérieure portait sur un texte désormais remplacé et ne
+peut pas s'y reporter.
+
 ## 7. Ce que ce registre ne fait pas
 
 - Il ne fixe **aucune** date de publication pour SEO-001 ou pour aucun contenu

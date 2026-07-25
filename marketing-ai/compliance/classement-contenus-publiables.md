@@ -114,14 +114,15 @@
 - **Affirmations sensibles :** statut FINMA, indépendance/comparaison d'assureurs.
 - **FACT-XXX concernés :** FACT-008, FACT-009, FACT-016.
 - **Sources officielles :** Documents officiels FINMA transmis le 17/07/2026 (voir FACT-008).
-- **Corrections apportées :** Correction de l'URL LinkedIn entreprise en en-tête (FACT-016).
+- **Corrections apportées :** Correction de l'URL LinkedIn entreprise en en-tête (FACT-016) ; texte intégralement réécrit le 25/07/2026 (version finale proposée par Antoine Legrand — ouverture, corps, question de clôture, hashtags).
 - **Statut des sources :** Validé (mis à jour — voir §5 du registre).
-- **Statut conformité :** Prêt pour validation humaine (mis à jour — voir `revue-conformite-posts-lancement.md`).
+- **Statut conformité :** Prêt pour validation humaine (mis à jour — voir `revue-conformite-posts-lancement.md`, section « Revue des versions finales proposées — 25/07/2026 »).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Prêt pour validation humaine finale.
-- **Action humaine suivante :** Validation humaine nommée et datée ; confirmation de l'ordre de publication (profil personnel avant page entreprise) ; passage par la checklist finale avant publication.
-- **Mission 3B (25/07/2026) :** Relu au regard de H06 (FINMA) — formulation « examiner les différentes solutions auxquelles j'ai accès » jugée déjà conforme, aucune modification.
+- **Classification :** Corrections appliquées — nouvelle validation humaine requise.
+- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise sur le texte réécrit (aucune validation antérieure ne s'y reporte) ; confirmation de l'ordre de publication (profil personnel avant page entreprise) ; passage par la checklist finale avant publication.
+- **Mission 3B (25/07/2026) :** Relu au regard de H06 (FINMA) — formulation « examiner les différentes solutions auxquelles j'ai accès » jugée déjà conforme, aucune modification à l'époque.
+- **25/07/2026 (versions finales proposées) :** Réécriture intégrale relue par `compliance-reviewer` — verdict prêt pour validation humaine, aucune occurrence fautive « Legrand Conseils » (majuscule), aucune correction de fond nécessaire.
 
 ## SOC-LI-002 — Post de lancement officiel — page entreprise
 
@@ -131,13 +132,14 @@
 - **Affirmations sensibles :** statut FINMA, indépendance/comparaison d'assureurs.
 - **FACT-XXX concernés :** FACT-008, FACT-009, FACT-016.
 - **Sources officielles :** Documents officiels FINMA transmis le 17/07/2026 (voir FACT-008).
-- **Corrections apportées :** Correction de l'URL LinkedIn entreprise en en-tête (FACT-016).
+- **Corrections apportées :** Correction de l'URL LinkedIn entreprise en en-tête (FACT-016) ; texte intégralement réécrit le 25/07/2026 (version finale proposée par Antoine Legrand, conservant la formulation d'indépendance corrigée en Mission 3B).
 - **Statut des sources :** Validé (mis à jour).
-- **Statut conformité :** Prêt pour validation humaine (mis à jour).
+- **Statut conformité :** Prêt pour validation humaine (mis à jour — voir `revue-conformite-posts-lancement.md`, section « Revue des versions finales proposées — 25/07/2026 »).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
 - **Classification :** Corrections appliquées — nouvelle validation humaine requise.
-- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise (le texte a été modifié) ; publication après (et non simultanément à) SOC-LI-001.
+- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise sur le texte réécrit (aucune validation antérieure ne s'y reporte) ; publication après (et non simultanément à) SOC-LI-001.
+- **25/07/2026 (versions finales proposées) :** Réécriture intégrale relue par `compliance-reviewer` — verdict prêt pour validation humaine, aucune occurrence fautive « Legrand Conseils » (majuscule), aucune correction de fond nécessaire.
 - **Mission 3B (25/07/2026) :** Correction appliquée sur instruction de H06 (FINMA) — « je compare plusieurs assureurs, car je ne suis lié à aucun » remplacé par « j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ». Toute validation humaine antérieure sur l'ancien texte ne peut pas être reportée sur le nouveau.
 
 ## SOC-LI-003 — 3a ou 3b ? (post du 17 août)
@@ -255,8 +257,8 @@
 
 | Classification | Content IDs |
 |---|---|
-| Prêt pour validation humaine finale | SEO-001, SOC-LI-001, SOC-LI-003, SOC-LI-004, SOC-IG-001, SOC-IG-002, SOC-RE-001 (7) |
-| Corrections appliquées — nouvelle validation humaine requise | SOC-LI-002, SOC-FB-001 (2) |
+| Prêt pour validation humaine finale | SEO-001, SOC-LI-003, SOC-LI-004, SOC-IG-001, SOC-IG-002, SOC-RE-001 (6) |
+| Corrections appliquées — nouvelle validation humaine requise | SOC-LI-001, SOC-LI-002, SOC-FB-001 (3) |
 | Bloqué — affirmation non confirmée | Aucun (toutes les affirmations examinées ont été réconciliées avec H01-H06, voir `verification-sources-officielles-2026.md` §2bis) |
 | Non rédigé — hors publication | SEO-002, SEO-003, SEO-004, SEO-005, SEO-006 (5) |
 
@@ -264,6 +266,7 @@
 « publiable maintenant ». Aucun contenu ne peut passer à `statut_publication`
 autre que `Non publié`/`Non créé` sans une décision humaine nommée et datée,
 conformément à `marketing-ai/content-calendar/registre-editorial-central.md` §3.
-Pour `SOC-LI-002` et `SOC-FB-001`, toute validation humaine qui aurait porté
-sur le texte antérieur à cette mission ne peut pas être reportée sur le
-nouveau texte : une nouvelle revue humaine du texte corrigé est requise.
+Pour `SOC-LI-001`, `SOC-LI-002` et `SOC-FB-001`, toute validation humaine qui
+aurait porté sur un texte antérieur ne peut pas être reportée sur le nouveau
+texte : une nouvelle revue humaine du texte actuel est requise dans chaque
+cas (`SOC-LI-001`/`SOC-LI-002` : versions finales réécrites le 25/07/2026).

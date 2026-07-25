@@ -13,35 +13,33 @@
 
 ## Version 1 — Profil personnel d'Antoine Legrand
 
-### Texte final (~1 550 caractères)
+### Texte final (~1 460 caractères)
 
-Aujourd'hui, une page se tourne pour moi : je vous présente Legrand conseils Sàrl.
+Aujourd'hui, je franchis une nouvelle étape : je vous présente Legrand conseils Sàrl.
 
-Pourquoi créer un cabinet de courtage indépendant ?
+En parlant d'assurance et de prévoyance autour de moi, j'entends souvent la même chose : « Je paie chaque mois, mais je ne sais pas vraiment pour quoi. » Des contrats accumulés au fil des années, des termes techniques difficiles à comprendre et, souvent, jamais vraiment le temps de s'y pencher.
 
-Parce qu'en parlant assurance et prévoyance autour de moi, j'entends souvent la même chose : « je paie, mais je ne sais pas vraiment pour quoi ». Des contrats accumulés au fil des années, des termes techniques, et jamais le temps de s'y pencher.
+Je suis convaincu d'une chose : on décide mieux quand on comprend. C'est cette conviction qui m'a poussé à créer Legrand conseils Sàrl et qui guidera ma manière de travailler :
 
-Je suis convaincu d'une chose : on décide mieux quand on comprend. C'est l'idée qui m'a poussé à me lancer, et c'est celle qui guidera mon travail :
+→ expliquer d'abord, simplement et sans jargon ;
+→ examiner les différentes solutions auxquelles j'ai accès, avec leurs avantages, leurs limites et leurs points d'attention ;
+→ proposer ensuite ce qui correspond réellement à votre situation, et non à une situation type.
 
-→ expliquer d'abord, simplement, sans jargon ;
-→ examiner les différentes solutions auxquelles j'ai accès et présenter clairement leurs avantages, leurs limites et leurs points d'attention ;
-→ recommander ensuite ce qui correspond à votre situation — pas à une situation type.
-
-Assurance maladie, prévoyance, protection du revenu et de la famille : mon rôle est de vous aider à y voir clair, à votre rythme et sans pression.
+Assurance maladie, prévoyance, protection du revenu et de la famille : mon rôle est de vous aider à y voir plus clair, à votre rythme et sans pression.
 
 Legrand conseils Sàrl est inscrite au registre public de la FINMA comme intermédiaire d'assurance non lié pour les branches assurance-maladie complémentaire et assurance-vie.
 
-Dans les prochaines semaines, je partagerai ici des contenus pédagogiques : le 3e pilier expliqué simplement, les questions à se poser avant de choisir, les erreurs fréquentes à éviter.
+Dans les prochaines semaines, je partagerai ici des contenus pédagogiques sur le 3e pilier, l'assurance maladie, la prévoyance et les questions à se poser avant de choisir une solution.
 
-Comprendre. Choisir. Protéger. — ce sera le fil rouge.
+Comprendre. Choisir. Protéger.
 
-Si ces sujets vous parlent, je serai heureux de vous compter parmi mes lecteurs. Et si une question vous trotte en tête, posez-la en commentaire : j'y répondrai avec plaisir.
+Parmi ces sujets, lequel vous paraît aujourd'hui le plus difficile à comprendre ?
 
 ### Accroche alternative
 « On décide mieux quand on comprend. C'est sur cette conviction que je lance aujourd'hui Legrand conseils Sàrl. »
 
 ### Hashtags (max 5)
-#assurance #prévoyance #courtier #SuisseRomande
+#Assurance #Prévoyance #CourtierEnAssurance #SuisseRomande
 
 ### Visuel recommandé (éléments existants)
 **Bannière de la marque déclinée en format post (1200 × 1350 ou 1200 × 627)** avec
@@ -50,15 +48,23 @@ photo professionnelle sobre d'Antoine Legrand (le visage humanise un post de
 lancement personnel). Pas de visuel chargé, pas de chiffres.
 
 ### Points de conformité vérifiés
-- ✅ Première personne du singulier, nom exact « Legrand conseils Sàrl ».
+- ✅ Première personne du singulier, nom exact « Legrand conseils Sàrl » (c minuscule à « conseils »).
 - ✅ Formulation FINMA = formulation autorisée mot pour mot ; jamais « certifié /
   agréé / approuvé FINMA ».
 - ✅ Aucun chiffre, aucune promesse de résultat, aucune économie annoncée.
-- ✅ Aucun dénigrement (le « je paie sans savoir pour quoi » décrit un ressenti de
-  clarté, sans viser un assureur, courtier ou conseiller).
-- ✅ CTA sobre et volontaire (suivre, commenter) ; aucun démarchage.
+- ✅ Aucun dénigrement (le « je paie chaque mois, mais je ne sais pas vraiment pour
+  quoi » décrit un ressenti de clarté, sans viser un assureur, courtier ou
+  conseiller).
+- ✅ CTA sobre et volontaire (question invitant au commentaire) ; aucun démarchage.
 - ✅ Aucun lien inventé ; aucun engagement de rendez-vous automatisé.
-- **Statut** : `Brouillon — validation humaine requise`.
+- **Version finale proposée par Antoine Legrand le 25/07/2026** ; revue de
+  conformité complétée le 25/07/2026 — voir
+  `../../compliance/revue-conformite-posts-lancement.md` (section « Revue des
+  versions finales proposées — 25/07/2026 »), verdict : prêt pour validation
+  humaine.
+- **Statut** : `Brouillon — nouvelle validation humaine requise` (le texte a été
+  modifié par rapport à la version précédemment revue ; aucune validation
+  antérieure ne s'y reporte).
 
 ---
 
@@ -67,27 +73,27 @@ lancement personnel). Pas de visuel chargé, pas de chiffres.
 *(Toujours à la première personne du singulier : la page porte la voix d'Antoine
 Legrand, qui incarne personnellement la société.)*
 
-### Texte final (~1 150 caractères)
+### Texte final (~1 250 caractères)
 
 Bienvenue sur la page de Legrand conseils Sàrl.
 
-Je suis Antoine Legrand, courtier en assurance indépendant en Suisse romande, et cette société est née d'un constat simple : beaucoup de personnes paient des assurances qu'elles ne comprennent qu'à moitié — et décider dans le flou, ce n'est jamais confortable.
+Je suis Antoine Legrand, courtier en assurance indépendant en Suisse romande. J'ai créé Legrand conseils Sàrl avec une conviction simple : il est difficile de prendre de bonnes décisions lorsque l'on ne comprend pas clairement ses assurances et sa prévoyance.
 
-Ma façon de travailler tient en trois étapes :
+Ma manière de travailler repose donc sur trois principes :
 
-→ je vous explique votre situation, simplement, sans jargon ;
-→ j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ;
-→ je vous propose ce qui correspond à vos besoins, et à rien d'autre.
+→ expliquer simplement, sans jargon ;
+→ examiner différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ;
+→ présenter les avantages, les limites et les points d'attention avant toute décision.
 
-Assurance maladie, prévoyance, protection du revenu et de la famille : je vous accompagne à votre rythme, en toute transparence.
+J'accompagne principalement les particuliers et les familles sur les sujets liés à l'assurance maladie, à la prévoyance, à la protection du revenu et à la protection de la famille.
 
 Legrand conseils Sàrl est inscrite au registre public de la FINMA comme intermédiaire d'assurance non lié pour les branches assurance-maladie complémentaire et assurance-vie.
 
-Sur cette page, je publierai régulièrement des contenus pédagogiques pour vous aider à y voir clair : le 3e pilier, les couvertures du quotidien, les questions à se poser avant de signer.
+Sur cette page, je publierai régulièrement des contenus pédagogiques pour vous aider à mieux comprendre vos options et les questions à vous poser avant de choisir.
 
-Comprendre. Choisir. Protéger. Vos assurances et votre prévoyance, en toute clarté.
+Comprendre. Choisir. Protéger.
 
-Suivez la page pour ne rien manquer — et bienvenue !
+Suivez la page pour découvrir les prochaines publications.
 
 ### Accroche alternative
 « Décider dans le flou, ce n'est jamais confortable. Legrand conseils Sàrl est née pour y remédier. »
@@ -101,12 +107,24 @@ format 1200 × 627) — la page étant institutionnelle, le visuel de marque est
 préférable au portrait ici.
 
 ### Points de conformité vérifiés
-- ✅ Première personne du singulier maintenue sur la page entreprise.
-- ✅ Slogan officiel repris à l'identique.
+- ✅ Première personne du singulier maintenue sur la page entreprise, nom exact
+  « Legrand conseils Sàrl » (c minuscule à « conseils »).
+- ✅ Slogan officiel repris (« Comprendre. Choisir. Protéger. »).
 - ✅ Formulation FINMA autorisée mot pour mot ; branches exactes du registre.
+- ✅ Formulation d'indépendance conforme (« j'examine différentes solutions parmi
+  les compagnies avec lesquelles je travaille, tout en conservant mon statut
+  d'intermédiaire non lié ») — ne laisse pas entendre une comparaison de tout le
+  marché.
 - ✅ Aucun chiffre, aucune promesse, aucun dénigrement, aucun classement.
 - ✅ CTA sobre (« Suivez la page ») ; aucun démarchage à froid.
-- **Statut** : `Brouillon — validation humaine requise`.
+- **Version finale proposée par Antoine Legrand le 25/07/2026** ; revue de
+  conformité complétée le 25/07/2026 — voir
+  `../../compliance/revue-conformite-posts-lancement.md` (section « Revue des
+  versions finales proposées — 25/07/2026 »), verdict : prêt pour validation
+  humaine.
+- **Statut** : `Brouillon — nouvelle validation humaine requise` (le texte a été
+  modifié par rapport à la version précédemment revue ; aucune validation
+  antérieure ne s'y reporte).
 
 ---
 
