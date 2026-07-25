@@ -33,7 +33,7 @@ Sans rentrer dans les détails techniques, voici trois points qu'il vaut la pein
 
 3️⃣ La cohérence de l'ensemble — parce qu'avec le temps, on accumule des contrats un peu partout, et il arrive qu'on paie en double… ou qu'il manque quelque chose.
 
-Rien d'urgent : juste un petit point à faire, tranquillement, quand vous serez prêts.
+Ce n'est pas forcément la première démarche à accomplir le jour de la naissance, mais l'affiliation à l'assurance de base doit être effectuée dans les trois mois. Le reste des couvertures peut ensuite être examiné séparément, selon les besoins de la famille.
 
 Avec Legrand conseils Sàrl, j'accompagne les familles de Suisse romande pour y voir clair, sans pression et à leur rythme.
 

@@ -76,7 +76,7 @@ Je suis Antoine Legrand, courtier en assurance indépendant en Suisse romande, e
 Ma façon de travailler tient en trois étapes :
 
 → je vous explique votre situation, simplement, sans jargon ;
-→ je compare plusieurs assureurs, car je ne suis lié à aucun ;
+→ j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ;
 → je vous propose ce qui correspond à vos besoins, et à rien d'autre.
 
 Assurance maladie, prévoyance, protection du revenu et de la famille : je vous accompagne à votre rythme, en toute transparence.
