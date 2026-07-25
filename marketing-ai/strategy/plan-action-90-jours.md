@@ -10,6 +10,27 @@
 > Aucune modification du site ni du CRM dans ce lot : les besoins techniques
 > sont **documentés**, pas exécutés.
 
+> **Note de mise à jour (24/07/2026, `feature/marketing-acquisition-consolidation-v1`)** —
+> faits déjà établis, sans modification des objectifs commerciaux ni des KPI
+> ci-dessous, et sans aucun chiffre de performance inventé :
+> - Le système éditorial SEO (chantier « Content Factory ») **existe déjà** et a
+>   produit un premier contenu complet, en avance sur ce planning (voir note à
+>   la Semaine 6 ci-dessous).
+> - **SEO-001** (« Changer de caisse maladie : délais, étapes, documents et
+>   erreurs à éviter ») a été **produit en avance** sur la Semaine 6 prévue
+>   ci-dessous, et a reçu une **validation humaine le 24 juillet 2026** (Antoine
+>   Legrand — voir `../reviews/human-validation-seo-001-v3.md` et
+>   `../content-calendar/registre-editorial-central.md` § 5).
+> - **SEO-001 n'est pas considéré comme publiquement publié** tant que cette
+>   publication n'a pas été confirmée par un humain, indépendamment de ce
+>   dépôt Git : le statut réel est « validé humainement — prêt pour
+>   préparation WordPress », **aucune préparation WordPress ni publication
+>   n'a été réalisée**.
+> - La phase suivante porte donc sur la **consolidation et la préparation
+>   opérationnelle** (registre éditorial central, identité et canaux
+>   officiels, confirmation humaine des éléments encore bloquants) plutôt que
+>   sur la production d'un tout premier contenu SEO, qui est déjà disponible.
+
 ## Repères
 
 | Phase | Jours | Dates | Objectif |
@@ -125,7 +146,7 @@ complets : ils sont mentionnés comme **responsables prévus** des tâches futur
 ### Semaine 6 — 05/09 → 11/09
 - **Objectif** : premiers contenus SEO et poursuite social.
 - **Tâches** :
-  1. Rédiger le brief + brouillon du **1er article SEO** (ex. « 3e pilier 3A/3B : comprendre l'essentiel »). — SEO/CS/CR — Haute — Brief + brouillon article (seo/) — SEO/site — ~5 h — dépend S5.P3.2 — validation **oui** — KPI : positions/visites (à terme).
+  1. Rédiger le brief + brouillon du **1er article SEO** (ex. « 3e pilier 3A/3B : comprendre l'essentiel »). — SEO/CS/CR — Haute — Brief + brouillon article (seo/) — SEO/site — ~5 h — dépend S5.P3.2 — validation **oui** — KPI : positions/visites (à terme). *(Note du 24/07/2026 : le 1er article SEO, SEO-001 « Changer de caisse maladie », a déjà été produit et validé humainement en avance sur cette semaine — voir note générale en tête de document. Cette tâche reste documentée telle quelle pour la trace du plan initial.)*
   2. 2–3 posts LinkedIn + 2–3 IG/FB + stories + 1 reel (sujets performants du mois 1). — LI/SMM/CR — Haute — Brouillons — social — ~6 h — dépend S5.P3.1 — validation **oui** — KPI : engagement, clics.
 - **Statut** : `À faire`.
 

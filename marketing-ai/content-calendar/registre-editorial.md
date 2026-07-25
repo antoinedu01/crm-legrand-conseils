@@ -1,5 +1,21 @@
 # Registre éditorial central — SEO
 
+> **Registre historique du volet SEO.**
+> Le registre éditorial central (`registre-editorial-central.csv` /
+> `registre-editorial-central.md`, créé le 24/07/2026 dans le cadre de
+> `feature/marketing-acquisition-consolidation-v1`) devient la **vue
+> consolidée intercanaux** (SEO + social) et absorbe les 6 lignes de ce
+> registre (SEO-001 à SEO-006) avec un mapping complet, documenté dans
+> `registre-editorial-central.md` § 5. Toute évolution future doit être
+> répercutée selon la procédure de migration documentée dans ce même fichier.
+> **Ce fichier n'est pas supprimé** : il reste la trace historique détaillée
+> du workflow SEO (statuts en 15 étapes, règles d'autorité par rôle,
+> historique complet de SEO-001) et continue de faire foi pour tout point
+> non repris explicitement dans le registre central. Aucune synchronisation
+> automatique n'existe entre les deux fichiers : toute modification de l'un
+> doit être reportée manuellement dans l'autre par un humain ou un agent
+> autorisé.
+
 > Brouillon marketing. Documente le registre `registre-editorial.csv` — **le
 > CSV est la source de vérité**, ce fichier Markdown en est la notice. Créé le
 > 23/07/2026, dans le cadre de la préparation du workflow SEO (`content-strategist`
