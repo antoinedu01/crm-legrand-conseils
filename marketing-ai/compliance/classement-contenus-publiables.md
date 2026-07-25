@@ -22,8 +22,9 @@
 - **Statut conformité :** Validé (inchangé — review conformité v3 du 24/07/2026).
 - **Validation humaine :** Oui (Antoine Legrand, 24/07/2026 — conservée telle quelle, non modifiée par cette mission).
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
+- **Classification :** Prêt pour validation humaine finale (déjà accordée le 24/07/2026, non modifiée par cette mission — voir Mission 3B ci-dessous).
 - **Action humaine suivante :** La validation humaine finale a déjà été accordée le 24/07/2026 (préparation à la publication autorisée, publication elle-même non autorisée). Reste à décider : lecture intégrale humaine des pages officielles avant publication effective (accès automatisé toujours bloqué, HTTP 403), finalisation du package WordPress (`marketing-ai/wordpress/seo-001-v3/`), confirmation des 3 URL internes en attente, décision humaine de programmation.
+- **Mission 3B (25/07/2026) :** Sources réconciliées avec H05 (Priminfo) — aucune contradiction, aucune modification du texte, aucune régression.
 
 ## SEO-002 — Pilier 3A ou 3B : lequel choisir selon votre situation
 
@@ -118,8 +119,9 @@
 - **Statut conformité :** Prêt pour validation humaine (mis à jour — voir `revue-conformite-posts-lancement.md`).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
+- **Classification :** Prêt pour validation humaine finale.
 - **Action humaine suivante :** Validation humaine nommée et datée ; confirmation de l'ordre de publication (profil personnel avant page entreprise) ; passage par la checklist finale avant publication.
+- **Mission 3B (25/07/2026) :** Relu au regard de H06 (FINMA) — formulation « examiner les différentes solutions auxquelles j'ai accès » jugée déjà conforme, aucune modification.
 
 ## SOC-LI-002 — Post de lancement officiel — page entreprise
 
@@ -134,8 +136,9 @@
 - **Statut conformité :** Prêt pour validation humaine (mis à jour).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
-- **Action humaine suivante :** Validation humaine nommée et datée ; publication après (et non simultanément à) SOC-LI-001.
+- **Classification :** Corrections appliquées — nouvelle validation humaine requise.
+- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise (le texte a été modifié) ; publication après (et non simultanément à) SOC-LI-001.
+- **Mission 3B (25/07/2026) :** Correction appliquée sur instruction de H06 (FINMA) — « je compare plusieurs assureurs, car je ne suis lié à aucun » remplacé par « j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ». Toute validation humaine antérieure sur l'ancien texte ne peut pas être reportée sur le nouveau.
 
 ## SOC-LI-003 — 3a ou 3b ? (post du 17 août)
 
@@ -150,8 +153,9 @@
 - **Statut conformité :** Prêt pour validation humaine (inchangé).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
-- **Action humaine suivante :** Lecture intégrale humaine des pages BSV/ESTV avant publication ; confirmation de l'URL `/le-3e-pilier`.
+- **Classification :** Prêt pour validation humaine finale.
+- **Action humaine suivante :** Confirmation de l'URL `/le-3e-pilier`.
+- **Mission 3B (25/07/2026) :** Sources réconciliées avec H01 (OFAS) — reformulation « généralement plus souple » (déjà appliquée en Mission 3) désormais directement confirmée, aucune nouvelle modification.
 
 ## SOC-LI-004 — Indépendants, protéger son revenu (post du 20 août)
 
@@ -166,8 +170,9 @@
 - **Statut conformité :** Prêt pour validation humaine (inchangé).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
-- **Action humaine suivante :** Lecture intégrale humaine de la page BSV avant publication ; confirmation de l'URL `/prevoyance`.
+- **Classification :** Prêt pour validation humaine finale.
+- **Action humaine suivante :** Confirmation de l'URL `/prevoyance`.
+- **Mission 3B (25/07/2026) :** Sources réconciliées avec H02 (OFAS) — formulation déjà conditionnelle jugée conforme, aucune modification.
 
 ## SOC-IG-001 — Carrousel — 3 idées reçues sur le 3e pilier
 
@@ -182,8 +187,9 @@
 - **Statut conformité :** Prêt pour validation humaine (inchangé).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
-- **Action humaine suivante :** Lecture intégrale humaine des sources avant publication ; confirmation de l'identifiant Instagram officiel.
+- **Classification :** Prêt pour validation humaine finale.
+- **Action humaine suivante :** Confirmation de l'identifiant Instagram officiel.
+- **Mission 3B (25/07/2026) :** Sources réconciliées avec H01 (OFAS/ESTV) — formulation déjà nuancée (« Pas tout à fait »), aucune modification.
 
 ## SOC-IG-002 — Pack Stories Instagram (4 séquences)
 
@@ -198,8 +204,9 @@
 - **Statut conformité :** Prêt pour validation humaine (inchangé).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
+- **Classification :** Prêt pour validation humaine finale.
 - **Action humaine suivante :** Confirmation de l'identifiant Instagram officiel ; le lien du guide (séquence 4) n'est diffusé qu'après confirmation d'URL.
+- **Mission 3B (25/07/2026) :** Formulation « rôle du courtier indépendant » (séquence 3) relue au regard de H06 (FINMA) — conforme, aucune modification.
 
 ## SOC-FB-001 — Après une naissance, 3 points à vérifier
 
@@ -214,8 +221,9 @@
 - **Statut conformité :** Prêt pour validation humaine (inchangé — après correction du CTA le 16/07/2026).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
-- **Action humaine suivante :** Confirmation de l'URL de la page Contact et de l'URL publique de la page Facebook avant diffusion ; ne pas ajouter de délai chiffré sans nouvelle vérification.
+- **Classification :** Corrections appliquées — nouvelle validation humaine requise.
+- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise (le texte a été modifié) ; confirmation de l'URL de la page Contact et de l'URL publique de la page Facebook avant diffusion.
+- **Mission 3B (25/07/2026) :** Correction appliquée sur la base de H03 (OFSP) — « Rien d'urgent : juste un petit point à faire, tranquillement, quand vous serez prêts. » remplacé par une formulation mentionnant le délai légal de trois mois pour l'assurance de base, tout en distinguant le reste des couvertures. Toute validation humaine antérieure sur l'ancien texte ne peut pas être reportée sur le nouveau.
 
 ## SOC-RE-001 — Reel — Le 3e pilier expliqué simplement
 
@@ -230,21 +238,32 @@
 - **Statut conformité :** Prêt pour validation humaine (inchangé).
 - **Validation humaine :** Non.
 - **Statut publication :** Non publié.
-- **Classification :** Publiable après validation humaine finale.
-- **Action humaine suivante :** Lecture intégrale humaine des sources avant publication ; confirmation de l'identifiant Instagram et de l'URL du guide avant d'ajouter le lien.
+- **Classification :** Prêt pour validation humaine finale.
+- **Action humaine suivante :** Confirmation de l'identifiant Instagram et de l'URL du guide avant d'ajouter le lien.
+- **Mission 3B (25/07/2026) :** Sources réconciliées avec H01 (OFAS) — reformulation « généralement plus souple » (déjà appliquée en Mission 3) désormais directement confirmée, aucune nouvelle modification.
 
 ---
 
-## Synthèse
+## Synthèse (mise à jour Mission 3B — 25/07/2026)
+
+> La catégorie « Publiable après validation humaine finale » utilisée lors de
+> la Mission 3 (25/07/2026, avant réconciliation) est remplacée par le
+> vocabulaire suivant, conformément à la Mission 3B : un contenu dont les
+> sources restaient `Non confirmé` ne pouvait plus être qualifié de
+> « publiable » ; un contenu corrigé pendant la Mission 3B ne peut pas être
+> déclaré prêt sans nouvelle revue humaine.
 
 | Classification | Content IDs |
 |---|---|
-| Publiable après validation humaine finale | SEO-001, SOC-LI-001, SOC-LI-002, SOC-LI-003, SOC-LI-004, SOC-IG-001, SOC-IG-002, SOC-FB-001, SOC-RE-001 (9) |
-| Correction factuelle requise | Aucun (corrections identifiées ont été appliquées dans le cadre de cette mission) |
-| Bloqué — source officielle insuffisante | Aucun |
+| Prêt pour validation humaine finale | SEO-001, SOC-LI-001, SOC-LI-003, SOC-LI-004, SOC-IG-001, SOC-IG-002, SOC-RE-001 (7) |
+| Corrections appliquées — nouvelle validation humaine requise | SOC-LI-002, SOC-FB-001 (2) |
+| Bloqué — affirmation non confirmée | Aucun (toutes les affirmations examinées ont été réconciliées avec H01-H06, voir `verification-sources-officielles-2026.md` §2bis) |
 | Non rédigé — hors publication | SEO-002, SEO-003, SEO-004, SEO-005, SEO-006 (5) |
 
-**Rappel** : « Publiable après validation humaine finale » ne signifie jamais
+**Rappel** : « Prêt pour validation humaine finale » ne signifie jamais
 « publiable maintenant ». Aucun contenu ne peut passer à `statut_publication`
 autre que `Non publié`/`Non créé` sans une décision humaine nommée et datée,
 conformément à `marketing-ai/content-calendar/registre-editorial-central.md` §3.
+Pour `SOC-LI-002` et `SOC-FB-001`, toute validation humaine qui aurait porté
+sur le texte antérieur à cette mission ne peut pas être reportée sur le
+nouveau texte : une nouvelle revue humaine du texte corrigé est requise.

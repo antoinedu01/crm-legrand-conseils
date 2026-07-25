@@ -77,9 +77,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Non déterminé avec certitude (lecture intégrale non obtenue).
 - **Interprétation prudente :** La structure à trois piliers (AVS/LPP/3e pilier facultatif) est une donnée structurelle constante du droit suisse de la prévoyance, déjà corroborée le 16/07/2026 par extraits ch.ch (voir `revue-conformite-lot-2a.md`) et de nouveau par extrait BSV le 25/07/2026. Aucun élément trouvé ne contredit cette présentation, qui reste générale, sans chiffre et sans promesse.
 - **Ce que la source ne permet pas d'affirmer :** Aucun détail chiffré (cotisations, seuils, coordination LPP/AVS) — non repris dans les contenus, donc sans objet ici.
-- **Verdict :** Non confirmé (lecture intégrale non obtenue — extrait de recherche corroborant, insuffisant pour validation stricte au sens du §6/§11).
-- **Correction nécessaire :** Aucune — formulation déjà générale et prudente.
-- **Action suivante :** Relecture humaine intégrale des pages BSV/ch.ch avant publication (accès direct actuellement bloqué pour un outil automatisé).
+- **Source humaine externe (25/07/2026) :** H01 (OFAS, troisième pilier) — voir §3bis. Sources ouvertes hors de l'environnement Claude ; Claude n'a pas consulté cette page directement.
+- **Verdict :** Confirmé (source externe humaine H01).
+- **Correction nécessaire :** Aucune — formulation déjà générale et prudente, cohérente avec H01.
+- **Action suivante :** Aucune.
 
 ### FACT-002
 
@@ -98,9 +99,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Non déterminé avec certitude au niveau du détail (lecture intégrale non obtenue) ; le principe d'un régime de déduction propre au 3a est cependant cohérent avec le cadre légal connu (LPP/OPP3) et corroboré par l'extrait officiel.
 - **Interprétation prudente :** La distinction « 3a lié / 3b libre » et l'existence d'un « traitement fiscal particulier » du 3a peuvent être maintenues comme affirmations générales, sans aucun chiffre ni promesse d'avantage individuel garanti.
 - **Ce que la source ne permet pas d'affirmer :** Aucun montant, aucun taux, aucune garantie d'avantage fiscal individuel ; le traitement fiscal du 3b (cantonal, variable) ne doit jamais être présenté comme uniforme ou favorable par défaut.
-- **Verdict :** Non confirmé (lecture intégrale non obtenue — extrait de recherche corroborant).
-- **Correction nécessaire :** Voir FACT-003 (nuance sur le caractère « systématiquement plus souple » du 3b).
-- **Action suivante :** Relecture humaine intégrale de la page ESTV et d'une source Fedlex/OPP3 avant toute publication ; ne jamais introduire de chiffre sans nouvelle vérification datée.
+- **Source humaine externe (25/07/2026) :** H01 (OFAS, troisième pilier) — voir §3bis. Sources ouvertes hors de l'environnement Claude ; Claude n'a pas consulté cette page directement.
+- **Verdict :** Confirmé (source externe humaine H01 — déductibilité des cotisations 3a, imposition des prestations, disponibilité encadrée du 3a, absence de déduction générale équivalente pour le 3b).
+- **Correction nécessaire :** Voir FACT-003 (nuance sur le caractère « systématiquement plus souple » du 3b) — déjà appliquée en Mission 3 et désormais directement confirmée par H01.
+- **Action suivante :** Ne jamais introduire de chiffre (taux, plafond) sans nouvelle vérification datée — H01 ne fournit pas de montant.
 
 ### FACT-003
 
@@ -119,9 +121,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Sans objet (correction de prudence rédactionnelle, pas une correction issue d'un texte de loi contredit).
 - **Interprétation prudente :** Le 3b est structurellement moins contraint par la loi que le 3a (pas de cadre légal équivalent à l'OPP3), mais cela ne signifie pas que chaque produit 3b est individuellement plus souple — la formulation doit rester une tendance générale, pas une règle absolue.
 - **Ce que la source ne permet pas d'affirmer :** Que « tout » 3b est plus souple que « tout » 3a, en toutes circonstances.
-- **Verdict :** Confirmé avec reformulation.
+- **Source humaine externe (25/07/2026) :** H01 (OFAS, troisième pilier) — voir §3bis. L'interprétation éditoriale « Le 3b est généralement plus souple que le 3a » est explicitement autorisée par H01.
+- **Verdict :** Confirmé avec reformulation (correction du 25/07/2026 en Mission 3, désormais directement confirmée par H01).
 - **Correction nécessaire :** Ajout du mot « généralement » avant « plus souple », suppression de l'intensif « beaucoup » qui renforçait le caractère absolu de l'affirmation.
-- **Action suivante :** Correction appliquée (voir §4 « Corrections appliquées » ci-dessous et le rapport final).
+- **Action suivante :** Correction déjà appliquée (voir §4 « Corrections appliquées » ci-dessous). Ne jamais affirmer que chaque produit 3b est disponible sans aucune condition contractuelle (mise en garde explicite de H01).
 
 ### FACT-004
 
@@ -161,9 +164,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Corroboration (par extrait, non lecture intégrale) que le 2e pilier n'est pas obligatoire pour un indépendant, contrairement à un salarié.
 - **Interprétation prudente :** L'affirmation du post (« ne bénéficie pas automatiquement de toutes les mêmes protections ») reste déjà prudente : elle n'affirme pas une absence totale de couverture, mais une absence d'automatisme, ce qui est cohérent avec l'extrait obtenu.
 - **Ce que la source ne permet pas d'affirmer :** Aucune généralisation à « tous les indépendants » de façon identique (le post ne le fait pas) ; aucun chiffre de cotisation ou de prestation (le post n'en contient pas).
-- **Verdict :** Non confirmé (lecture intégrale non obtenue — extrait de recherche corroborant, cohérent avec la formulation déjà prudente du contenu).
-- **Correction nécessaire :** Aucune — la formulation existante est déjà conforme aux nuances requises par le §9.2 de la mission (dépend du statut exact, de l'activité, des couvertures déjà souscrites, de la caisse de pension éventuelle — le post renvoie explicitement à un échange individuel plutôt que d'énoncer une règle générale chiffrée).
-- **Action suivante :** Relecture humaine intégrale de la page BSV avant publication.
+- **Source humaine externe (25/07/2026) :** H02 (OFAS, indépendants) — voir §3bis. Confirme : cotisations AVS/AI/APG, absence d'affiliation obligatoire à la prévoyance professionnelle, affiliation facultative possible, absence d'assurance-accidents obligatoire, assurance d'indemnités journalières perte de gain facultative, absence de couverture chômage.
+- **Verdict :** Confirmé (source externe humaine H02). L'interprétation éditoriale autorisée par H02 (« Selon son statut et les couvertures déjà organisées, un indépendant ne bénéficie pas automatiquement de toutes les mêmes protections qu'un salarié ») recoupe directement la formulation déjà en place dans SOC-LI-004.
+- **Correction nécessaire :** Aucune — la formulation existante (« l'indépendant ne bénéficie pas automatiquement de toutes les mêmes protections ») est déjà conditionnelle et cohérente avec H02 ; elle n'affirme jamais une absence totale de protection. Aucune réécriture jugée nécessaire.
+- **Action suivante :** Aucune — mise en garde H02 déjà respectée (ne jamais laisser entendre qu'un indépendant ne bénéficie d'aucune protection sociale).
 
 ### FACT-006
 
@@ -182,9 +186,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Non déterminé avec la certitude requise pour publier un délai chiffré.
 - **Interprétation prudente :** Le contenu Facebook actuel ne cite aucun délai ni aucune règle chiffrée — il se limite à recommander une vérification générale (« pour s'assurer que tout est bien en ordre dès le départ »). Cette formulation reste donc publiable en l'état sur ce point précis, sans qu'aucun chiffre n'ait besoin d'être sourcé.
 - **Ce que la source ne permet pas d'affirmer :** Aucun délai précis (« 3 mois ») ne doit être ajouté au contenu tant qu'une page officielle unique n'a pas été lue intégralement et datée.
-- **Verdict :** Non confirmé (lecture intégrale non obtenue) — sans conséquence sur le contenu actuel, qui ne reprend aucun chiffre.
-- **Correction nécessaire :** Aucune sur le contenu actuel. **Mise en garde** : si un délai chiffré devait être ajouté ultérieurement, une nouvelle vérification humaine sur une page OFSP identifiée avec certitude serait obligatoire au préalable.
-- **Action suivante :** Relecture humaine intégrale d'une page OFSP dédiée à l'affiliation des nouveau-nés avant tout ajout de délai chiffré au contenu.
+- **Source humaine externe (25/07/2026) :** H03 (OFSP, obligation d'assurer / nouveau-né) — voir §3bis. Confirme : délai de trois mois pour affilier un nouveau-né, effet rétroactif à la naissance si affiliation dans le délai, primes dues rétroactivement, couverture débutant seulement à l'affiliation en cas de retard, supplément de prime possible si retard non excusable, acceptation obligatoire par les assureurs indépendamment de l'âge et de l'état de santé pour l'assurance obligatoire des soins.
+- **Verdict :** Confirmé avec reformulation (source externe humaine H03).
+- **Correction nécessaire :** Retrait de la formulation « Rien d'urgent : juste un petit point à faire, tranquillement, quand vous serez prêts. », qui minimisait un délai légal réel de trois mois. Remplacée par une formulation mentionnant le délai de trois mois pour l'assurance de base, tout en distinguant explicitement le reste des couvertures (examinable séparément, sans urgence).
+- **Action suivante :** Correction appliquée (voir §4bis « Corrections Mission 3B » ci-dessous).
 
 ### FACT-007
 
@@ -203,9 +208,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Non déterminé (point déjà identifié comme non couvert par les sources disponibles).
 - **Interprétation prudente :** Le principe général — LAMal et LCA sont deux régimes distincts, la résiliation de l'un n'emporte pas automatiquement celle de l'autre — est un principe juridique suisse largement établi (deux lois distinctes, deux types de contrats). Les contenus actuels (SEO-001 v3, Facebook) le présentent déjà de façon prudente, sans détailler les mécanismes fins de sélection médicale.
 - **Ce que la source ne permet pas d'affirmer :** Aucun détail sur les conditions d'admission ou de résiliation propres à un assureur donné.
-- **Verdict :** Non confirmé (lecture intégrale non obtenue) — cohérent avec le statut déjà attribué à A07/A08 dans le dossier de recherche SEO-001 et jugé « conforme avec nuance » par la review conformité v3 du 24/07/2026.
-- **Correction nécessaire :** Aucune — statut conservé sans régression.
-- **Action suivante :** Relecture humaine intégrale de la LAMal/LCA sur Fedlex si ce point devait être développé davantage dans un futur contenu (par ex. SEO-003).
+- **Source humaine externe (25/07/2026) :** H04 (ch.ch, assurance complémentaire) et H05 (Priminfo, changement de caisse) — voir §3bis. H04 confirme la distinction LAMal/LCA, le questionnaire de santé généralement demandé pour une complémentaire, et la possibilité de refus par l'assureur complémentaire. H05 confirme qu'une caisse ne peut pas imposer la résiliation de la complémentaire lors d'un changement d'assurance de base.
+- **Verdict :** Confirmé (source externe humaine H04 + H05), cohérent avec le statut déjà attribué à A07/A08 dans le dossier de recherche SEO-001 et jugé « conforme avec nuance » par la review conformité v3 du 24/07/2026.
+- **Correction nécessaire :** Aucune — statut conservé, désormais directement confirmé plutôt que seulement corroboré.
+- **Action suivante :** Ne jamais appliquer les règles de l'assurance complémentaire (questionnaire de santé, refus possible) à l'assurance de base (LAMal) — mise en garde explicite de H04, déjà respectée dans les contenus existants.
 
 ### FACT-008
 
@@ -224,7 +230,8 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Statut confirmé par documents officiels directs (pas une extrapolation).
 - **Interprétation prudente :** La formulation utilisée dans les deux versions du post de lancement reprend **mot pour mot** la formulation autorisée. Aucune mention interdite (« certifié / agréé / approuvé FINMA ») n'est présente.
 - **Ce que la source ne permet pas d'affirmer :** Que cette inscription couvre toutes les activités d'assurance ou constitue un agrément pour l'assurance obligatoire LAMal — non affirmé dans les contenus, conforme.
-- **Verdict :** Confirmé (statut d'origine du 17/07/2026, non remis en cause).
+- **Source humaine externe (25/07/2026) :** H06 (FINMA, intermédiaires non liés) — voir §3bis. Confirme la définition du statut non lié (absence de lien juridique, économique ou autre avec une compagnie), l'obligation d'inscription au registre FINMA et la surveillance courante. Corrobore, sans le remplacer, le statut déjà confirmé par documents officiels directs le 17/07/2026.
+- **Verdict :** Confirmé (statut d'origine du 17/07/2026, non remis en cause ; corroboré par H06).
 - **Correction nécessaire :** Aucune sur le fond de cette affirmation. Voir FACT-016 pour la correction de l'URL LinkedIn associée dans le même document.
 - **Action suivante :** **Ne pas modifier** les numéros FINMA sans nouvelle consultation directe d'une source officielle — règle strictement respectée dans ce document.
 
@@ -245,9 +252,10 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Sans objet.
 - **Interprétation prudente :** Formulations conformes à la règle du §9.4 de la mission (interdiction de laisser entendre que Legrand Conseils compare automatiquement toutes les compagnies ou tout le marché).
 - **Ce que la source ne permet pas d'affirmer :** Sans objet.
-- **Verdict :** Confirmé.
-- **Correction nécessaire :** Aucune.
-- **Action suivante :** Aucune.
+- **Source humaine externe (25/07/2026) :** H06 (FINMA, intermédiaires non liés) — voir §3bis. Confirme explicitement : « le statut non lié ne démontre pas qu'un intermédiaire dispose de conventions avec toutes les compagnies » et « le statut non lié ne permet pas d'affirmer qu'il compare automatiquement tout le marché ».
+- **Verdict :** Confirmé avec reformulation (source externe humaine H06 — révision préventive de SOC-LI-002).
+- **Correction nécessaire :** Bien que la formulation initiale de SOC-LI-002 (« je compare plusieurs assureurs, car je ne suis lié à aucun ») n'employait pas littéralement « tout le marché », H06 recommande une formulation plus précise pour écarter tout risque d'impression de comparaison exhaustive. Remplacée par « j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ». SOC-LI-001 (« examiner les différentes solutions auxquelles j'ai accès ») jugée déjà conforme par H06 et conservée sans modification.
+- **Action suivante :** Correction appliquée (voir §4bis « Corrections Mission 3B » ci-dessous).
 
 ### FACT-010
 
@@ -266,7 +274,8 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Selon le dossier transmis par l'humain le 23/07/2026 (non remis en cause par cette nouvelle tentative) : délai de réception au 30 novembre pour un changement au 1er janvier.
 - **Interprétation prudente :** Affirmation déjà validée par un humain sur la base de sources officielles transmises directement (Priminfo, OFSP), reprise fidèlement dans l'article v3, déjà compliance-validée (24/07/2026) et humainement validée (24/07/2026).
 - **Ce que la source ne permet pas d'affirmer :** Les exceptions et cas particuliers de l'art. 7 LAMal non couverts par le lot (voir A12) — l'article ne les détaille pas et renvoie explicitement à une vérification individuelle, ce qui est conforme.
-- **Verdict :** Non confirmé par une nouvelle lecture intégrale automatisée (HTTP 403 persistant) — **statut historique conservé sans régression**, conformément à la consigne explicite du §9.5 de la mission (« Ne fais pas régresser SEO-001 sans raison. Si toutes les affirmations sont toujours correctes, conserve son statut actuel »). Aucun élément trouvé le 25/07/2026 ne contredit cette affirmation.
+- **Source humaine externe (25/07/2026) :** H05 (Priminfo, changement de caisse) — voir §3bis. Confirme explicitement le délai de réception au 30 novembre pour un changement au 1er janvier.
+- **Verdict :** Confirmé (source externe humaine H05, en plus des sources S01/S02/S05 déjà transmises le 23/07/2026).
 - **Correction nécessaire :** Aucune.
 - **Action suivante :** Aucune — SEO-001 conserve sa validation humaine du 24/07/2026 (Antoine Legrand), non remise en cause.
 
@@ -287,7 +296,8 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Voir dossier de recherche existant, non remis en cause.
 - **Interprétation prudente :** Statut conservé.
 - **Ce que la source ne permet pas d'affirmer :** La mécanique précise d'un délai tombant un samedi/dimanche/jour férié n'est pas détaillée dans l'article (signalé comme non traité dans le dossier de recherche, §7) — l'article n'en fait pas mention, ce qui est cohérent.
-- **Verdict :** Non confirmé par nouvelle lecture intégrale (HTTP 403) — statut conservé sans régression.
+- **Source humaine externe (25/07/2026) :** H05 (Priminfo, changement de caisse) — voir §3bis.
+- **Verdict :** Confirmé (source externe humaine H05).
 - **Correction nécessaire :** Aucune.
 - **Action suivante :** Aucune.
 
@@ -308,7 +318,8 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Voir dossier existant, non remis en cause.
 - **Interprétation prudente :** Statut conservé.
 - **Ce que la source ne permet pas d'affirmer :** Sans objet supplémentaire.
-- **Verdict :** Non confirmé par nouvelle lecture intégrale — statut conservé sans régression.
+- **Source humaine externe (25/07/2026) :** H05 (Priminfo, changement de caisse) — voir §3bis. Confirme explicitement la communication de la nouvelle prime avant le 31 octobre.
+- **Verdict :** Confirmé (source externe humaine H05).
 - **Correction nécessaire :** Aucune.
 - **Action suivante :** Aucune.
 
@@ -329,7 +340,8 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Voir dossier existant.
 - **Interprétation prudente :** Statut conservé — l'article distingue déjà correctement recommandation pratique et délai légal.
 - **Ce que la source ne permet pas d'affirmer :** Que le 15 novembre serait lui-même une date légale — l'article ne le fait pas.
-- **Verdict :** Non confirmé par nouvelle lecture intégrale — statut conservé sans régression.
+- **Source humaine externe (25/07/2026) :** H05 (Priminfo, changement de caisse) — voir §3bis. Confirme explicitement que Priminfo recommande un envoi avant le 15 novembre.
+- **Verdict :** Confirmé (source externe humaine H05).
 - **Correction nécessaire :** Aucune.
 - **Action suivante :** Aucune.
 
@@ -350,7 +362,8 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Ce que la source dit explicitement :** Voir dossier existant, confirmé par review humaine externe du 24/07/2026, non remis en cause.
 - **Interprétation prudente :** Statut conservé — c'est l'affirmation la plus sensible de l'article et elle est déjà la mieux nuancée (renvoi systématique vers une vérification individuelle pour les cas particuliers).
 - **Ce que la source ne permet pas d'affirmer :** Une généralisation à tous les cas de dette contestée ou récente — l'article l'exclut déjà explicitement.
-- **Verdict :** Non confirmé par nouvelle lecture intégrale automatisée — statut conservé sans régression (déjà « validé » via review humaine externe du 24/07/2026, source la plus forte disponible).
+- **Source humaine externe (25/07/2026) :** H05 (Priminfo, changement de caisse) — voir §3bis. Confirme, en termes généraux, que certaines dettes réclamées peuvent empêcher le changement selon les conditions décrites par Priminfo — cohérent avec le mécanisme précis déjà validé le 24/07/2026 (review humaine externe).
+- **Verdict :** Confirmé (source externe humaine H05, en complément de la review humaine externe du 24/07/2026).
 - **Correction nécessaire :** Aucune.
 - **Action suivante :** Aucune.
 
@@ -370,10 +383,11 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 - **Passage utile :** Voir la review conformité v3 (`compliance-validation-seo-001-v3.md`) : ces points sont jugés « conformes avec nuance » précisément parce que le texte reste général et renvoie vers une vérification individuelle plutôt que d'affirmer un mécanisme juridique précis.
 - **Ce que la source dit explicitement :** Non déterminé (point déjà identifié comme non couvert).
 - **Interprétation prudente :** Statut conservé — formulation déjà prudente et jugée non bloquante par la review conformité v3 du 24/07/2026.
-- **Ce que la source ne permet pas d'affirmer :** Le détail des conditions d'admission d'un assureur complémentaire précis.
-- **Verdict :** Non confirmé par nouvelle lecture intégrale — statut conservé sans régression.
+- **Ce que la source ne permet pas d'affirmer :** Le détail des conditions d'admission d'un assureur complémentaire précis (chaque assureur a ses propres conditions, non détaillées par H04).
+- **Source humaine externe (25/07/2026) :** H04 (ch.ch, assurance complémentaire) et H05 (Priminfo) — voir §3bis. Confirment la distinction LAMal/LCA, le questionnaire de santé généralement requis pour une complémentaire, la possibilité de refus, et l'absence d'obligation de résiliation automatique de la complémentaire lors d'un changement de base.
+- **Verdict :** Confirmé (source externe humaine H04 + H05).
 - **Correction nécessaire :** Aucune.
-- **Action suivante :** Relecture humaine intégrale de la LAMal/LCA si ce point est développé dans un futur contenu (SEO-003).
+- **Action suivante :** Relecture humaine intégrale de la LAMal/LCA si ce point est développé plus finement dans un futur contenu (SEO-003).
 
 ### FACT-016
 
@@ -398,16 +412,137 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 
 ---
 
+## 2bis. Réconciliation externe humaine du 25 juillet 2026
+
+Le 25/07/2026, Antoine Legrand a communiqué avoir consulté personnellement,
+**en dehors de l'environnement d'exécution de Claude**, six sources
+officielles (H01 à H06 ci-dessous), en réponse au blocage HTTP 403
+rencontré par Claude sur l'ensemble des domaines officiels suisses testés
+(voir §1). Les précisions suivantes s'appliquent à l'intégralité de cette
+section et du reste du document :
+
+- **Ces sources ont été ouvertes hors de l'environnement Claude.** Claude
+  n'a pas consulté ces pages directement — les tentatives d'accès
+  automatisé (`WebFetch`) sur ces mêmes URL, renouvelées le 25/07/2026, ont
+  de nouveau renvoyé HTTP 403 (voir §1 et l'historique du 16/07/2026).
+- **Claude ne revendique à aucun moment avoir ouvert ces pages lui-même.**
+  Le contenu attribué à H01-H06 ci-dessous est repris tel que communiqué,
+  sans reformulation qui en élargirait la portée.
+- **Ces éléments sont fournis sous la responsabilité de la validation
+  humaine externe** d'Antoine Legrand, qui a confirmé leur consultation.
+  Ils sont traités avec le même niveau de confiance que les lots de sources
+  déjà transmis par l'humain dans cette mission (ex. dossier SEO-001 du
+  23/07/2026), et non comme une vérification indépendante réalisée par
+  Claude.
+- **La validation finale des contenus reste distincte de la validation des
+  sources.** Qu'une affirmation soit désormais « Confirmé » sur la base
+  d'une source officielle ne dispense en rien de la validation humaine
+  finale, nommée et datée, requise avant toute publication (voir
+  `marketing-ai/content-calendar/registre-editorial-central.md` §3).
+
+### H01 — OFAS, troisième pilier
+**URL communiquée :** https://www.bsv.admin.ch/fr/le-troisieme-pilier
+Éléments confirmés : la prévoyance individuelle est le troisième élément du
+système des trois piliers ; le pilier 3a est la prévoyance individuelle
+liée ; les cotisations au 3a sont fiscalement déductibles dans le cadre
+légal ; les prestations du 3a sont imposées ; l'avoir 3a n'est pas librement
+disponible à tout moment ; la prévoyance libre peut comprendre épargne,
+placements et assurances-vie ; les sommes de la prévoyance libre sont en
+principe librement disponibles ; il n'existe pas de déduction fiscale
+générale équivalente à celle du 3a pour la prévoyance libre. Interprétation
+éditoriale autorisée : « le 3b est généralement plus souple que le 3a » —
+jamais une disponibilité sans aucune condition contractuelle.
+
+### H02 — OFAS, indépendants
+**URL communiquée :** https://www.bsv.admin.ch/fr/activite-independante
+Éléments confirmés : cotisation AVS/AI/APG ; absence d'affiliation
+obligatoire à la prévoyance professionnelle ; affiliation facultative
+possible ; absence d'assurance-accidents obligatoire, assurance-accidents
+facultative possible ; assurance d'indemnités journalières perte de gain
+facultative ; absence de couverture chômage. Interprétation éditoriale
+autorisée : un indépendant ne bénéficie pas automatiquement de toutes les
+mêmes protections qu'un salarié, selon son statut et ses couvertures déjà
+organisées — jamais une absence totale de protection sociale.
+
+### H03 — OFSP, nouveau-né et obligation d'assurance
+**URL communiquée :** https://www.bag.admin.ch/fr/assurance-maladie-obligation-de-sassurer-pour-les-assures-domicilies-en-suisse
+Éléments confirmés : délai de trois mois pour affilier un nouveau-né à
+l'assurance obligatoire des soins ; effet rétroactif à la naissance si
+affiliation dans le délai ; primes dues rétroactivement ; couverture
+débutant seulement à l'affiliation en cas de retard ; supplément de prime
+possible si retard non excusable ; acceptation obligatoire par les
+assureurs indépendamment de l'âge et de l'état de santé (assurance
+obligatoire des soins).
+
+### H04 — ch.ch, assurance complémentaire
+**URL communiquée :** https://www.ch.ch/fr/assurances/assurance-maladie/conclure-une-assurance-maladie/
+Éléments confirmés : l'assurance complémentaire est distincte de
+l'assurance obligatoire des soins ; un questionnaire de santé est
+généralement demandé pour une complémentaire ; l'assureur complémentaire
+peut refuser une demande ; les conditions peuvent dépendre des réponses
+fournies. Ces règles ne s'appliquent jamais à l'assurance de base.
+
+### H05 — Priminfo, changement de caisse
+**URL communiquée :** https://www.priminfo.admin.ch/fr/zahlen-und-fakten/wechsel
+Éléments confirmés : nouvelle prime communiquée avant le 31 octobre ;
+résiliation de l'assurance de base reçue par l'ancienne caisse avant le
+30 novembre pour un changement au 1er janvier ; recommandation d'envoi
+avant le 15 novembre ; inscription simultanée requise auprès d'une nouvelle
+caisse ; acceptation obligatoire pour l'assurance de base indépendamment de
+l'âge et de l'état de santé ; délais de la complémentaire distincts ; une
+caisse ne peut pas imposer la résiliation de la complémentaire lors d'un
+changement de base ; certaines dettes réclamées peuvent empêcher le
+changement selon les conditions décrites par Priminfo ; la nouvelle caisse
+doit confirmer la reprise de l'assurance.
+
+### H06 — FINMA, intermédiaires non liés
+**URL communiquée :** https://www.finma.ch/fr/finma-public/fragen-und-probleme/zu-einer-versicherungsvermittlung/
+Éléments confirmés : les intermédiaires non liés ne sont pas liés
+juridiquement, économiquement ou d'une autre manière à une entreprise
+d'assurance ; ils doivent être inscrits au registre FINMA ; ils sont soumis
+à la surveillance courante de la FINMA ; le statut non lié ne démontre pas
+qu'un intermédiaire dispose de conventions avec toutes les compagnies ; le
+statut non lié ne permet pas d'affirmer qu'il compare automatiquement tout
+le marché.
+
+### Mapping FACT-XXX → H01-H06
+
+| FACT | Source(s) humaine(s) | Nouveau verdict |
+|---|---|---|
+| FACT-001 | H01 | Confirmé |
+| FACT-002 | H01 | Confirmé |
+| FACT-003 | H01 | Confirmé avec reformulation (déjà appliquée en Mission 3) |
+| FACT-004 | — (contrôle rhétorique, sans objet) | Confirmé (inchangé) |
+| FACT-005 | H02 | Confirmé |
+| FACT-006 | H03 | Confirmé avec reformulation |
+| FACT-007 | H04, H05 | Confirmé |
+| FACT-008 | H06 (corrobore la confirmation d'origine du 17/07/2026) | Confirmé |
+| FACT-009 | H06 | Confirmé avec reformulation |
+| FACT-010 | H05 | Confirmé |
+| FACT-011 | H05 | Confirmé |
+| FACT-012 | H05 | Confirmé |
+| FACT-013 | H05 | Confirmé |
+| FACT-014 | H05 | Confirmé |
+| FACT-015 | H04, H05 | Confirmé |
+| FACT-016 | — (décision éditoriale humaine, sans objet) | Confirmé avec reformulation (inchangé) |
+
 ## 3. Synthèse chiffrée
 
 | Élément | Valeur |
 |---|---|
 | Affirmations inventoriées (FACT-001 à FACT-016) | 16 |
-| Confirmé | 3 (FACT-004, FACT-008, FACT-009) |
-| Confirmé avec reformulation | 2 (FACT-003, FACT-016) |
-| Non confirmé (lecture intégrale non obtenue, statut conservé sans régression ou classé selon §11) | 11 (FACT-001, 002, 005, 006, 007, 010, 011, 012, 013, 014, 015) |
+| Confirmé | 12 (FACT-001, 002, 004, 005, 007, 008, 010, 011, 012, 013, 014, 015) |
+| Confirmé avec reformulation | 4 (FACT-003, 006, 009, 016) |
+| Non confirmé | 0 |
 | Contredit | 0 |
-| Bloqué — source officielle insuffisante | 0 (aucun contenu ne repose sur une affirmation chiffrée non sourcée nécessitant un blocage ; tout contenu concerné reste déjà encadré par une mention `Vérification humaine obligatoire` existante) |
+| Bloqué — source officielle insuffisante | 0 |
+
+**Note de méthode** : les verdicts « Confirmé » ci-dessus reposent, pour
+FACT-001, 002, 003, 005, 006, 007, 008, 009, 010 à 015, sur la
+réconciliation externe humaine du 25/07/2026 (§2bis) — Claude n'a consulté
+aucune de ces pages directement (voir §1). FACT-004 et FACT-016 restent
+confirmés sur la base indépendante déjà documentée dans leur fiche
+respective (contrôle rhétorique interne / décision éditoriale humaine).
 
 ---
 
@@ -423,3 +558,14 @@ statut est **conservé**, faute de tout élément contraire trouvé — conform�
 | 6 | FACT-016 | `marketing-ai/social-media/linkedin/semaine-17-23-aout-2026.md` | URL non accentuée (en-tête + notes de production) | URL accentuée | Idem. |
 
 Aucune autre modification n'a été apportée à un contenu marketing dans le cadre de cette mission. Aucune affirmation, source, URL ou validation humaine n'a été inventée.
+
+---
+
+## 5. Corrections Mission 3B (25/07/2026)
+
+| # | FACT | Fichier | Ancien texte | Nouveau texte | Motif |
+|---|---|---|---|---|---|
+| 1 | FACT-006 | `marketing-ai/social-media/facebook/semaine-17-23-aout-2026.md` | « Rien d'urgent : juste un petit point à faire, tranquillement, quand vous serez prêts. » | « Ce n'est pas forcément la première démarche à accomplir le jour de la naissance, mais l'affiliation à l'assurance de base doit être effectuée dans les trois mois. Le reste des couvertures peut ensuite être examiné séparément, selon les besoins de la famille. » | H03 (OFSP) confirme un délai légal réel de trois mois ; l'ancienne formulation le minimisait en suggérant l'absence de toute urgence. |
+| 2 | FACT-009 | `marketing-ai/social-media/linkedin/post-lancement-officiel.md` (Version 2 — SOC-LI-002) | « je compare plusieurs assureurs, car je ne suis lié à aucun » | « j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié » | H06 (FINMA) précise que le statut non lié ne permet pas d'affirmer une comparaison automatique de tout le marché ; correction préventive de précision, la formulation initiale n'employait pas littéralement « tout le marché » mais pouvait en laisser l'impression. |
+
+`SOC-LI-001` (« examiner les différentes solutions auxquelles j'ai accès ») a été relu et jugé conforme par H06 sans modification. `SOC-LI-004` (formulation « ne bénéficie pas automatiquement de toutes les mêmes protections ») a été relu et jugé déjà conditionnel et conforme à H02 sans modification. Les contenus 3a/3b (`SOC-LI-003`, `SOC-IG-001`, `SOC-RE-001`) ont été relus : la formulation « généralement plus souple » déjà appliquée en Mission 3 est désormais directement confirmée par H01 ; aucune nouvelle correction n'était nécessaire. `SEO-001` a été relu au regard de H05 : aucune contradiction constatée, aucune régression appliquée.

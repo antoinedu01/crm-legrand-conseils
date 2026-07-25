@@ -207,6 +207,35 @@ n'a été rétrogradé. **Aucune validation humaine** n'a été ajoutée par cet
 mission : `validation_humaine` reste `Non` pour les 13 contenus autres que
 SEO-001.
 
+## 7ter. Mission 3B — réconciliation externe humaine (25/07/2026)
+
+Sur `feature/marketing-source-reconciliation-v1`, Antoine Legrand a communiqué
+six sources officielles (H01 à H06) qu'il a consultées personnellement, hors
+de l'environnement Claude, en réponse au blocage HTTP 403 rencontré pendant
+la Mission 3 sur l'ensemble des domaines officiels suisses testés. **Claude
+n'a pas consulté ces pages directement** — une nouvelle tentative `WebFetch`
+sur deux de ces URL le 25/07/2026 a de nouveau échoué (HTTP 403). Le détail
+complet (URL, éléments confirmés, mapping FACT-XXX) figure dans
+`marketing-ai/compliance/verification-sources-officielles-2026.md` §2bis.
+
+**Conséquences** :
+- 12 des 16 affirmations inventoriées passent de `Non confirmé` à `Confirmé` ;
+  4 restent/passent à `Confirmé avec reformulation`. Aucune n'est `Contredit`
+  ni `Bloqué`.
+- Deux corrections de texte obligatoires ont été appliquées : `SOC-FB-001`
+  (retrait de « Rien d'urgent », mention du délai réel de trois mois pour
+  affilier un nouveau-né) et `SOC-LI-002` (retrait d'une formulation pouvant
+  laisser croire à une comparaison de tout le marché).
+- Ces deux contenus modifiés **ne peuvent pas** hériter d'une validation
+  humaine qui aurait porté sur leur texte antérieur : une nouvelle validation
+  humaine, nommée et datée, est requise avant toute publication.
+- `SEO-001` conserve sa validation humaine du 24/07/2026, non remise en
+  cause ; son `statut_sources` est relevé à `Validé` (H05 corrobore
+  intégralement le lot S01-S06 déjà utilisé).
+- **La validation des sources reste distincte de la validation humaine
+  finale des contenus** : aucune validation humaine positive n'a été ajoutée
+  par cette mission au-delà de celle déjà existante pour SEO-001.
+
 ## 7. Ce que ce registre ne fait pas
 
 - Il ne fixe **aucune** date de publication pour SEO-001 ou pour aucun contenu
