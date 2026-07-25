@@ -3,7 +3,8 @@
 > Rédigée le 17/07/2026 — mise à jour au fil des créations.
 > État actuel :
 > - ✅ **Page LinkedIn entreprise : active et finalisée** (logo + bannière) —
->   https://www.linkedin.com/company/legrand-conseils-sarl/
+>   https://www.linkedin.com/company/legrand-conseils-s%C3%A0rl/ (URL officielle
+>   confirmée le 25/07/2026, Mission 3 — voir `../strategy/identite-et-canaux-officiels.md`)
 > - ✅ **Profil LinkedIn personnel** (titre professionnel + bannière cohérente) —
 >   https://www.linkedin.com/in/antoine-legrand-abaa68196/
 > - ✅ Compte **Instagram** : existant.
@@ -18,7 +19,10 @@
 
 ## A. Page LinkedIn Legrand conseils Sàrl — ✅ ACTIVE ET FINALISÉE
 
-**URL confirmée** : https://www.linkedin.com/company/legrand-conseils-sarl/
+**URL confirmée** : https://www.linkedin.com/company/legrand-conseils-s%C3%A0rl/
+*(Ancienne variante documentaire non retenue : `https://www.linkedin.com/company/legrand-conseils-sarl/` —
+divergence de slug réconciliée le 25/07/2026 dans le cadre de la Mission 3,
+sur décision explicite d'Antoine Legrand ; voir `../strategy/identite-et-canaux-officiels.md`.)*
 Page finalisée par le dirigeant (logo, bannière). Les points ci-dessous servent de
 **référence de vérification** (cocher pour tracer le contrôle) :
 

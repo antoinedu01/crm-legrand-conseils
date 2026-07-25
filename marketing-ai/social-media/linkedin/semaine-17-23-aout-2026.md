@@ -5,7 +5,7 @@
 > dirigeant** (canal prioritaire) :
 > https://www.linkedin.com/in/antoine-legrand-abaa68196/
 > La **page entreprise est active et finalisée** :
-> https://www.linkedin.com/company/legrand-conseils-sarl/
+> https://www.linkedin.com/company/legrand-conseils-s%C3%A0rl/
 > Rédaction à la **première personne du singulier** (« je », « mon », « ma ») sur
 > les deux supports — jamais « nous », sauf nécessité juridique.
 > **Aucune publication automatique** : programmation manuelle après validation
@@ -36,7 +36,7 @@ Le 3e pilier, c'est la partie de la prévoyance que vous constituez vous-même, 
 
 → Le pilier 3a, dit « lié ». Il suit des règles précises fixées par la loi : conditions de versement, moments où l'on peut y accéder. En contrepartie de ce cadre, il donne droit à un traitement fiscal particulier.
 
-→ Le pilier 3b, dit « libre ». Il est beaucoup plus souple, aussi bien sur les montants que sur la disponibilité de l'argent. Son cadre fiscal est différent de celui du 3a.
+→ Le pilier 3b, dit « libre ». Il est généralement plus souple, aussi bien sur les montants que sur la disponibilité de l'argent. Son cadre fiscal est différent de celui du 3a.
 
 Ni l'un ni l'autre n'est « le meilleur ». Ils répondent simplement à des besoins différents : le 3a se pense souvent sur le long terme, le 3b apporte de la souplesse.
 
@@ -102,5 +102,5 @@ Si vous êtes indépendant·e en Suisse romande et que vous n'avez jamais vraime
 ### Notes de production (LinkedIn)
 - 2 publications cette semaine (le calendrier en autorise jusqu'à 3 ; 2 suffisent pour un lancement maîtrisé).
 - Aucune promesse d'économie, de rendement ou d'acceptation. Aucun « meilleur produit ».
-- Version « page entreprise » : la page est **active et finalisée** (https://www.linkedin.com/company/legrand-conseils-sarl/). Les textes y restent **à la première personne du singulier** (« je »), conformément à la ligne éditoriale — pas de passage au « nous ». Un repartage depuis la page du post publié sur le profil personnel est possible.
+- Version « page entreprise » : la page est **active et finalisée** (https://www.linkedin.com/company/legrand-conseils-s%C3%A0rl/). Les textes y restent **à la première personne du singulier** (« je »), conformément à la ligne éditoriale — pas de passage au « nous ». Un repartage depuis la page du post publié sur le profil personnel est possible.
 - Les liens ne seront insérés qu'après confirmation humaine des URL réelles.

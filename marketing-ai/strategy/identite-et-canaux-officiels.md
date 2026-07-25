@@ -25,16 +25,28 @@
 | Zone commerciale prioritaire | Vaud et Genève |
 | Voix éditoriale | Première personne du singulier (« je », « mon », « ma ») — jamais « nous »/« notre », sauf nécessité juridique particulière |
 
-### Divergence constatée à faire réconcilier humainement
+### Divergence de slug — réconciliée le 25/07/2026 (Mission 3)
 
 Le document `marketing-ai/social-media/checklist-creation-pages-linkedin-facebook.md`
-(importé depuis `feature/seo-content-factory-v1`) mentionne une URL de page
+(importé depuis `feature/seo-content-factory-v1`) mentionnait une URL de page
 LinkedIn entreprise à un **slug différent** :
 `https://www.linkedin.com/company/legrand-conseils-sarl/` (sans accent encodé).
-La valeur inscrite en §1 ci-dessus est celle explicitement fournie comme
-confirmée pour ce document. **Cette divergence de slug doit être réconciliée
-par un humain** (vérifier laquelle des deux URL est la page réellement active)
-avant toute diffusion s'appuyant sur ce lien.
+
+Dans le cadre de la Mission 3, Antoine Legrand a explicitement tranché cette
+divergence : l'URL confirmée en §1 (variante accentuée) reste l'URL officielle
+active. La variante non accentuée n'est plus présentée comme active dans
+aucun contenu marketing ; elle est conservée uniquement à titre de note
+historique (« Ancienne variante documentaire non retenue ») dans le fichier
+`checklist-creation-pages-linkedin-facebook.md`. Les fichiers
+`social-media/linkedin/post-lancement-officiel.md` et
+`social-media/linkedin/semaine-17-23-aout-2026.md`, qui reprenaient également
+la variante non accentuée, ont été corrigés en conséquence le 25/07/2026 —
+voir `marketing-ai/compliance/verification-sources-officielles-2026.md`
+(FACT-016).
+
+Cette résolution porte uniquement sur le slug de l'URL de la page entreprise ;
+elle ne modifie aucun autre élément marqué `À confirmer humainement` au §2
+ci-dessous.
 
 ---
 

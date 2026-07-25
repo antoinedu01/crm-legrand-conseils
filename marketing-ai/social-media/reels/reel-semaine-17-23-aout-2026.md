@@ -27,7 +27,7 @@ On le sépare souvent en deux.
 
 Le 3a, on dit qu'il est “lié” : il suit des règles précises, et en échange, il a un traitement fiscal particulier.
 
-Le 3b, lui, est “libre” : beaucoup plus souple, avec ses propres règles.
+Le 3b, lui, est “libre” : généralement plus souple, avec ses propres règles.
 
 Aucun des deux n'est “le meilleur”. Tout dépend de ce que vous voulez faire, et à quelle échéance.
 
