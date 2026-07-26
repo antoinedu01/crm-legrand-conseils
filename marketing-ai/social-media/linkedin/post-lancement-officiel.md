@@ -1,9 +1,11 @@
 # Post de lancement officiel — LinkedIn
 
-> **Brouillon — validation humaine requise avant toute diffusion.**
-> Producteur : `linkedin-writer` · Contrôle : `compliance-reviewer`.
-> **Aucune publication automatique** : programmation manuelle uniquement, après
-> validation finale. Rédaction à la **première personne du singulier** (« je »).
+> **Validé humainement le 26/07/2026 par Antoine Legrand — publication manuelle
+> autorisée.** Statut détaillé par version ci-dessous. Producteur :
+> `linkedin-writer` · Contrôle : `compliance-reviewer`.
+> **Aucune publication automatique** : la publication reste un acte manuel de
+> l'humain ; aucun agent ne publie ni ne programme ce contenu. Rédaction à la
+> **première personne du singulier** (« je »).
 > Nom affiché : **Legrand conseils Sàrl**. Aucun chiffre. Aucune promesse de
 > résultat. Aucun dénigrement.
 > Profil personnel : https://www.linkedin.com/in/antoine-legrand-abaa68196/
@@ -62,9 +64,14 @@ lancement personnel). Pas de visuel chargé, pas de chiffres.
   `../../compliance/revue-conformite-posts-lancement.md` (section « Revue des
   versions finales proposées — 25/07/2026 »), verdict : prêt pour validation
   humaine.
-- **Statut** : `Brouillon — nouvelle validation humaine requise` (le texte a été
-  modifié par rapport à la version précédemment revue ; aucune validation
-  antérieure ne s'y reporte).
+- **Validation humaine accordée par Antoine Legrand le 26/07/2026** : « Je
+  valide les deux versions finales de SOC-LI-001 et SOC-LI-002 pour
+  publication manuelle. » Porte exactement sur ce texte du 25/07/2026.
+- **Statut** : `Validé humainement — publication manuelle autorisée, non
+  publié` (aucune programmation ni publication automatisée par un agent ;
+  passage par `../../templates/checklist-finale-avant-publication.md` et
+  confirmation de l'ordre de publication toujours requis avant diffusion
+  effective).
 
 ---
 
@@ -122,9 +129,14 @@ préférable au portrait ici.
   `../../compliance/revue-conformite-posts-lancement.md` (section « Revue des
   versions finales proposées — 25/07/2026 »), verdict : prêt pour validation
   humaine.
-- **Statut** : `Brouillon — nouvelle validation humaine requise` (le texte a été
-  modifié par rapport à la version précédemment revue ; aucune validation
-  antérieure ne s'y reporte).
+- **Validation humaine accordée par Antoine Legrand le 26/07/2026** : « Je
+  valide les deux versions finales de SOC-LI-001 et SOC-LI-002 pour
+  publication manuelle. » Porte exactement sur ce texte du 25/07/2026.
+- **Statut** : `Validé humainement — publication manuelle autorisée, non
+  publié` (aucune programmation ni publication automatisée par un agent ;
+  passage par `../../templates/checklist-finale-avant-publication.md` et
+  confirmation de l'ordre de publication — après SOC-LI-001, jamais
+  simultanément — toujours requis avant diffusion effective).
 
 ---
 

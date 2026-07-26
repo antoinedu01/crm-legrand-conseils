@@ -262,6 +262,25 @@ lié »).
 validation humaine antérieure portait sur un texte désormais remplacé et ne
 peut pas s'y reporter.
 
+## 7quinquies. Validation humaine — SOC-LI-001 / SOC-LI-002 (26/07/2026)
+
+Le 26/07/2026, Antoine Legrand a explicitement validé humainement les
+versions finales du 25/07/2026 (voir §7quater) de `SOC-LI-001` et
+`SOC-LI-002` : « Je valide les deux versions finales de SOC-LI-001 et
+SOC-LI-002 pour publication manuelle. »
+
+- `validation_humaine` passe à `Oui` pour les deux lignes, `responsable`
+  renseigné à `Antoine Legrand`, `statut_conformite` passe à `Validé`.
+- Cette validation porte exactement sur le texte réécrit du 25/07/2026
+  (voir `marketing-ai/social-media/linkedin/post-lancement-officiel.md`) —
+  elle ne concerne aucune version antérieure.
+- **`statut_publication` reste `Non publié` et `date_publication` reste
+  vide** : la validation autorise une **publication manuelle** par
+  l'humain, pas une programmation ou une publication par un agent. Aucun
+  agent ne peut renseigner `statut_publication=Publié` ni
+  `date_publication` — ces champs restent réservés à l'action humaine
+  réelle, après publication effective.
+
 ## 7. Ce que ce registre ne fait pas
 
 - Il ne fixe **aucune** date de publication pour SEO-001 ou pour aucun contenu

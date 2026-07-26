@@ -166,3 +166,12 @@ moment de cette intégration, que le texte effectivement collé dans ce
 fichier correspond fidèlement au texte ici évalué (`compliance-reviewer`
 n'ayant pas pu comparer les deux, faute d'accès en écriture à ce fichier et
 faute de nouvelle lecture de ce fichier après intégration).
+
+**Addendum — 26/07/2026** : les deux textes ont été intégrés dans
+`marketing-ai/social-media/linkedin/post-lancement-officiel.md`. Antoine
+Legrand a ensuite explicitement validé humainement les deux versions
+(« Je valide les deux versions finales de SOC-LI-001 et SOC-LI-002 pour
+publication manuelle »), portant exactement sur ce texte intégré — voir
+`marketing-ai/content-calendar/registre-editorial-central.md` §7quinquies et
+`marketing-ai/compliance/classement-contenus-publiables.md`. Cet addendum
+constate la validation déjà accordée par l'humain ; il ne l'attribue pas.

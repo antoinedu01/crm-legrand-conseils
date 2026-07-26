@@ -116,13 +116,14 @@
 - **Sources officielles :** Documents officiels FINMA transmis le 17/07/2026 (voir FACT-008).
 - **Corrections apportées :** Correction de l'URL LinkedIn entreprise en en-tête (FACT-016) ; texte intégralement réécrit le 25/07/2026 (version finale proposée par Antoine Legrand — ouverture, corps, question de clôture, hashtags).
 - **Statut des sources :** Validé (mis à jour — voir §5 du registre).
-- **Statut conformité :** Prêt pour validation humaine (mis à jour — voir `revue-conformite-posts-lancement.md`, section « Revue des versions finales proposées — 25/07/2026 »).
-- **Validation humaine :** Non.
+- **Statut conformité :** Validé.
+- **Validation humaine :** Oui (Antoine Legrand, 26/07/2026, portant exactement sur le texte réécrit du 25/07/2026).
 - **Statut publication :** Non publié.
-- **Classification :** Corrections appliquées — nouvelle validation humaine requise.
-- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise sur le texte réécrit (aucune validation antérieure ne s'y reporte) ; confirmation de l'ordre de publication (profil personnel avant page entreprise) ; passage par la checklist finale avant publication.
+- **Classification :** Validé humainement — publication manuelle autorisée (non publié).
+- **Action humaine suivante :** Publication manuelle par l'humain, quand il le souhaite (aucune programmation ni publication automatisée par un agent) ; confirmation de l'ordre de publication (profil personnel avant page entreprise) ; passage par la checklist finale avant publication.
 - **Mission 3B (25/07/2026) :** Relu au regard de H06 (FINMA) — formulation « examiner les différentes solutions auxquelles j'ai accès » jugée déjà conforme, aucune modification à l'époque.
 - **25/07/2026 (versions finales proposées) :** Réécriture intégrale relue par `compliance-reviewer` — verdict prêt pour validation humaine, aucune occurrence fautive « Legrand Conseils » (majuscule), aucune correction de fond nécessaire.
+- **26/07/2026 (validation humaine) :** « Je valide les deux versions finales de SOC-LI-001 et SOC-LI-002 pour publication manuelle » — Antoine Legrand.
 
 ## SOC-LI-002 — Post de lancement officiel — page entreprise
 
@@ -134,13 +135,14 @@
 - **Sources officielles :** Documents officiels FINMA transmis le 17/07/2026 (voir FACT-008).
 - **Corrections apportées :** Correction de l'URL LinkedIn entreprise en en-tête (FACT-016) ; texte intégralement réécrit le 25/07/2026 (version finale proposée par Antoine Legrand, conservant la formulation d'indépendance corrigée en Mission 3B).
 - **Statut des sources :** Validé (mis à jour).
-- **Statut conformité :** Prêt pour validation humaine (mis à jour — voir `revue-conformite-posts-lancement.md`, section « Revue des versions finales proposées — 25/07/2026 »).
-- **Validation humaine :** Non.
+- **Statut conformité :** Validé.
+- **Validation humaine :** Oui (Antoine Legrand, 26/07/2026, portant exactement sur le texte réécrit du 25/07/2026).
 - **Statut publication :** Non publié.
-- **Classification :** Corrections appliquées — nouvelle validation humaine requise.
-- **Action humaine suivante :** Nouvelle validation humaine nommée et datée requise sur le texte réécrit (aucune validation antérieure ne s'y reporte) ; publication après (et non simultanément à) SOC-LI-001.
+- **Classification :** Validé humainement — publication manuelle autorisée (non publié).
+- **Action humaine suivante :** Publication manuelle par l'humain, quand il le souhaite (aucune programmation ni publication automatisée par un agent) ; publication après (et non simultanément à) SOC-LI-001.
 - **25/07/2026 (versions finales proposées) :** Réécriture intégrale relue par `compliance-reviewer` — verdict prêt pour validation humaine, aucune occurrence fautive « Legrand Conseils » (majuscule), aucune correction de fond nécessaire.
 - **Mission 3B (25/07/2026) :** Correction appliquée sur instruction de H06 (FINMA) — « je compare plusieurs assureurs, car je ne suis lié à aucun » remplacé par « j'examine différentes solutions parmi les compagnies avec lesquelles je travaille, tout en conservant mon statut d'intermédiaire non lié ». Toute validation humaine antérieure sur l'ancien texte ne peut pas être reportée sur le nouveau.
+- **26/07/2026 (validation humaine) :** « Je valide les deux versions finales de SOC-LI-001 et SOC-LI-002 pour publication manuelle » — Antoine Legrand.
 
 ## SOC-LI-003 — 3a ou 3b ? (post du 17 août)
 
@@ -258,15 +260,20 @@
 | Classification | Content IDs |
 |---|---|
 | Prêt pour validation humaine finale | SEO-001, SOC-LI-003, SOC-LI-004, SOC-IG-001, SOC-IG-002, SOC-RE-001 (6) |
-| Corrections appliquées — nouvelle validation humaine requise | SOC-LI-001, SOC-LI-002, SOC-FB-001 (3) |
+| Validé humainement — publication manuelle autorisée (non publié) | SOC-LI-001, SOC-LI-002 (2) — validation accordée par Antoine Legrand le 26/07/2026 |
+| Corrections appliquées — nouvelle validation humaine requise | SOC-FB-001 (1) |
 | Bloqué — affirmation non confirmée | Aucun (toutes les affirmations examinées ont été réconciliées avec H01-H06, voir `verification-sources-officielles-2026.md` §2bis) |
 | Non rédigé — hors publication | SEO-002, SEO-003, SEO-004, SEO-005, SEO-006 (5) |
 
-**Rappel** : « Prêt pour validation humaine finale » ne signifie jamais
-« publiable maintenant ». Aucun contenu ne peut passer à `statut_publication`
-autre que `Non publié`/`Non créé` sans une décision humaine nommée et datée,
-conformément à `marketing-ai/content-calendar/registre-editorial-central.md` §3.
-Pour `SOC-LI-001`, `SOC-LI-002` et `SOC-FB-001`, toute validation humaine qui
-aurait porté sur un texte antérieur ne peut pas être reportée sur le nouveau
-texte : une nouvelle revue humaine du texte actuel est requise dans chaque
-cas (`SOC-LI-001`/`SOC-LI-002` : versions finales réécrites le 25/07/2026).
+**Rappel** : « Prêt pour validation humaine finale » et « Validé humainement —
+publication manuelle autorisée » ne signifient jamais « publié ». Aucun
+contenu ne peut passer à `statut_publication=Publié`/`Programmé` par un
+agent : ce champ, comme `date_publication`, reste réservé à l'action humaine
+réelle après publication effective, conformément à
+`marketing-ai/content-calendar/registre-editorial-central.md` §3.
+Pour `SOC-FB-001`, toute validation humaine qui aurait porté sur un texte
+antérieur ne peut pas être reportée sur le nouveau texte : une nouvelle revue
+humaine du texte actuel est requise. `SOC-LI-001` et `SOC-LI-002` ont reçu
+une validation humaine explicite le 26/07/2026, portant exactement sur les
+versions finales réécrites le 25/07/2026 — voir §7quinquies de
+`registre-editorial-central.md`.
