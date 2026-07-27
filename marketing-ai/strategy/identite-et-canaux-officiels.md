@@ -25,16 +25,28 @@
 | Zone commerciale prioritaire | Vaud et Genève |
 | Voix éditoriale | Première personne du singulier (« je », « mon », « ma ») — jamais « nous »/« notre », sauf nécessité juridique particulière |
 
-### Divergence constatée à faire réconcilier humainement
+### Divergence résolue — ancienne variante archivée (25/07/2026)
 
 Le document `marketing-ai/social-media/checklist-creation-pages-linkedin-facebook.md`
-(importé depuis `feature/seo-content-factory-v1`) mentionne une URL de page
-LinkedIn entreprise à un **slug différent** :
+(importé depuis `feature/seo-content-factory-v1`) mentionnait une URL de page
+LinkedIn entreprise à un slug différent :
 `https://www.linkedin.com/company/legrand-conseils-sarl/` (sans accent encodé).
-La valeur inscrite en §1 ci-dessus est celle explicitement fournie comme
-confirmée pour ce document. **Cette divergence de slug doit être réconciliée
-par un humain** (vérifier laquelle des deux URL est la page réellement active)
-avant toute diffusion s'appuyant sur ce lien.
+
+**Résolution humaine explicite (mandat de la mission
+`feature/marketing-source-verification-v1`, 25/07/2026)** : l'URL confirmée
+et retenue est celle déjà inscrite au §1 ci-dessus —
+`https://www.linkedin.com/company/legrand-conseils-s%C3%A0rl/`. La variante
+`https://www.linkedin.com/company/legrand-conseils-sarl/` (sans accent
+encodé) est **archivée ci-dessous comme ancienne variante non retenue** ; elle
+ne doit plus être utilisée dans aucun contenu ni aucune référence future.
+
+> **Ancienne variante non retenue (archive)** :
+> `https://www.linkedin.com/company/legrand-conseils-sarl/`
+> — mentionnée à l'origine dans `marketing-ai/social-media/checklist-creation-pages-linkedin-facebook.md`
+> et dans l'en-tête interne de `marketing-ai/social-media/linkedin/post-lancement-officiel.md`
+> (référence non publiable, hors texte des posts eux-mêmes — voir
+> `marketing-ai/compliance/revue-conformite-posts-lancement.md`). Conservée ici
+> à titre de traçabilité uniquement ; **ne pas réutiliser**.
 
 ---
 

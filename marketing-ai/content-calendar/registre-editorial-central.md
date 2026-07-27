@@ -156,13 +156,36 @@ conformément à la consigne de cette mission.
 
 **Aucun des 8 contenus sociaux n'est indiqué comme publié ni comme validé
 humainement** : c'est leur état réel constaté dans les fichiers sources et dans
-`marketing-ai/compliance/revue-conformite-lot-2a.md`. Deux contenus
-(`SOC-LI-001`, `SOC-LI-002` — le post de lancement) ne sont **couverts par
-aucune revue de conformité formelle** : `revue-conformite-lot-2a.md` traite les
-sections 1 (LinkedIn semaine du 17-23/08), 2 (Instagram carrousel), 3
-(Facebook), 4 (Stories), 5 (Reel), mais ne mentionne jamais
-`post-lancement-officiel.md`. Ce point est documenté en `notes` pour ces deux
-lignes plutôt que masqué.
+`marketing-ai/compliance/revue-conformite-lot-2a.md`.
+
+**Mise à jour du 25/07/2026 (`feature/marketing-source-verification-v1`)** —
+deux évolutions apportées après vérification des sources officielles (voir
+`marketing-ai/compliance/verification-sources-officielles-2026.md`) :
+
+1. **`SOC-LI-001` et `SOC-LI-002`** (posts de lancement) disposent désormais
+   d'une revue de conformité dédiée,
+   `marketing-ai/compliance/revue-conformite-posts-lancement.md` (elles
+   n'étaient couvertes par aucune section de `revue-conformite-lot-2a.md`,
+   qui ne traite que les sections 1 LinkedIn semaine du 17-23/08, 2 Instagram
+   carrousel, 3 Facebook, 4 Stories, 5 Reel). Verdict : prêt pour validation
+   humaine pour les deux, avec une observation non bloquante sur `SOC-LI-002`
+   (formulation « je compare plusieurs assureurs »). `statut_sources` passe à
+   `Validé` (statut FINMA confirmé par documents officiels transmis le
+   17/07/2026) et `statut_conformite` passe à `Prêt pour validation humaine`.
+2. **`SOC-LI-003`, `SOC-LI-004`, `SOC-IG-001`, `SOC-IG-002`, `SOC-FB-001`,
+   `SOC-RE-001`** : leur `statut_sources` (précédemment `Validé avec
+   réserves`, sur la base d'un simple extrait de recherche du 16/07/2026,
+   jamais lu intégralement) est corrigé à `Non fait`, l'affirmation
+   sous-jacente étant classée **`Bloqué — source officielle insuffisante`**
+   (documenté en `notes` de chaque ligne) : l'accès direct aux pages
+   officielles (ch.ch, OFAS, OFSP, Fedlex) s'est révélé impossible dans cet
+   environnement (voir `verification-sources-officielles-2026.md` § 0). Ces
+   6 contenus restent en **No-Go** tant qu'un humain n'aura pas lu
+   personnellement une source officielle confirmant les affirmations
+   concernées (principalement la distinction 3a/3b, et pour `SOC-LI-004` la
+   différence indépendant/salarié, et pour `SOC-FB-001` l'affiliation
+   maladie du nouveau-né). **Aucun texte n'a été modifié** : aucune erreur
+   n'a été constatée, seule la preuve manque.
 
 Les UTM des 8 contenus sociaux ont été repris tels quels depuis
 `../strategy/registre-url-et-cta.md`, sans en inventer aucun. Pour `SOC-IG-002`
