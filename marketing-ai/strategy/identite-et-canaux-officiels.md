@@ -40,6 +40,16 @@ et retenue est celle déjà inscrite au §1 ci-dessus —
 encodé) est **archivée ci-dessous comme ancienne variante non retenue** ; elle
 ne doit plus être utilisée dans aucun contenu ni aucune référence future.
 
+**Propagation de la correction (25/07/2026)** : au-delà de ce document, la
+référence à l'ancienne variante a également été corrigée à la source dans
+`marketing-ai/social-media/checklist-creation-pages-linkedin-facebook.md`,
+`marketing-ai/social-media/linkedin/post-lancement-officiel.md` (en-tête
+interne, hors texte publiable des posts) et
+`marketing-ai/social-media/linkedin/semaine-17-23-aout-2026.md`. Ces trois
+fichiers pointent désormais exclusivement vers l'URL confirmée ; l'ancienne
+variante n'y est conservée qu'à titre de note historique explicite dans
+`checklist-creation-pages-linkedin-facebook.md`.
+
 > **Ancienne variante non retenue (archive)** :
 > `https://www.linkedin.com/company/legrand-conseils-sarl/`
 > — mentionnée à l'origine dans `marketing-ai/social-media/checklist-creation-pages-linkedin-facebook.md`

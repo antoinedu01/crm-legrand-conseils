@@ -7,7 +7,7 @@
 > Nom affiché : **Legrand conseils Sàrl**. Aucun chiffre. Aucune promesse de
 > résultat. Aucun dénigrement.
 > Profil personnel : https://www.linkedin.com/in/antoine-legrand-abaa68196/
-> Page entreprise : https://www.linkedin.com/company/legrand-conseils-sarl/
+> Page entreprise : https://www.linkedin.com/company/legrand-conseils-s%C3%A0rl/
 
 ---
 

@@ -28,18 +28,16 @@
 | Hashtags | `#assurance #prévoyance #courtier #SuisseRomande` — 4 hashtags, sous la limite de 5 fixée par le brouillon lui-même. Tous pertinents et sans promesse. Conforme. |
 | Informations d'entreprise | « Legrand conseils Sàrl » orthographié exactement comme au registre (« conseils » avec c minuscule), conforme à `strategy/preparation-operationnelle-avant-diffusion.md`. Conforme. |
 
-**Observation non bloquante** : l'en-tête interne du fichier (ligne 10, note de
-référence pour l'humain, **hors texte publiable**) mentionne l'URL
-`https://www.linkedin.com/company/legrand-conseils-sarl/` pour la page
-entreprise — c'est la variante d'URL **non retenue** identifiée et archivée
-dans `marketing-ai/strategy/identite-et-canaux-officiels.md` (voir mise à
-jour de ce même document dans cette mission). Cette mention n'apparaît nulle
-part dans le **texte publiable** de la V1 elle-même (aucun lien n'y est
-inséré), donc **aucun risque de diffusion d'une URL incorrecte** à ce stade.
-**Recommandation** : mettre à jour cette ligne d'en-tête lors d'une prochaine
-intervention sur ce fichier, pour référence humaine correcte — non corrigée
-dans cette mission car hors périmètre strict de la consigne § 13 (limitée à
-`identite-et-canaux-officiels.md`).
+**Point résolu (corrigé en cours de mission)** : l'en-tête interne du fichier
+(ligne 10, note de référence pour l'humain, **hors texte publiable**)
+mentionnait initialement l'URL `https://www.linkedin.com/company/legrand-conseils-sarl/`
+pour la page entreprise — la variante d'URL **non retenue**, archivée dans
+`marketing-ai/strategy/identite-et-canaux-officiels.md`. Cette mention
+n'apparaissait de toute façon jamais dans le **texte publiable** de la V1
+elle-même (aucun lien n'y est inséré), donc **aucun risque de diffusion d'une
+URL incorrecte** n'a existé à aucun moment. **La ligne d'en-tête a depuis été
+corrigée** pour pointer vers l'URL confirmée, conjointement à la résolution
+de la divergence dans `identite-et-canaux-officiels.md` (§ 13 du mandat).
 
 ### Verdict SOC-LI-001
 
@@ -63,9 +61,8 @@ texte nécessaire.
 | Hashtags | `#assurance #prévoyance #3epilier #Vaud #Genève` — exactement 5, à la limite fixée. `#3epilier` anticipe un sujet annoncé comme contenu futur dans le texte lui-même (« le 3e pilier »), cohérent, pas une affirmation trompeuse. Conforme. |
 | Informations d'entreprise | « Legrand conseils Sàrl », orthographe conforme au registre. Conforme. |
 
-**Observation non bloquante (même remarque que SOC-LI-001)** sur l'URL de
-référence en en-tête du fichier — non corrigée ici pour la même raison de
-périmètre.
+**Point résolu (même remarque que SOC-LI-001)** sur l'URL de référence en
+en-tête du fichier — corrigée conjointement (voir ci-dessus).
 
 ### Verdict SOC-LI-002
 
