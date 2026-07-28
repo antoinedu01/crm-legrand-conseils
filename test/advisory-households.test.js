@@ -234,6 +234,82 @@ test('addMember — création rapide d’une personne (new_person) sans email/t�
   assert.equal(child.first_name, 'Petit');
 });
 
+test('addMember — new_person journalise « création client » (distinct de « ajout membre foyer »), sans donnée sensible', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const beforeCreation = auditCount('création client');
+  const beforeAjout = auditCount('ajout membre foyer');
+
+  const result = addMember(
+    householdId,
+    { new_person: { first_name: 'Confidentiel', last_name: 'Enfant', birth_date: '2019-03-03' }, member_role: 'enfant' },
+    REQ
+  );
+
+  assert.equal(auditCount('création client'), beforeCreation + 1, 'la création de la personne doit être auditée');
+  assert.equal(auditCount('ajout membre foyer'), beforeAjout + 1, 'le rattachement au foyer doit rester audité séparément');
+
+  const creationEntry = db
+    .prepare("SELECT * FROM audit_log WHERE action = 'création client' ORDER BY id DESC LIMIT 1")
+    .get();
+  assert.equal(creationEntry.entity, 'client');
+  assert.equal(creationEntry.entity_id, result.client_id);
+  assert.ok(!creationEntry.details.includes('Confidentiel'), 'le prénom ne doit jamais figurer dans les détails d’audit');
+  assert.ok(!creationEntry.details.includes('Enfant'), 'le nom ne doit jamais figurer dans les détails d’audit');
+  assert.ok(!creationEntry.details.includes('2019-03-03'), 'la date de naissance ne doit jamais figurer dans les détails d’audit');
+
+  const ajoutEntry = db
+    .prepare("SELECT * FROM audit_log WHERE action = 'ajout membre foyer' ORDER BY id DESC LIMIT 1")
+    .get();
+  assert.notEqual(creationEntry.id, ajoutEntry.id, 'les deux événements doivent être deux lignes distinctes');
+});
+
+test('addMember — une personne existante (client_id) ne produit jamais de faux audit « création client »', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const existingId = insertClient({ first_name: 'Deja', last_name: 'Existant' });
+  const before = auditCount('création client');
+  addMember(householdId, { client_id: existingId, member_role: 'autre_charge' }, REQ);
+  assert.equal(auditCount('création client'), before, 'ajouter une personne déjà existante ne crée pas de client');
+});
+
+test('addMember — un blocage pour correspondance forte (sans confirmation) n’audite aucune création client', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  insertClient({ first_name: 'Bloque', last_name: 'Avant', birth_date: '1985-06-06' });
+  const before = auditCount('création client');
+  assert.throws(() =>
+    addMember(
+      householdId,
+      { new_person: { first_name: 'Bloque', last_name: 'Avant', birth_date: '1985-06-06' }, member_role: 'autre_charge' },
+      REQ
+    )
+  );
+  assert.equal(auditCount('création client'), before, 'un échec avant création effective ne doit rien auditer');
+});
+
+test('addMember — new_person : un échec pendant l’ajout au foyer annule aussi la création du client et son audit (rollback)', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const beforeClients = db.prepare('SELECT COUNT(*) AS n FROM clients').get().n;
+  const beforeAudit = auditCount('création client');
+
+  assert.throws(() =>
+    addMember(
+      householdId,
+      {
+        new_person: { first_name: 'Rollback', last_name: 'Test', birth_date: '2010-01-01' },
+        member_role: 'enfant',
+        legal_representative_client_id: 999999, // membre inexistant du foyer -> writeMember doit échouer
+      },
+      REQ
+    )
+  );
+
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM clients').get().n, beforeClients, 'aucune ligne client résiduelle');
+  assert.equal(auditCount('création client'), beforeAudit, 'aucun audit résiduel après annulation de la transaction');
+});
+
 test('addMember — bloque la création rapide en cas de correspondance forte, sauf confirmation explicite', () => {
   const principalId = insertClient();
   const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);

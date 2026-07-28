@@ -150,6 +150,22 @@
 - **Audit** : `ajout membre foyer` ; si `confirmed_despite_match: true` a
   été utilisé, une entrée additionnelle `création malgré correspondance
   détectée` avec `match_level` et le `client_id` existant concerné.
+- **Audit — création de personne via `new_person` (correctif de
+  traçabilité)** : quand `new_person` est fourni, la création de la ligne
+  `clients` est journalisée séparément, via l'action **déjà existante**
+  `création client` (`server/routes/clients.js`, pas une nouvelle
+  convention), avec `entity = 'client'`, `entity_id` = l'identifiant du
+  nouveau client, et des détails volontairement minimaux (`particulier —
+  origine module foyer — foyer #<id>`), **sans** le nom, la date de
+  naissance ni aucune autre donnée personnelle du nouveau client — à la
+  différence de la convention standard de `POST /api/clients` qui
+  journalise le nom affiché. Cette entrée est écrite **dans la même
+  transaction** que la création du client et l'ajout au foyer : un échec
+  ultérieur (ex. représentant légal invalide) annule la création, son audit
+  et l'ajout au foyer ensemble (testé). Une personne **existante**
+  (`client_id`) ne produit jamais cette entrée. Les deux événements —
+  création de la personne, puis rattachement au foyer (`ajout membre
+  foyer`) — restent deux lignes d'audit strictement distinctes.
 
 ### `PUT /api/advisory/households/:id/members/:memberId`
 - **Corps** : `{ relationship_detail?, legal_representative_client_id?, end_date? }`.

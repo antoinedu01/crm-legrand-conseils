@@ -88,6 +88,20 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
   spécialisés, limité à une valeur d'énumération ou un identifiant — jamais
   le contenu détaillé d'une réponse financière ou sensible dans le journal
   d'audit lui-même.
+- **Correctif de traçabilité (post-Lot 2)** : la création rapide d'une
+  personne depuis le module foyer (`addMember(..., new_person)`) produit
+  **deux** entrées d'audit distinctes, jamais une seule qui masquerait
+  l'autre : `création client` (réutilise l'action existante de
+  `POST /api/clients`, entité `client`, détails minimaux — ni nom, ni date
+  de naissance, seulement le type et l'origine « module foyer ») puis
+  `ajout membre foyer` (entité `household`). L'entrée `création client`
+  est écrite **dans la même transaction SQLite** que l'insertion du client
+  et de son adhésion (vérifié : `audit()` utilise la même connexion
+  `better-sqlite3` que le reste du module, donc participe pleinement à la
+  transaction et s'annule avec elle en cas d'échec ultérieur) — jamais un
+  audit affirmant une création réussie alors que la transaction a échoué.
+  Une personne déjà existante ajoutée au foyer ne produit jamais cette
+  entrée `création client`.
 
 ## 7. Verrouillage de session
 

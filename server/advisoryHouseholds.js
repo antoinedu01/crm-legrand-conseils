@@ -330,6 +330,16 @@ export function addMember(householdId, body = {}, req) {
         )
         .run(new_person.first_name || null, new_person.last_name || null, new_person.birth_date || null);
       const clientId = info.lastInsertRowid;
+      // Audit de création de personne à l'intérieur de la transaction : si
+      // l'ajout au foyer qui suit (writeMember) échoue et fait tout
+      // annuler, cette entrée d'audit disparaît avec le reste — jamais un
+      // audit qui affirmerait une création réussie alors que la transaction
+      // a échoué (contrôle ciblé, vérifié par un test de rollback dédié).
+      // Réutilise l'action existante `création client` (server/routes/clients.js)
+      // plutôt que d'inventer une nouvelle convention ; détails minimaux,
+      // jamais le nom de la personne créée (contrairement à la convention
+      // standard qui journalise le nom affiché — ici volontairement omis).
+      audit(req, 'création client', 'client', clientId, `particulier — origine module foyer — foyer #${householdId}`);
       const mId = writeMember(clientId);
       return { clientId, mId };
     })();
