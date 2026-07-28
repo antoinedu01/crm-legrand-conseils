@@ -1,0 +1,260 @@
+# Sécurité et protection des données — Legrand Diagnostic 360
+
+> Proposition de conception (LOT 1). Aucune interprétation juridique
+> présentée ici n'est définitivement validée — chaque point marqué
+> « validation juridique/métier requise » doit être confirmé par un
+> spécialiste avant mise en production.
+
+## 1. Classification des données
+
+| Catégorie | Exemples dans ce module | Traitement |
+|---|---|---|
+| Identité / coordonnées | déjà sur `clients`, référencé, non dupliqué | standard nLPD |
+| Financière | revenus, charges, dettes, patrimoine (`advisory_answers`) | standard nLPD, accès conseiller uniquement |
+| Sensible (association indirecte à la santé) | franchise, consommation médicale déclarée, statut d'affiliation (`advisory_answers`, section maladie) | traitement renforcé — **jamais de diagnostic médical ni de contenu de questionnaire de santé assurantiel**, cohérent avec la restriction déjà appliquée à `contract_lca` |
+| Consentement | `advisory_consents` | traçabilité renforcée, jamais supprimée |
+| Technique/traçabilité | `advisory_rule_executions`, `audit_log` | accès conseiller/audit uniquement |
+
+Aucune donnée de santé au sens strict (diagnostic, pathologie) n'est prévue
+dans le modèle — à confirmer explicitement par `compliance-privacy-reviewer`
+avant toute implémentation qui s'en approcherait (ex. si un futur
+questionnaire de souscription LCA détaillé était envisagé, ce serait un
+changement de nature nécessitant une revue dédiée, hors périmètre actuel).
+
+## 2. Minimisation
+
+- Le questionnaire ne pose que ce qui sert une règle effectivement publiée
+  (`required_data` d'au moins une règle `valide`) — pas de collecte
+  « au cas où ».
+- Les enfants et personnes à charge ne sont jamais tenus de fournir email,
+  téléphone, adresse ou profession (cf. `DATA_MODEL.md` §1.1, §2.2) —
+  minimisation déjà portée par le schéma `clients` existant, pas un ajout.
+
+## 3. Consentements
+
+- `advisory_consents` (voir `DATA_MODEL.md` §6) : granularité par finalité,
+  jamais un consentement global unique masquant des usages distincts.
+- Chaque consentement référence la version exacte du texte présenté
+  (`text_version`) — une évolution du texte ne réinterprète jamais
+  silencieusement un consentement déjà recueilli.
+- Révocation possible à tout moment (décision GATE LOT 1, point 3.5) : par
+  mise à jour de la ligne d'origine (`revoked_at`/`revoked_by_user_id`/
+  `revoked_reason`), **jamais** suppression ni écrasement des champs
+  renseignés à la création (`granted`, `text_version`, `collection_mode`,
+  `collected_at`, `collected_by_user_id`, `proof_reference`) — voir
+  `DATA_MODEL.md` §6.1.
+- La révocation n'agit que pour les traitements futurs. Elle ne doit
+  **jamais** être présentée comme entraînant automatiquement l'effacement
+  de toutes les données déjà traitées lorsqu'une autre obligation de
+  conservation s'applique (ex. données déjà intégrées à un rapport final) —
+  **ce point reste soumis à validation juridique** (voir §20).
+- **Validation juridique requise** : contenu exact des textes de
+  consentement par finalité, base légale précise par finalité (nLPD, LSA le
+  cas échéant).
+
+## 4. Chiffrement
+
+- Reprend à l'identique les pratiques déjà en place pour le reste du CRM :
+  base SQLite hébergée localement/en Suisse, disque chiffré recommandé
+  (`README.md` existant), HTTPS via proxy TLS en production
+  (`server/app.js`, `secure: 'auto'` sur le cookie de session).
+- Aucun chiffrement applicatif supplémentaire au niveau colonne n'est
+  proposé dans cette version pour les données `advisory_*` — à réévaluer si
+  les tables venaient à contenir des catégories de données plus sensibles
+  qu'aujourd'hui identifiées (point de vigilance pour
+  `compliance-privacy-reviewer`, pas une décision fermée).
+
+## 5. Contrôle d'accès
+
+- **Constat honnête (déjà relevé en LOT 0)** : le CRM est aujourd'hui
+  mono-utilisateur, sans système de rôles. Toute route `/api/advisory/*`
+  hérite donc du même modèle qu'aujourd'hui : authentifié = tout accès,
+  comme pour `clients`/`contracts`.
+- La séparation « conseiller / client / administrateur » demandée dans les
+  spécifications générales du module reste, dans cette version, une
+  séparation **d'affichage** (mode conseiller vs mode présentation client
+  sur le même poste authentifié), pas une séparation **d'accès réseau**. Un
+  vrai contrôle d'accès par rôle (ex. plusieurs conseillers, assistant
+  administratif) nécessiterait un chantier d'authentification à part,
+  au-delà du périmètre du LOT 1 — à documenter comme prérequis explicite
+  avant tout Lot 13 (portail client) ou tout ajout d'un second conseiller.
+
+## 6. Journalisation
+
+- Toute création/modification/consultation significative appelle `audit()`
+  existant, avec de nouvelles valeurs `action`/`entity` (`DATA_MODEL.md`
+  §1.3). Aucun nouveau mécanisme de log parallèle.
+- Le détail journalisé reste, comme aujourd'hui pour les contrats
+  spécialisés, limité à une valeur d'énumération ou un identifiant — jamais
+  le contenu détaillé d'une réponse financière ou sensible dans le journal
+  d'audit lui-même.
+
+## 7. Verrouillage de session
+
+- Reprend le mécanisme existant (`express-session`, 8h, cookie httpOnly,
+  verrouillage anti force-brute, 2FA TOTP optionnelle) — aucune modification
+  proposée. Point de vigilance pour Lot 8 : si le mode présentation reste
+  affiché sans interaction prolongée pendant un rendez-vous, un verrouillage
+  d'écran dédié (distinct de l'expiration de session serveur) pourrait être
+  utile — à évaluer, pas décidé ici.
+
+## 8. Anonymisation et suppression
+
+- Suit le mécanisme existant de `clients.anonymize` pour les personnes.
+- Extension nécessaire (Lot 10) : quand un membre de foyer est anonymisé,
+  les `advisory_answers`/`advisory_findings` qui le concernent doivent être
+  traités cohérence avec l'anonymisation (contenu personnel supprimé,
+  structure/traçabilité d'audit conservée) — à concevoir précisément en Lot
+  10, pas dans ce document (dépend du modèle définitif validé en Lot 2/3).
+  Point d'attention ajouté par la décision d'appartenance à plusieurs foyers
+  (GATE LOT 1, décision 1) : `clients.anonymize` s'applique à la personne
+  (une seule ligne `clients`), donc son effet touche **automatiquement
+  toutes** les lignes `household_members` de tous les foyers où elle
+  apparaît — à vérifier explicitement en Lot 10 pour éviter qu'un foyer
+  actif ne conserve une référence à une personne déjà anonymisée sans le
+  signaler.
+- `advisory_consents` et `advisory_report_versions` ne sont jamais supprimés
+  physiquement (valeur probante), seulement révoqués/remplacés par une
+  version plus récente.
+
+## 9. Rétention
+
+- **Validation juridique requise** : durée de conservation propre aux
+  données de diagnostic. Distincte des 10 ans comptables déjà appliqués aux
+  contrats/commissions (art. 958f CO) — un diagnostic qui ne débouche sur
+  aucun contrat n'a pas la même justification de rétention longue. Point à
+  trancher avant Lot 10.
+
+## 10. Export
+
+- Doit s'aligner avec le mécanisme existant `GET /api/clients/:id/export`
+  (droit d'accès nLPD) : une extension naturelle inclurait les données
+  `advisory_*` liées au client dans cet export existant, plutôt que de créer
+  un second mécanisme d'export parallèle — proposition à confirmer en Lot 10.
+
+## 11. Sauvegardes
+
+- Aucune sauvegarde séparée : les nouvelles tables vivent dans la même base
+  SQLite (`data/crm.sqlite`), couverte par le mécanisme de sauvegarde
+  existant (`GET /api/backup`, sauvegardes nocturnes serveur, Swiss Backup).
+  Aucun nouveau composant de sauvegarde à créer.
+
+## 12. Séparation développement / test / production ; fixtures fictives
+
+- Reprend à l'identique la convention existante :
+  `CRM_DATA_DIR` isolé par test (`test/api.test.js`, `test/migrations.test.js`),
+  aucune donnée réelle dans les fixtures, noms/emails fictifs (`@example.ch`,
+  cf. `server/seed-demo.js`).
+- Toute donnée de démonstration future pour ce module (foyers, sessions
+  fictives) suit strictement la même convention.
+
+## 13. Protection des secrets
+
+- Aucun secret nouveau n'est introduit par ce module dans cette version
+  (pas de clé API tierce active). Si une future intégration IA/MCP nécessite
+  une clé, elle suit la convention déjà en place dans `.env.example`
+  (jamais en dur dans le code, jamais committée) — voir `MCP_STRATEGY.md`.
+
+## 14. Assistance IA désactivée par défaut
+
+- Double verrou obligatoire (voir `DATA_MODEL.md` §6.1 et
+  `API_CONTRACT.md` §8) : consentement `purpose = 'assistance_ia'`
+  **et** activation opérationnelle explicite, tous deux à `false` par
+  défaut.
+- Aucune donnée n'est envoyée à un service IA externe sans que les deux
+  conditions soient réunies **et** journalisées (voir §16).
+- L'IA n'intervient jamais dans le calcul du moteur de règles (principe
+  déjà posé dans `RULES_ENGINE.md` §1) — uniquement en aval, sur du contenu
+  déjà produit par le moteur déterministe (résumé, reformulation, brouillon
+  de compte rendu, brouillon d'email de suivi).
+
+## 15. Pseudonymisation
+
+- Pour toute future assistance IA externe (Lot 12 au plus tôt), le contenu
+  transmis devrait être pseudonymisé autant que possible (ex. remplacer les
+  noms propres par des rôles — « le conjoint », « l'enfant aîné ») avant tout
+  envoi, plutôt que transmettre l'identité complète du foyer. Mécanisme à
+  concevoir précisément le moment venu, pas implémenté ici.
+
+## 16. Limitation des données envoyées / journalisation des appels externes
+
+- Tout futur appel à un service externe (IA ou MCP) doit être journalisé
+  dans `audit_log` avec la finalité, la nature des données transmises (pas
+  leur contenu), et le résultat — avant toute activation réelle en Lot 12.
+- Par défaut, aucun appel externe n'est possible : pas de dépendance réseau
+  sortante ajoutée par ce module dans les lots 2 à 10.
+
+## 17. Révocation du consentement
+
+- Voir §3 et `DATA_MODEL.md` §6.1 — révocation possible à tout moment,
+  effet immédiat sur toute fonctionnalité conditionnée par ce consentement
+  (ex. révoquer `assistance_ia` désactive immédiatement toute assistance IA
+  pour ce foyer, sans attendre une action supplémentaire).
+
+## 18. Gestion des incidents
+
+- Aucun mécanisme dédié n'existe aujourd'hui dans le CRM au-delà du journal
+  d'audit et des sauvegardes. Ce module ne crée pas de procédure d'incident
+  séparée — il alimente le même journal d'audit consultable en cas
+  d'investigation. Une procédure formelle de notification d'incident (nLPD)
+  reste **hors périmètre technique** de ce document — point de validation
+  organisationnelle/juridique, pas un livrable de code.
+
+## 19. Qualité des données et détection de doublons entre personnes
+
+**Décision humaine validée (point 2 du GATE de validation)** : aucune
+contrainte d'unicité automatique reposant uniquement sur le nom, l'email ou
+le téléphone n'est créée — les enfants et certaines personnes à charge
+peuvent n'avoir ni l'un ni l'autre. Une **détection souple**, destinée à
+assister le conseiller, est prévue à la place (principe documenté ici et
+dans `DATA_MODEL.md` §2.3, `API_CONTRACT.md` §2 ; **algorithme non
+implémenté avant le Lot 2**, voir `IMPLEMENTATION_ROADMAP.md`).
+
+- Le système **peut signaler** qu'une personne similaire existe déjà ; il ne
+  doit **jamais** : fusionner automatiquement deux personnes, supprimer
+  automatiquement une fiche, empêcher systématiquement la création, ou
+  conclure à une identité sur la seule base d'un nom identique.
+- Quatre niveaux de correspondance sont distingués (détail dans
+  `DATA_MODEL.md` §2.3) : **correspondance exacte**, **correspondance
+  probable**, **simple similarité**, **absence de correspondance** — jamais
+  binaire « doublon / pas doublon ».
+- Toute confirmation de création malgré une correspondance **exacte** ou
+  **probable** doit être auditée (`audit_log`), avec le niveau de
+  correspondance et la personne existante concernée — jamais une création
+  silencieuse dans ce cas.
+- Cette détection est un enjeu de **qualité des données** (exactitude,
+  rectification) autant que de protection des données : rapprocher à tort
+  deux personnes différentes serait aussi problématique que ne pas détecter
+  un vrai doublon — d'où l'absence de fusion/suppression automatique dans
+  les deux sens.
+
+## 20. Récapitulatif des points nécessitant une validation juridique, réglementaire ou métier
+
+1. Contenu exact et base légale précise de chaque texte de consentement par
+   finalité (§3).
+2. Durée de conservation propre aux données de diagnostic (§9).
+3. Modalités exactes d'une éventuelle notification d'incident (§18).
+4. Statut juridique/probant exact du rapport final et de ses versions
+   corrigées (voir aussi `REPORT_SPECIFICATION.md`).
+5. Cadre précis autorisant un futur envoi de données à un service IA externe,
+   y compris pseudonymisées (§14-16).
+6. Confirmation que les catégories de données prévues (§1) restent hors du
+   périmètre « données de santé » au sens strict de la nLPD, ou révision du
+   niveau de protection si un futur lot s'en approchait.
+7. Portée exacte de l'effet d'une révocation de consentement lorsqu'une
+   autre obligation de conservation s'applique (ex. données déjà intégrées
+   à un rapport final déjà généré) — la révocation reste prospective par
+   conception (§3, `DATA_MODEL.md` §6.1), mais l'articulation précise avec
+   les obligations de conservation reste à valider juridiquement.
+
+Ces 7 points ont été examinés lors du GATE de validation LOT 1 et restent
+**non tranchés par ce document**. Ils ne bloquent ni le commit documentaire
+du LOT 1 ni le démarrage futur du socle technique (Lot 2), mais constituent
+des **conditions obligatoires devant être validées avant** :
+- toute mise en production réelle ;
+- toute collecte de données client réelles ;
+- tout usage effectif d'une intelligence artificielle externe ;
+- toute génération de rapport juridiquement utilisé ;
+- toute activation définitive des consentements (au-delà d'un usage de
+  test/démonstration) ;
+- toute politique définitive de conservation ou d'effacement.
