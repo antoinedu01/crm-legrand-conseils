@@ -246,11 +246,26 @@ implémenté avant le Lot 2**, voir `IMPLEMENTATION_ROADMAP.md`).
    à un rapport final déjà généré) — la révocation reste prospective par
    conception (§3, `DATA_MODEL.md` §6.1), mais l'articulation précise avec
    les obligations de conservation reste à valider juridiquement.
+8. **Ajouté suite à la revue de conformité du Lot 2** : proportionnalité
+   d'exposer la date de naissance complète d'un candidat (plutôt qu'une
+   information moins précise, ex. année seule ou simple indicateur de
+   concordance) dans la réponse de détection de doublons
+   (`POST /api/advisory/households/:id/members/check-similarity`,
+   `DATA_MODEL.md` §2.3). L'exposition sert directement l'objectif
+   fonctionnel (permettre au conseiller de distinguer deux personnes de même
+   nom) et reste, dans le modèle mono-conseiller actuel, visible uniquement
+   par la même personne ayant déjà accès aux fiches complètes — mais la
+   question de proportionnalité au sens nLPD, en particulier dans la
+   perspective d'une future évolution multi-conseiller (§5, colonne
+   `owner_user_id` présente mais non encore exploitée), mérite une
+   confirmation par un spécialiste de la protection des données avant toute
+   généralisation.
 
-Ces 7 points ont été examinés lors du GATE de validation LOT 1 et restent
-**non tranchés par ce document**. Ils ne bloquent ni le commit documentaire
-du LOT 1 ni le démarrage futur du socle technique (Lot 2), mais constituent
-des **conditions obligatoires devant être validées avant** :
+Ces 8 points ont été examinés lors du GATE de validation LOT 1 et de la
+revue de conformité du Lot 2, et restent **non tranchés par ce document**.
+Ils ne bloquent ni le commit documentaire du LOT 1 ni l'implémentation
+technique du Lot 2, mais constituent des **conditions obligatoires devant
+être validées avant** :
 - toute mise en production réelle ;
 - toute collecte de données client réelles ;
 - tout usage effectif d'une intelligence artificielle externe ;

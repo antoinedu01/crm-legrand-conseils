@@ -87,6 +87,29 @@ export const CLASSEMENTS = {
   prioritaire: 'Prioritaire',
 };
 
+// Legrand Diagnostic 360 — socle foyer (Lot 2)
+export const HOUSEHOLD_STATUS = {
+  actif: 'Actif',
+  archive: 'Archivé',
+};
+
+export const MEMBER_ROLES = {
+  principal: 'Client principal',
+  conjoint: 'Conjoint / partenaire',
+  enfant: 'Enfant',
+  autre_charge: 'Autre personne à charge',
+};
+
+// Rôles que peut reprendre l'ancien principal une fois rétrogradé.
+export const DEMOTABLE_ROLES = ['conjoint', 'autre_charge'];
+
+export const MATCH_LEVELS = {
+  exact_match: 'Correspondance exacte',
+  probable_match: 'Correspondance probable',
+  possible_similarity: 'Similarité possible',
+  no_match: 'Aucune correspondance',
+};
+
 const chf = new Intl.NumberFormat('fr-CH', {
   style: 'currency',
   currency: 'CHF',

@@ -28,6 +28,26 @@ nouveau composant de badge.
 
 ## 1. Écrans proposés
 
+> **Statut d'implémentation (GATE LOT 2)** : seuls les écrans de gestion du
+> foyer (liste, création, fiche, ajout/retrait de membre, changement de
+> principal — sous-ensemble de §1.2/§1.3) sont livrés au Lot 2
+> (`client/src/pages/Households.jsx`, `HouseholdDetail.jsx`). Les écrans
+> 1.1 et 1.4 à 1.14 (tableau des diagnostics, sessions, questionnaire,
+> findings, recommandations, consentements, mode présentation, rapport)
+> restent des propositions non implémentées, réservées aux lots suivants —
+> la fiche foyer actuelle affiche à leur place un état vide explicite
+> (« Aucun diagnostic pour le moment »), jamais un écran qui laisserait
+> croire qu'ils existent déjà. En particulier, la « désambiguïsation
+> multi-foyers » de §1.2 (choix explicite exigé entre plusieurs foyers d'un
+> même client) s'applique à l'écran futur de **sélection d'un foyer pour une
+> session** (Lot 3+, quand plusieurs foyers existent pour la même personne
+> et qu'il faut choisir lequel diagnostiquer) — elle ne s'applique pas à la
+> **création** d'un foyer (Lot 2), où l'appartenance à d'autres foyers actifs
+> reste, conformément à la décision GATE LOT 1 décision 1, purement
+> informative et jamais bloquante (voir `Households.jsx` : bannière
+> « Cette personne appartient déjà à N autre(s) foyer(s) actif(s) », jamais
+> un choix imposé).
+
 ### 1.1 Tableau des diagnostics
 - **Objectif** : vue d'ensemble des sessions (comme `Contracts.jsx` liste les
   contrats).

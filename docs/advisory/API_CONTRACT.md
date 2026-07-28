@@ -29,6 +29,18 @@
 
 ## 1. Foyers
 
+> **Foyer archivé = figé (implémenté et testé au Lot 2, GATE, contrôle
+> ciblé « foyers archivés »)** : dès qu'un foyer est `status = 'archive'`,
+> **toute écriture** le concernant est refusée avec `409` — modification du
+> foyer lui-même (y compris une tentative de réactivation vers `actif`,
+> non prévue à ce lot et donc interdite plutôt que non spécifiée), ajout
+> d'un membre, modification d'une adhésion, retrait d'un membre, changement
+> de membre principal. Seules les lectures (`GET` liste et détail) restent
+> possibles. Aucune entrée d'audit n'est écrite pour une opération ainsi
+> refusée (seules les opérations réellement effectuées le sont). Vérifié
+> côté service (`server/advisoryHouseholds.js`, fonction
+> `assertHouseholdWritable`), pas seulement côté interface.
+
 ### `GET /api/advisory/households`
 - **Paramètres** : `q` (recherche texte), `status`.
 - **Réponse** : liste des foyers avec noms des membres agrégés (comme
@@ -57,7 +69,10 @@
 
 ### `PUT /api/advisory/households/:id`
 - **Corps** : `{ label?, status? }`.
-- **Audit** : `modification foyer`.
+- **Audit** : `modification foyer` — sauf si `status` passe à `archive` (le
+  foyer n'était pas déjà archivé), auquel cas l'action journalisée est
+  `archivage foyer` (jamais les deux à la fois pour un même appel) —
+  implémenté et testé au Lot 2 (`server/advisoryHouseholds.js`).
 
 ---
 
@@ -77,12 +92,23 @@
 - **Comportement** : recherche des personnes existantes selon les critères
   indicatifs de `DATA_MODEL.md` §2.3 (prénom/nom normalisés, date de
   naissance, foyer, représentant légal, adresse, relation familiale) —
-  **aucun algorithme n'est figé avant le Lot 2** ; cette route reste un
-  contrat d'interface, pas une implémentation.
-- **Réponse** : `{ matches: [{ client_id, display_name, match_level, matched_on: [...], household_ids: [...] }] }`,
-  `match_level` ∈ `{exacte, probable, similarite}` — jamais de champ
-  booléen simple « doublon oui/non ».
-- **Audit** : aucun (simple consultation, pas d'écriture).
+  implémenté au Lot 2 (`server/advisorySimilarity.js`, `server/
+  advisoryHouseholds.js`).
+- **Réponse** : `{ matches: [{ client_id, display_name, birth_date, match_level, reasons: [...], household_ids: [...] }] }`.
+  `match_level` ∈ `{exact_match, probable_match, possible_similarity}` —
+  **décision humaine explicite du Lot 2** : identifiants techniques en
+  anglais, snake_case (divergence assumée avec la convention française du
+  reste du CRM, sur le même principe que `advisory_sessions.domain` déjà
+  documenté en §3 ; voir aussi `DATA_MODEL.md` §2.3). `no_match` existe comme
+  quatrième valeur logique côté moteur (`server/advisorySimilarity.js`) mais
+  n'est **jamais** renvoyé par cette route : les correspondances `no_match`
+  sont filtrées avant réponse (`reasons` serait de toute façon vide) —
+  jamais de champ booléen simple « doublon oui/non ». `reasons` est une
+  liste structurée (`{ field, detail }`), jamais un texte libre.
+- **Audit** : `présentation correspondance similarité`, uniquement si
+  `matches` n'est pas vide (avec les niveaux de correspondance trouvés,
+  jamais le contenu des champs comparés) — une consultation qui ne trouve
+  rien n'est pas journalisée.
 
 ### `POST /api/advisory/households/:id/members`
 - **Corps** : `{ client_id, member_role, relationship_detail?, legal_representative_client_id? }`

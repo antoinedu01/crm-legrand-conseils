@@ -183,6 +183,13 @@ passe à `status = 'archive'` (pas de suppression physique).
 c'est une entité vivante. C'est la *composition* (`household_members`) et les
 *sessions* qui portent l'immuabilité nécessaire au diagnostic.
 
+**Foyer archivé = figé (implémenté et testé au Lot 2, GATE, contrôle ciblé
+« foyers archivés »)** : une fois `status = 'archive'`, toute écriture sur
+le foyer ou ses membres est refusée (`409`), y compris une tentative de
+réactivation (aucune procédure de réactivation n'existe à ce lot — elle
+reste donc interdite plutôt que non spécifiée) ; seule la lecture reste
+possible. Voir `API_CONTRACT.md` §1 pour le détail par route.
+
 ### 2.2 `household_members`
 
 **Objectif** : relier une personne (`clients`) à un foyer, avec un rôle
@@ -290,45 +297,58 @@ fois la session terminée — voir `advisory_sessions.household_snapshot`
 (§3.1) qui fige la composition vue par ce diagnostic précis, indépendamment
 de l'évolution future du foyer réel.
 
-### 2.3 Détection souple de doublons entre personnes (principe)
+### 2.3 Détection souple de doublons entre personnes
 
-**Décision humaine validée (GATE LOT 1, décision 2)** — principe documenté
-ici uniquement ; **aucun algorithme n'est implémenté avant le Lot 2** (voir
-`IMPLEMENTATION_ROADMAP.md`). Ne s'applique pas comme une contrainte de
-base de données : c'est un service de vérification exécuté au moment où le
-conseiller s'apprête à créer une nouvelle personne (typiquement via la
-création rapide d'un membre de foyer, `API_CONTRACT.md` §2), jamais une
-contrainte SQL.
+**Décision humaine validée (GATE LOT 1, décision 2)** — principe validé au
+GATE LOT 1, **implémenté au Lot 2** (`server/advisorySimilarity.js`,
+`server/advisoryHouseholds.js`, testé et audité indépendamment — voir le
+rapport du Lot 2). Ne s'applique pas comme une contrainte de base de
+données : c'est un service de vérification exécuté au moment où le
+conseiller s'apprête à créer une nouvelle personne (création rapide d'un
+membre de foyer, `API_CONTRACT.md` §2), jamais une contrainte SQL.
 
 **Ce que ce service ne doit jamais faire** : fusionner automatiquement deux
 personnes, supprimer automatiquement une fiche, empêcher systématiquement la
 création, ou conclure à une identité sur la seule base d'un nom identique.
-Il **signale**, il ne **décide** jamais à la place du conseiller.
+Il **signale**, il ne **décide** jamais à la place du conseiller. Confirmé
+par audit indépendant du code (Lot 2) : aucune fusion, aucune suppression
+automatique, aucun blocage non contournable par confirmation explicite
+n'existe dans l'implémentation.
 
 **Critères indicatifs** (combinables, aucun n'est à lui seul suffisant pour
 conclure) : prénom normalisé, nom normalisé, date de naissance, foyer
 d'appartenance, représentant légal commun, adresse (lorsque disponible),
-relation familiale déclarée.
+relation familiale déclarée. Le **nom de famille normalisé doit toujours
+concorder** pour envisager toute correspondance — sans cette concordance,
+le service renvoie immédiatement `no_match`, quels que soient les autres
+critères disponibles (y compris si tous les autres critères concordent par
+ailleurs) : ce n'est jamais un « nom identique seul » qui élève le niveau,
+c'est son **absence** qui l'exclut d'emblée.
 
 **Quatre niveaux de correspondance**, jamais un simple binaire
-doublon/pas-doublon :
+doublon/pas-doublon. **Décision humaine explicite (Lot 2)** : identifiants
+techniques en anglais, snake_case (`exact_match`/`probable_match`/
+`possible_similarity`/`no_match`), même divergence assumée que pour
+`advisory_sessions.domain` (§3.1) :
 
-| Niveau | Définition indicative |
+| Niveau | Définition implémentée |
 |---|---|
-| **Correspondance exacte** | Tous les critères disponibles concordent strictement (ex. prénom + nom + date de naissance identiques) — reste néanmoins **toujours** un signal, jamais une conclusion automatique d'identité. |
-| **Correspondance probable** | Plusieurs critères forts concordent (ex. prénom + nom + date de naissance) mais un élément de contexte diffère ou manque (ex. foyers sans lien connu entre eux). |
-| **Simple similarité** | Un seul critère, ou des critères faibles, concordent (ex. seul le nom de famille). Signal faible, informatif uniquement. |
-| **Absence de correspondance** | Aucun signal significatif détecté. |
+| **`exact_match`** | Nom de famille, prénom et date de naissance normalisés concordent tous les trois (les trois doivent être disponibles) — reste néanmoins **toujours** un signal, jamais une conclusion automatique d'identité. |
+| **`probable_match`** | Nom de famille et prénom concordent ; la date de naissance n'est pas disponible des deux côtés à la fois (absente d'au moins un côté) ; **et** au moins un élément corroborant est disponible (e-mail, téléphone, code postal, adresse, foyer commun, représentant légal commun). **Jamais** produit si les deux dates sont renseignées et différentes. |
+| **`possible_similarity`** | Nom de famille et prénom concordent sans aucun élément corroborant disponible (y compris si les deux dates de naissance sont renseignées mais différentes) ; **ou** nom de famille et date de naissance concordent avec un prénom différent. |
+| **`no_match`** | Le nom de famille ne concorde pas (ou est inconnu d'un côté) — **y compris si tous les autres critères concordent par ailleurs** ; ou aucun signal significatif. Jamais renvoyé par l'API (filtré avant réponse), seulement un état interne du moteur. |
 
 **Comportement attendu à l'interface** (détail dans
 `UX_AND_CLIENT_MODE.md` §1.2/§1.3) — quand une ou plusieurs correspondances
 sont détectées, le conseiller doit toujours pouvoir : ouvrir la personne
 existante correspondante, confirmer explicitement qu'il s'agit d'une
 personne différente, ou annuler la création. **Toute confirmation de
-création malgré une correspondance exacte ou probable doit être auditée**
-(`audit_log`, action dédiée avec le niveau de correspondance et la personne
-existante concernée — voir `API_CONTRACT.md` §2) ; une simple similarité
-reste informative et n'exige pas d'audit systématique.
+création malgré une correspondance `exact_match` ou `probable_match` doit
+être auditée** (`audit_log`, action dédiée avec le niveau de correspondance
+et la personne existante concernée — voir `API_CONTRACT.md` §2) ; une
+`possible_similarity` reste informative et n'exige pas d'audit systématique
+de la confirmation (la présentation de la correspondance elle-même est en
+revanche auditée, voir `API_CONTRACT.md` §2).
 
 Cette détection est complémentaire, pas un remplacement, du mécanisme
 `findDuplicates()` déjà existant dans `server/routes/clients.js`
@@ -865,9 +885,10 @@ correspondantes ci-dessus :
    doit toujours désambiguïser le foyer utilisé pour une session
    (§1.1, §2.2, `UX_AND_CLIENT_MODE.md` §1.2/§1.4).
 8. Pas de contrainte d'unicité automatique nom/email/téléphone ; détection
-   souple de doublons à 4 niveaux (exacte/probable/similarité/absence),
-   jamais bloquante ni fusionnante, algorithme non implémenté avant le
-   Lot 2 (§1.1, §2.3, `SECURITY_PRIVACY.md` §19).
+   souple de doublons à 4 niveaux (`exact_match`/`probable_match`/
+   `possible_similarity`/`no_match`), jamais bloquante ni fusionnante,
+   implémentée et auditée indépendamment au Lot 2 (§1.1, §2.3,
+   `SECURITY_PRIVACY.md` §19).
 
 **Points encore ouverts** : aucun point structurant non tranché ne subsiste
 à l'issue de ce second GATE. Les 7 points de validation **juridique**

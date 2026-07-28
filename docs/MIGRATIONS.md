@@ -71,3 +71,63 @@ n'existe, à ce jour, que pour les 5 premières tables — voir
 `CONTRATS_ASSURANCE_SUISSE.md`. Cette migration s'exécute dans une transaction
 SQLite unique — en cas d'erreur en cours de migration, SQLite annule
 l'ensemble du bloc, ce qui limite le risque d'un schéma à moitié migré.)*
+
+## Version 9
+
+**Objectif** : socle foyer du module « Legrand Diagnostic 360 » (Lot 2) —
+`households` et `household_members`, premier module transverse indépendant
+des contrats/clients existants, préparant les parcours de diagnostic
+(sessions, questionnaires, moteur de règles) des lots suivants. Numéro
+vérifié disponible au moment de l'implémentation : aucun bloc `< 9`
+n'existait, la version 8 restait la dernière ; la branche
+`feature/lead-generation-engine` (Bloc 4, non fusionnée) reste à `user_
+version < 6` et ne revendique pas la version 9.
+
+**Tables créées** :
+- `households` — le foyer : `label` (nom d'usage interne), `primary_client_id`
+  (référence `clients(id)`, sans `ON DELETE CASCADE` — cohérent avec le fait
+  qu'aucune route ne supprime physiquement un client, seulement
+  `POST /:id/anonymize`), `status` (`actif`/`archive`), `notes`,
+  `owner_user_id` (prépare le multi-conseiller, même logique que
+  `clients.owner_user_id`).
+- `household_members` — l'adhésion d'une personne (`clients.id`) à un foyer :
+  `member_role` (`principal`/`conjoint`/`enfant`/`autre_charge`),
+  `relationship_detail`, `legal_representative_client_id` (délégation de
+  contact), `start_date`/`end_date`, `status` (`actif`/`archive` — distinct du
+  statut du foyer).
+
+**Index** : index simples (`household_id`, `client_id`,
+`(household_id, member_role)`, `primary_client_id`, `status`) plus **deux
+index uniques partiels** garantissant en base :
+- `idx_household_members_active_unique` — une personne ne peut avoir qu'une
+  seule adhésion **active** dans un même foyer (mais peut appartenir à
+  plusieurs foyers actifs différents — décision humaine explicite : aucune
+  contrainte globale n'interdit l'appartenance multi-foyer, utile pour
+  représenter parents séparés, garde alternée, familles recomposées) ;
+- `idx_household_members_one_active_principal` — un foyer actif ne peut
+  jamais avoir plus d'un membre `principal` actif. L'invariant complémentaire
+  (« un foyer actif a toujours **au moins** un principal actif ») n'est pas
+  exprimable par une contrainte SQL portable en SQLite (pas de contrainte
+  inter-lignes sur un agrégat) : il est garanti exclusivement par le service
+  métier (`server/advisoryHouseholds.js`) — création atomique foyer+principal,
+  procédure dédiée de changement de principal, refus de retirer un principal
+  sans remplacement.
+
+**Compatibilité** : migration strictement additive, aucune table existante
+modifiée. Aucune donnée existante réécrite.
+
+**Réversibilité** : totalement réversible techniquement — `DROP TABLE
+household_members; DROP TABLE households;` — aucune autre table n'y fait
+référence en clé étrangère à ce stade (les futures tables `advisory_*` des
+lots suivants y feront référence, ce qui réduira la réversibilité une fois
+créées).
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire ; cette
+migration n'a, à ce jour, jamais été exécutée sur la base de production.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 9)`. Testée dans `test/migrations.test.js` : base neuve,
+migration depuis une base héritée, idempotence, colonnes, index, et
+comportement des deux index uniques partiels (multi-foyer autorisé,
+doublon actif dans le même foyer refusé, deux principaux actifs refusés).
+Cette migration s'exécute dans une transaction SQLite unique.)*

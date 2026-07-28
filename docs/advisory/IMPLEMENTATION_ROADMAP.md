@@ -25,7 +25,7 @@
   `set-primary` (rétrogradation + promotion atomiques + audit), refus de
   retirer un membre `principal` sans passer par `set-primary`, les 4
   niveaux de correspondance du service de détection de doublons
-  (exacte/probable/similarité/absence), refus non systématique (confirmation
+  (`exact_match`/`probable_match`/`possible_similarity`/`no_match`), refus non systématique (confirmation
   possible via `confirmed_despite_match`) avec audit de la confirmation,
   absence de fusion/suppression automatique dans tous les cas.
 - **Risques** : aucun point structurant non tranché ne subsiste après le

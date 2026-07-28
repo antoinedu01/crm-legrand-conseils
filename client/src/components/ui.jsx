@@ -31,6 +31,9 @@ const TONES = {
   resilie: 'critical', annulee: 'critical', anonymise: 'critical', echu: 'serious',
   ancien: 'serious', haute: 'critical', normale: 'info', basse: '',
   non_qualifie: '', froid: 'info', tiede: 'warn', chaud: 'serious', prioritaire: 'critical',
+  archive: 'serious',
+  principal: 'good', conjoint: 'info', enfant: 'info', autre_charge: '',
+  exact_match: 'critical', probable_match: 'serious', possible_similarity: 'warn', no_match: '',
 };
 
 export function Badge({ value, label }) {

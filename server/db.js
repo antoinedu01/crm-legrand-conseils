@@ -489,6 +489,68 @@ if (version < 8) {
   migrate();
 }
 
+// Aucun bloc « version < 9 » n'existait avant ce lot (dernier bloc : < 8,
+// ci-dessus). Vérifié à nouveau juste avant l'écriture de cette migration :
+// aucune autre branche fusionnée depuis n'introduit de version 9 (LOT 2,
+// Legrand Diagnostic 360 — audit préalable documenté dans le rapport du lot).
+if (version < 9) {
+  // LOT 2 — Legrand Diagnostic 360 (Lot 2) : socle foyer, tables entièrement
+  // nouvelles et isolées (préfixe hors `advisory_` par décision LOT 1, ce
+  // sont les deux seules tables transverses du module). Migration purement
+  // additive : aucune table existante n'est modifiée, aucune donnée réécrite.
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS households (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT,                                    -- nom d'usage interne du dossier, jamais affiché tel quel au client
+        primary_client_id INTEGER NOT NULL REFERENCES clients(id),
+        status TEXT NOT NULL DEFAULT 'actif',          -- actif | archive (statut du FOYER)
+        notes TEXT,                                    -- notes internes conseiller uniquement
+        owner_user_id INTEGER REFERENCES users(id),    -- prépare le multi-conseiller, même logique que clients.owner_user_id
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_households_primary_client ON households(primary_client_id);
+      CREATE INDEX IF NOT EXISTS idx_households_status ON households(status);
+
+      CREATE TABLE IF NOT EXISTS household_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        household_id INTEGER NOT NULL REFERENCES households(id),
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        member_role TEXT NOT NULL,                     -- principal | conjoint | enfant | autre_charge (rôle DANS ce foyer, aucun lien avec un rôle d'accès applicatif)
+        relationship_detail TEXT,                      -- nuance libre courte, jamais une donnée médicale
+        legal_representative_client_id INTEGER REFERENCES clients(id),  -- délégation de contact (ex. enfant sans coordonnées propres)
+        start_date TEXT,                               -- date d'entrée dans le foyer
+        end_date TEXT,                                 -- date de sortie éventuelle
+        status TEXT NOT NULL DEFAULT 'actif',          -- actif | archive (statut de l'ADHÉSION, distinct de households.status qui est le statut du foyer)
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_household_members_household ON household_members(household_id);
+      CREATE INDEX IF NOT EXISTS idx_household_members_client ON household_members(client_id);
+      CREATE INDEX IF NOT EXISTS idx_household_members_household_role ON household_members(household_id, member_role);
+      -- Une personne ne peut avoir qu'une seule adhésion active par foyer,
+      -- mais peut appartenir à plusieurs foyers actifs différents (décision
+      -- humaine validée, GATE LOT 1, décision 1) : household_id fait partie
+      -- de la clé de cet index, il n'interdit donc jamais deux lignes
+      -- actives pour le même client_id dans deux foyers distincts.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_household_members_active_unique
+        ON household_members(household_id, client_id) WHERE status = 'actif';
+      -- Au maximum un membre principal actif par foyer (garantie SQL).
+      -- L'invariant complémentaire « au moins un principal actif » ne peut
+      -- pas s'exprimer proprement en SQLite (pas de contrainte inter-lignes
+      -- portant sur un agrégat) : il est garanti par le service métier et
+      -- ses transactions (création atomique foyer+principal, procédure
+      -- set-primary, refus de retirer le principal sans remplacement).
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_household_members_one_active_principal
+        ON household_members(household_id) WHERE status = 'actif' AND member_role = 'principal';
+    `);
+
+    db.pragma('user_version = 9');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

@@ -187,9 +187,13 @@ function insertFixtureContract(db, branch = 'lamal') {
   return contract.lastInsertRowid;
 }
 
-test('migration v8 — une base neuve atteint directement user_version = 8', async () => {
+test('migration v8 — une base neuve atteint au moins user_version = 8', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  // Une base neuve applique désormais aussi la migration v9 (Lot 2,
+  // Legrand Diagnostic 360) : on vérifie ici que la migration v8 a bien été
+  // franchie (>= 8), pas le numéro final exact de la chaîne de migration,
+  // qui évoluera à chaque nouveau lot.
+  assert.ok(db.pragma('user_version', { simple: true }) >= 8);
 });
 
 test('migration v8 — une base héritée en v6 est migrée vers v8 sans perte de données', async () => {
@@ -205,7 +209,8 @@ test('migration v8 — une base héritée en v6 est migrée vers v8 sans perte d
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  // Voir commentaire du test précédent : >= 8, pas un numéro final figé.
+  assert.ok(db.pragma('user_version', { simple: true }) >= 8);
 
   const preserved = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contract.lastInsertRowid);
   assert.equal(preserved.branch, 'lamal');
@@ -216,11 +221,11 @@ test('migration v8 — une base héritée en v6 est migrée vers v8 sans perte d
   assert.equal(preserved.review_next_date, null);
 });
 
-test("migration v8 — idempotence : un second import de la même base n'échoue pas et reste en v8", async () => {
+test("migration v8 — idempotence : un second import de la même base n'échoue pas et reste au moins en v8", async () => {
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 8);
 });
 
 test('migration v8 — idempotence réelle : une table déjà créée avant la fin de la migration n\'empêche pas la reprise', async () => {
@@ -239,7 +244,7 @@ test('migration v8 — idempotence réelle : une table déjà créée avant la f
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 8);
 });
 
 test('migration v8 — les trois colonnes communes existent sur contracts', async () => {
@@ -325,5 +330,143 @@ test('migration v8 — les contraintes CHECK numériques essentielles fonctionne
   assert.throws(() =>
     db.prepare('INSERT INTO contract_lamal (contract_id, care_model, deductible, accident_coverage) VALUES (?, ?, ?, ?)')
       .run(contractId, 'standard', 300, 2)
+  );
+});
+
+// --- Migration v9 (Legrand Diagnostic 360, Lot 2 : socle households / --
+// household_members). Réutilise buildLegacyV6Database ci-dessus : depuis une
+// base v6, l'exécution normale de server/db.js applique successivement les
+// blocs < 8 puis < 9, exerçant ainsi le vrai chemin de migration séquentiel
+// plutôt qu'un scénario v8 reconstitué à la main.
+
+function insertFixtureClient(db, firstName = 'Test', lastName = 'Fixture') {
+  const info = db
+    .prepare("INSERT INTO clients (type, first_name, last_name, status) VALUES ('particulier', ?, ?, 'prospect')")
+    .run(firstName, lastName);
+  return info.lastInsertRowid;
+}
+
+test('migration v9 — une base neuve atteint directement user_version = 9', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
+});
+
+test('migration v9 — une base héritée en v6 est migrée vers v9 sans perte de données', async () => {
+  const dir = tempDir();
+  const legacy = buildLegacyV6Database(dir);
+  const client = legacy
+    .prepare("INSERT INTO clients (type, first_name, last_name, status) VALUES ('particulier', ?, ?, 'client')")
+    .run('Test', 'Existant');
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
+  const preserved = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.lastInsertRowid);
+  assert.equal(preserved.first_name, 'Test');
+  assert.equal(preserved.last_name, 'Existant');
+});
+
+test("migration v9 — idempotence : un second import de la même base n'échoue pas et reste en v9", async () => {
+  const dir = tempDir();
+  await importFreshDb(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
+});
+
+test('migration v9 — les tables households et household_members existent avec les colonnes attendues', async () => {
+  const db = await importFreshDb(tempDir());
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((t) => t.name);
+  assert.ok(tables.includes('households'));
+  assert.ok(tables.includes('household_members'));
+
+  const householdCols = db.prepare('PRAGMA table_info(households)').all().map((c) => c.name);
+  for (const col of ['id', 'label', 'primary_client_id', 'status', 'notes', 'owner_user_id', 'created_at', 'updated_at']) {
+    assert.ok(householdCols.includes(col), `colonne households.${col} manquante`);
+  }
+  const memberCols = db.prepare('PRAGMA table_info(household_members)').all().map((c) => c.name);
+  for (const col of [
+    'id', 'household_id', 'client_id', 'member_role', 'relationship_detail',
+    'legal_representative_client_id', 'start_date', 'end_date', 'status', 'created_at', 'updated_at',
+  ]) {
+    assert.ok(memberCols.includes(col), `colonne household_members.${col} manquante`);
+  }
+});
+
+test('migration v9 — les index attendus existent (dont les deux index uniques partiels)', async () => {
+  const db = await importFreshDb(tempDir());
+  const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map((i) => i.name);
+  for (const idx of [
+    'idx_households_primary_client', 'idx_households_status',
+    'idx_household_members_household', 'idx_household_members_client', 'idx_household_members_household_role',
+    'idx_household_members_active_unique', 'idx_household_members_one_active_principal',
+  ]) {
+    assert.ok(indexes.includes(idx), `index ${idx} manquant`);
+  }
+});
+
+test('migration v9 — un foyer avec principal actif peut être créé', async () => {
+  const db = await importFreshDb(tempDir());
+  const clientId = insertFixtureClient(db);
+  const household = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId);
+  db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
+    .run(household.lastInsertRowid, clientId);
+  const member = db.prepare('SELECT * FROM household_members WHERE household_id = ?').get(household.lastInsertRowid);
+  assert.equal(member.member_role, 'principal');
+  assert.equal(member.status, 'actif');
+});
+
+test('migration v9 — un même client_id peut appartenir à deux foyers actifs différents (décision GATE LOT 1)', async () => {
+  const db = await importFreshDb(tempDir());
+  const clientId = insertFixtureClient(db);
+  const h1 = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  const otherPrincipal = insertFixtureClient(db, 'Autre', 'Principal');
+  const h2 = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(otherPrincipal).lastInsertRowid;
+  db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')").run(h1, clientId);
+  // La même personne (clientId) rejoint un second foyer comme simple membre, sans conflit.
+  assert.doesNotThrow(() =>
+    db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'autre_charge')")
+      .run(h2, clientId)
+  );
+});
+
+test('migration v9 — un client_id ne peut avoir deux adhésions actives dans le même foyer', async () => {
+  const db = await importFreshDb(tempDir());
+  const clientId = insertFixtureClient(db);
+  const householdId = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
+    .run(householdId, clientId);
+  assert.throws(() =>
+    db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'conjoint')")
+      .run(householdId, clientId)
+  );
+});
+
+test('migration v9 — un foyer ne peut avoir deux principaux actifs', async () => {
+  const db = await importFreshDb(tempDir());
+  const clientId = insertFixtureClient(db);
+  const secondClientId = insertFixtureClient(db, 'Second', 'Membre');
+  const householdId = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
+    .run(householdId, clientId);
+  assert.throws(() =>
+    db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
+      .run(householdId, secondClientId)
+  );
+});
+
+test('migration v9 — un même foyer peut ravoir un principal actif après archivage de l’ancienne adhésion (contrainte non violée)', async () => {
+  const db = await importFreshDb(tempDir());
+  const clientId = insertFixtureClient(db);
+  const secondClientId = insertFixtureClient(db, 'Second', 'Membre');
+  const householdId = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  const oldPrincipal = db
+    .prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
+    .run(householdId, clientId).lastInsertRowid;
+  // Rétrogradation avant promotion (ordre exigé par la revue advisory-architect) :
+  // l'index unique partiel est vérifié immédiatement, pas différé.
+  db.prepare("UPDATE household_members SET member_role = 'conjoint' WHERE id = ?").run(oldPrincipal);
+  assert.doesNotThrow(() =>
+    db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
+      .run(householdId, secondClientId)
   );
 });
