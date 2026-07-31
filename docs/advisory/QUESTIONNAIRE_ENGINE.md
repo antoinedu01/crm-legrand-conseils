@@ -49,6 +49,16 @@ voir §4). Le moteur génère donc dynamiquement N instances de la question,
 une par personne concernée, sans que cela soit codé dans l'interface : c'est
 une propriété déclarative de la question elle-même.
 
+> **Précision GATE LOT 3B §5 (décision humaine)** : « au moment de la
+> session » signifie ici le moment du **démarrage** (`in_progress`), pas le
+> moment de chaque relecture. Une fois démarrée, une session fige son
+> périmètre de membres (`household_snapshot`) — un membre ajouté au foyer
+> ensuite n'est jamais intégré rétroactivement, un membre retiré ensuite
+> reste dans le périmètre (marqué historique, lecture seule). Voir
+> `sessionMembersFor` (`server/advisorySessions.js`) et `DATA_MODEL.md`
+> §3.1. Seule une session encore `draft` (jamais démarrée) reflète les
+> membres actifs actuels, faute de snapshot encore figé.
+
 ## 4. Format déclaratif d'une condition d'affichage
 
 > **Implémenté au Lot 3A** (`server/advisoryConditions.js`), avec un format
@@ -142,6 +152,15 @@ answers`), même si le frontend valide déjà côté client — même principe d
 défense en profondeur que `contract_lamal.deductible` aujourd'hui (aucune
 coercition silencieuse de type).
 
+> **Implémenté au Lot 3B (interface de conduite du rendez-vous)** : le
+> frontend (`client/src/pages/SessionWorkspace.jsx`) ne réimplémente jamais
+> cette validation, ni `evaluateCondition`, ni le calcul des questions
+> requises/manquantes — il consomme une projection déjà résolue exposée par
+> `getSessionWorkspace(sessionId)` / `GET /api/advisory/sessions/:id/
+> workspace` (voir `API_CONTRACT.md`), qui réutilise telles quelles les
+> fonctions existantes du moteur. Le serveur reste ainsi l'unique source de
+> vérité ; l'écran ne fait qu'afficher son résultat.
+
 ## 7. Versionnement et compatibilité
 
 - Une version publiée (`advisory_questionnaire_versions.status = publie`)
@@ -215,6 +234,12 @@ version de questionnaire figée. La reprise (`POST .../resume`) réaffiche
 exactement l'état où le conseiller s'était arrêté — le moteur recalcule
 simplement quelles questions restent à afficher à partir des réponses déjà
 connues, sans réinitialiser quoi que ce soit.
+
+> **Implémenté au Lot 3B** : ce recalcul, à l'écran, passe par
+> `getSessionWorkspace(sessionId)`, qui reconstruit à chaque chargement (et
+> après chaque écriture) l'ensemble section → question → visibilité →
+> réponse à partir de l'état courant en base — jamais d'état de progression
+> stocké séparément qui pourrait diverger.
 
 ### 8.1 Session mixte (`domain = mixed`)
 

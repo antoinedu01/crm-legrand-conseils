@@ -132,6 +132,62 @@ nouveau composant de badge.
   version de questionnaire (par défaut la dernière publiée).
 
 ### 1.5 Questionnaire
+
+> **Statut d'implémentation (Lot 3B, GATE)** : implémenté
+> (`client/src/pages/SessionWorkspace.jsx`,
+> `/diagnostic-360/sessions/:id/workspace`), avec les précisions suivantes
+> par rapport à la proposition ci-dessous :
+> - Navigation par **onglets de module** (commun/santé/vie-prévoyance,
+>   jamais fusionnés visuellement) puis par section au sein du module actif
+>   — non explicitement prévu par l'esquisse initiale (rédigée avant la
+>   décision de composition modulaire du Lot 3A).
+> - La résolution des questions (visibilité, caractère obligatoire,
+>   autorisations `unknown`/`not_applicable`) est calculée **exclusivement
+>   côté serveur** par une projection dédiée
+>   (`getSessionWorkspace`/`GET .../workspace`) — le frontend n'appelle
+>   jamais `evaluateCondition` ni ne réimplémente aucune règle de
+>   validation.
+> - Sauvegarde : immédiate pour les contrôles discrets (choix, booléen,
+>   date), différée de 600 ms après la dernière frappe pour les champs
+>   texte/numériques — jamais de bouton « Enregistrer » séparé, conforme à
+>   l'objectif de ne pas casser le rythme d'un entretien en direct.
+> - `help_text_client` n'est **pas** affiché dans cet écran (réservé au
+>   futur mode présentation client, hors périmètre du Lot 3B) : seul
+>   `help_text` (aide conseiller) est visible.
+> - Mode présentation client, findings, recommandations, calculs, rapport :
+>   confirmés hors périmètre du Lot 3B (voir §1 du brief du lot).
+>
+> **Précisions du GATE LOT 3B** (corrections apportées après une revue de
+> validation dédiée, avant tout commit) :
+> - **Session suspendue = réellement en pause** : aucune saisie n'est
+>   possible tant que « Reprendre » n'a pas été appelé explicitement
+>   (auparavant, une session suspendue acceptait encore des réponses) —
+>   l'écran passe intégralement en lecture seule, comme pour une session
+>   finalisée, jusqu'à la reprise.
+> - **Membre historisé** : un membre retiré du foyer après le démarrage de
+>   la session reste visible dans le sélecteur de membre (suffixe « retiré
+>   du foyer »), avec un bandeau d'avertissement et ses champs de saisie
+>   désactivés — ses réponses déjà enregistrées restent pleinement
+>   consultables. Un membre ajouté au foyer après le démarrage n'apparaît
+>   jamais dans la session déjà en cours.
+> - **Amendement contextualisé** : chaque question répondue d'une session
+>   finalisée porte désormais un bouton « Corriger cette réponse » qui
+>   ouvre directement l'amendement de cette question précise, sans passer
+>   par un sélecteur. Le bouton global du header reste disponible mais
+>   ouvre une recherche textuelle groupée par module/section (jamais un
+>   `<select>` plat), pour rester utilisable avec un questionnaire réel de
+>   nombreuses questions.
+> - **Concurrence entre onglets/appareils** : toute écriture est protégée
+>   par la révision de la session (`API_CONTRACT.md` §3) — si la session a
+>   été modifiée ailleurs entre-temps, l'écran affiche un message explicite
+>   et se recharge automatiquement, sans jamais écraser silencieusement une
+>   modification concurrente.
+> - **Sauvegardes en attente** : avant un changement de membre/section/
+>   module, une suspension, un contrôle de finalisation ou une sortie de
+>   l'espace de travail, toute saisie encore en attente de débounce est
+>   d'abord envoyée (`flushPendingSaves`) — une réponse tapée juste avant
+>   l'une de ces actions n'est jamais perdue silencieusement.
+
 - **Objectif** : conduire l'entretien question par question/section par
   section, en direct.
 - **Affiche** : section courante, questions résolues par le moteur

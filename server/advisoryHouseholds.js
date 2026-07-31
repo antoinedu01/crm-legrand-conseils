@@ -32,7 +32,7 @@ export class AdvisoryError extends Error {
   }
 }
 
-function displayName(c) {
+export function displayName(c) {
   if (!c) return null;
   return c.type === 'entreprise'
     ? c.company_name || '(entreprise sans nom)'

@@ -166,6 +166,69 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
   adopté depuis pour `création client`/les actions du Lot 3A. Signalé pour
   une correction future, non modifié ici pour rester dans le périmètre du
   Lot 3A.
+- **`GET /api/advisory/sessions/:id/workspace` : décision initiale du Lot 3B
+  (ne jamais auditer) révisée au GATE LOT 3B §6.** La décision de non-audit
+  n'était pas validée par le responsable protection des données. Corrigé :
+  chaque lecture produit désormais une entrée `consultation workspace
+  session` (session, utilisateur, révision, statut — jamais de valeur de
+  réponse, de texte de question, de montant, de date médicale, de détail de
+  membre ni de condition JSON), avec une **déduplication technique** : au
+  plus une entrée identique par utilisateur et par session sur une fenêtre
+  de 15 minutes (`WORKSPACE_VIEW_DEDUP_MINUTES`, constante documentée et
+  facilement modifiable dans `server/advisorySessions.js`) — sans quoi le
+  rechargement automatique après chaque sauvegarde produirait des centaines
+  de lignes quasi identiques sans valeur de traçabilité ajoutée. Vérifié par
+  test (dédupliqué par utilisateur, pas globalement — deux conseillers
+  consultant la même session produisent chacun leur propre entrée) et par
+  exécution navigateur réelle (plusieurs dizaines de rechargements
+  n'ajoutent qu'une seule ligne). **Politique à reconfirmer explicitement
+  par le responsable protection des données avant toute mise en production
+  avec du contenu métier réel** (santé/vie, Lot 5/6) — la fenêtre de 15
+  minutes reste un choix technique, pas une validation réglementaire.
+- **`GET /api/advisory/sessions/:id/answers/history` : audit ajouté au GATE
+  LOT 3B §6.** Chaque ouverture de l'historique d'une réponse produit une
+  entrée distincte `consultation historique réponse` (session, question,
+  membre éventuel, utilisateur — jamais la valeur), **sans** déduplication
+  (contrairement au workspace, cette route n'est pas rechargée
+  automatiquement — chaque ouverture reflète une action ponctuelle et
+  distincte du conseiller).
+- **En-têtes anti-cache (GATE LOT 3B §7).** Les routes exposant des réponses
+  ou leur historique (`GET .../workspace`, `.../answers`, `.../answers/
+  history`, `.../completion-check`) renvoient désormais
+  `Cache-Control: no-store, private` + `Pragma: no-cache` — jamais de mise
+  en cache par le navigateur ni un intermédiaire (proxy partagé), y compris
+  après déconnexion. Vérifié : aucune réponse dans `localStorage`/
+  `sessionStorage`/l'URL/l'historique de navigation.
+- **Restriction d'écriture aux membres actifs (GATE LOT 3B §5).**
+  `recordAnswers`/`clearAnswer` refusent désormais (`409`) toute nouvelle
+  écriture pour un membre retiré du foyer depuis le démarrage de la
+  session — seul `amendAnswer` (correction d'un enregistrement historique
+  déjà existant) reste autorisé indépendamment du statut actuel du membre,
+  décision documentée dans `server/advisorySessions.js`
+  (`assertMemberCanAnswer`).
+- **Concurrence optimiste (GATE LOT 3B §2)** : voir `API_CONTRACT.md` §3.
+  Aucun impact sur la confidentialité en tant que telle, mais renforce
+  l'intégrité (aucune écriture concurrente ne peut silencieusement écraser
+  une intention plus récente) — propriété adjacente à la sécurité des
+  données au sens large (nLPD art. 8, exactitude des données).
+- **Champ `sensitive` (Lot 3A, préparatoire) — première consultation
+  effective au Lot 3B.** `getSessionWorkspace` le recopie tel quel dans la
+  projection ; le frontend l'utilise uniquement pour un badge visuel
+  discret (« Donnée sensible »), sans aucun effet sur la visibilité, la
+  validation de réponse ou la finalisation — usage strictement
+  informationnel, proportionné à ce stade.
+- **`listAnswerHistory` (Lot 3A, inchangée) — invariant de sécurité non
+  revérifié à la lecture, signalé par la revue de conformité du Lot 3B.**
+  Contrairement aux routes d'écriture (`recordAnswers`/`clearAnswer`/
+  `amendAnswer`, qui appellent toutes `getQuestionForSession`/
+  `assertMemberBelongsToSession`), la lecture de l'historique ne revérifie
+  pas explicitement qu'une ligne `advisory_answers` appartient à la session
+  demandée au-delà du filtre SQL `session_id = ?`. Aucune fuite n'est
+  possible aujourd'hui, car aucune ligne ne peut exister en base sans être
+  passée par un chemin d'écriture déjà contrôlé — mais cette garantie
+  repose sur cet invariant plutôt que sur une vérification explicite au
+  moment de la lecture, point à garder en tête si un chemin d'écriture
+  alternatif (import, migration) était introduit plus tard.
 
 ## 7. Verrouillage de session
 

@@ -251,9 +251,44 @@
   apparaît en Lot 5/6).
 
 ### `PUT /api/advisory/sessions/:id`
-- **Corps** : `{ title?, scheduled_at? }` uniquement — jamais `household_id`,
-  `domain` ni la composition, immuables après création.
+- **Corps** : `{ title?, scheduled_at?, expected_revision }` uniquement —
+  jamais `household_id`, `domain` ni la composition, immuables après
+  création. `expected_revision` obligatoire (entier) depuis le GATE LOT 3B,
+  voir « Concurrence optimiste » ci-dessous.
+- **Réponse** : `{ ok: true, revision }`.
 - **Audit** : `session modifiée`.
+
+### Concurrence optimiste (`expected_revision`) — GATE LOT 3B §2
+
+> Le champ `sessions.revision` existait déjà depuis le Lot 3A (incrémenté à
+> chaque écriture) mais n'était utilisé par aucune route en contrôle
+> d'accès concurrent — un simple jeton côté client ignorait une réponse
+> HTTP obsolète, sans empêcher l'écriture obsolète elle-même d'avoir déjà
+> modifié la base. Corrigé au GATE LOT 3B.
+
+Toute route d'écriture sur une session (métadonnées, transitions,
+réponses, effacement, amendement) exige désormais un `expected_revision`
+(entier) dans le corps de la requête :
+- Le serveur compare `expected_revision` à la révision réelle courante de
+  la session, **avant** toute écriture.
+- En cas d'écart : `409` avec un message explicite (« Cette session a été
+  modifiée ailleurs depuis votre dernière lecture… ») — **aucune ligne
+  n'est écrite, aucun audit de succès n'est produit**.
+- En cas de succès : la révision est incrémentée de 1 et retournée dans la
+  réponse (`{ ..., revision }`), à utiliser comme `expected_revision` du
+  prochain appel.
+- `expected_revision` manquant ou non entier : `400`.
+
+Le frontend (`client/src/pages/SessionWorkspace.jsx`) sérialise ses
+écritures dans une file unique **par session** (jamais deux requêtes
+d'écriture envoyées en parallèle depuis le même onglet) : la révision étant
+un compteur global de session (et non par question), deux écritures
+concurrentes sur deux questions différentes doivent être envoyées dans
+l'ordre réel des intentions du conseiller pour ne jamais déclencher un
+conflit de révision entre elles-mêmes. Sur un conflit détecté (autre
+onglet, autre appareil), le frontend recharge automatiquement la
+projection et affiche un message clair, sans jamais écraser silencieusement
+une modification concurrente.
 
 ### `GET /api/advisory/sessions/:id/completion-check`
 - **Objectif** : prévisualiser la validation de finalisation sans finaliser
@@ -264,35 +299,138 @@
   rattaché (`common`/`health`/`life_pension`), jamais une liste globale
   indifférenciée pour une session mixte.
 
+### `GET /api/advisory/sessions/:id/workspace`
+> **Implémenté au Lot 3B**, pour l'espace de travail de rendez-vous
+> (`client/src/pages/SessionWorkspace.jsx`).
+
+- **Objectif** : projection unique, entièrement résolue côté serveur, prête
+  à afficher — le frontend ne réévalue jamais `evaluateCondition`, ne
+  détermine jamais lui-même le caractère obligatoire/visible d'une question,
+  et ne recalcule jamais la validité de finalisation. Toute cette logique
+  reste exclusivement dans `getSessionWorkspace`
+  (`server/advisorySessions.js`), qui réutilise à 100 % `getVersionDetail`,
+  `evaluateCondition`, `buildAnswerIndex`/`answerValueFor` et le résultat
+  déjà calculé par `validateSessionForCompletion` (aucune logique dupliquée).
+- **Réponse** :
+  ```json
+  {
+    "session": { "id": 1, "status": "in_progress", "domain": "mixed", "title": "...",
+      "scheduled_at": "...", "started_at": "...", "revision": 3, "advisor_name": "..." },
+    "household": { "id": 7, "label": null, "primary_display_name": "Jean Dupont",
+      "status": "actif", "members": [{ "id": 12, "client_id": 3, "member_role": "principal",
+        "display_name": "Jean Dupont", "historical": false, "no_longer_active": false,
+        "current_status": "actif", "can_answer": true }] },
+    "progress": { "required_total": 6, "required_answered": 4, "complete": false },
+    "modules": [{
+      "domain": "health", "module_role": "domain", "questionnaire_version_id": 5, "display_order": 2,
+      "progress": { "required_total": 4, "required_answered": 2 },
+      "sections": [{
+        "stable_key": "situation_actuelle", "title": "...", "applies_to": "member", "visible": true,
+        "instances": [{ "household_member_id": 12,
+          "member": { "id": 12, "display_name": "...", "member_role": "principal",
+            "historical": false, "no_longer_active": false, "current_status": "actif", "can_answer": true },
+          "questions": [{ "id": 42, "stable_key": "health_notes", "advisor_text": "...", "client_text": null,
+            "help_text": "...", "type": "long_text", "scope": "member", "required": true,
+            "allows_unknown": true, "allows_not_applicable": true, "sensitive": false, "options": [],
+            "visible": true, "answer": { "status": "answered", "value": "..." }, "missing": false,
+            "history_available": true }] }] }] }],
+    "missing": [{ "domain": "health", "questionnaire_version_id": 5, "missing": [{ "question_id": 42, "stable_key": "..." }] }],
+    "actions": { "can_start": false, "can_suspend": true, "can_resume": false, "can_cancel": true,
+      "can_complete": true, "can_record_answers": true, "can_amend": false }
+  }
+  ```
+- **Portée membre — décision révisée au GATE LOT 3B §5** (remplace le choix
+  initial du Lot 3B qui utilisait toujours les membres vivants) : une
+  session encore `draft` reflète les membres actifs actuels (aucun snapshot
+  encore figé). Dès `in_progress` et pour toujours ensuite (`suspended`/
+  `completed`/`cancelled`), le périmètre est **figé** sur
+  `household_snapshot` capturé au démarrage — jamais recalculé sur les
+  membres vivants :
+  - un membre ajouté au foyer après le démarrage n'apparaît jamais
+    rétroactivement dans cette session ;
+  - un membre retiré depuis reste visible (`historical: true`,
+    `no_longer_active: true`, `can_answer: false`) — jamais supprimé
+    silencieusement — et son historique de réponses reste pleinement
+    lisible ;
+  - `validateSessionForCompletion` utilise le **même** périmètre figé (via
+    `sessionMembersFor`), pour que ce qu'affiche le workspace corresponde
+    toujours exactement à ce que la finalisation validera réellement — y
+    compris un manquant obligatoire jamais résolu pour un membre depuis
+    retiré, qui reste compté comme manquant (aucune réduction silencieuse
+    du périmètre déjà en vigueur au démarrage).
+  - `current_status` reflète le statut réel actuel du membre en base
+    (information seule, ne réécrit jamais l'historique de la session).
+- **`actions`** : dérivées directement de la machine d'état
+  (`TRANSITIONS`/`assertSessionAcceptsAnswers`) — jamais une seconde source
+  de vérité que le frontend pourrait laisser diverger. `can_record_answers`
+  est `false` pour une session `suspended` (voir GATE LOT 3B §4 sous
+  `POST .../suspend` / `/resume` ci-dessous).
+- **Champ `sensitive`** (Lot 3B) : première route à consulter ce champ
+  préparatoire du Lot 3A — utilisé uniquement pour un badge visuel discret
+  côté interface (« Donnée sensible »), sans effet sur la visibilité, la
+  validation ou la finalisation.
+- **Minimisation** : n'expose jamais de SQL, de statut/section/question
+  archivée, ni de données d'un autre foyer ou d'un autre dossier.
+- **Audit** : `consultation workspace session` (session, utilisateur,
+  révision, statut — jamais de valeur de réponse), **dédupliqué** : au plus
+  une ligne par utilisateur et par session sur une fenêtre de 15 minutes
+  (`WORKSPACE_VIEW_DEDUP_MINUTES`, `server/advisorySessions.js`) — décision
+  révisée au GATE LOT 3B §6 (l'absence totale d'audit décidée initialement
+  au Lot 3B n'était pas validée). Les actions d'écriture réelles restent,
+  elles, toutes auditées sans déduplication, comme avant.
+- **Cache** : `Cache-Control: no-store, private` + `Pragma: no-cache` (GATE
+  LOT 3B §7) — jamais mise en cache par le navigateur ni un intermédiaire.
+- **Erreurs** : `401` sans session, `404` si la session n'existe pas.
+
 ### `POST /api/advisory/sessions/:id/start`
+- **Corps** : `{ expected_revision }`.
 - **Validation** : machine d'état stricte, indexée par (statut, action) —
   seule la transition `draft → in_progress` est acceptée pour cette action.
 - **Comportement** : fige `household_snapshot` (copie de la composition
-  actuelle du foyer), horodate `started_at`/`last_activity_at`.
+  actuelle du foyer), horodate `started_at`/`last_activity_at`, incrémente
+  `revision`.
+- **Réponse** : `{ ok: true, revision }`.
 - **Audit** : `session démarrée`.
 
 ### `POST /api/advisory/sessions/:id/suspend` / `/resume`
+- **Corps** : `{ expected_revision }`.
 - **Validation** : `suspend` uniquement depuis `in_progress` ; `resume`
   uniquement depuis `suspended` — **jamais** interchangeables avec `start`
   bien qu'ils ciblent tous deux `in_progress` (bug détecté et corrigé
   pendant l'implémentation : une machine d'état indexée par statut cible
   seul aurait permis à tort de « reprendre » une session en `draft`).
+- **Comportement (révisé au GATE LOT 3B §4, décision humaine)** : une
+  session `suspended` est réellement mise en pause — elle reste lisible,
+  consultable, annulable et reprenable, mais **n'accepte plus aucune
+  nouvelle réponse** tant que `resume` n'a pas été appelé explicitement
+  (`PUT/DELETE .../answers` refusés en `409`, `actions.can_record_answers
+  = false` dans la projection workspace). Avant ce correctif, une session
+  suspendue acceptait encore des réponses (comportement du Lot 3A,
+  volontairement corrigé). Les réponses déjà enregistrées avant la
+  suspension restent conservées et lisibles ; `resume` réactive
+  immédiatement la saisie.
 - **Erreurs** : `409` sur toute transition hors de la machine d'état.
+- **Réponse** : `{ ok: true, revision }`.
 - **Audit** : `session suspendue` / `session reprise`.
 
 ### `POST /api/advisory/sessions/:id/complete`
+- **Corps** : `{ expected_revision }`.
 - **Validation** : uniquement depuis `in_progress` ; vérifie que toutes les
   réponses obligatoires **visibles** (conditions d'affichage résolues) de
   **chaque** version rattachée sont présentes (`answered`/`unknown`/
-  `not_applicable` — jamais `cleared` ni absente) ; une question masquée ne
-  bloque jamais la finalisation.
+  `not_applicable` — jamais `cleared` ni absente), pour le périmètre de
+  membres **figé** (`sessionMembersFor`, voir plus haut) ; une question
+  masquée ne bloque jamais la finalisation.
 - **Erreurs** : `409` avec `{ missing: [...] }` (même structure que
   `completion-check`) si des réponses obligatoires manquent.
+- **Réponse** : `{ ok: true, revision }`.
 - **Audit** : `session finalisée`.
 
 ### `POST /api/advisory/sessions/:id/cancel`
+- **Corps** : `{ expected_revision }`.
 - **Validation** : depuis `draft`, `in_progress` ou `suspended` — jamais
   depuis `completed`.
+- **Réponse** : `{ ok: true, revision }`.
 - **Audit** : `session annulée`.
 
 **Aucune transition sortante n'existe depuis `completed` ni `cancelled`** —
@@ -383,68 +521,94 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
 
 ### `GET /api/advisory/sessions/:id/answers`
 - Réponses **actives** de la session (`superseded_by_answer_id IS NULL`).
+- **Cache** : `Cache-Control: no-store, private` (GATE LOT 3B §7).
 
 ### `GET /api/advisory/sessions/:id/answers/history`
 - **Paramètres** : `question_id`, `household_member_id?`. Historique complet
   (append-only) d'une question — mode conseiller/audit uniquement.
+- **Audit** (GATE LOT 3B §6) : `consultation historique réponse` (session,
+  question, membre éventuel, utilisateur — jamais la valeur), **sans**
+  déduplication (ouverture ponctuelle, pas rechargée automatiquement comme
+  le workspace).
+- **Cache** : `Cache-Control: no-store, private`.
 
 ### `PUT /api/advisory/sessions/:id/answers`
-- **Corps** : `{ answers: [{ question_id, household_member_id?, status, value? }] }`
+- **Corps** : `{ answers: [{ question_id, household_member_id?, status, value? }], expected_revision }`
   — écriture par lot. `status` ∈ `{answered, unknown, not_applicable, cleared}`
   (remplace les deux booléens `is_unknown`/`is_not_applicable` envisagés en
-  LOT 1 — voir `DATA_MODEL.md` §4.6).
+  LOT 1 — voir `DATA_MODEL.md` §4.6). `expected_revision` obligatoire
+  (entier) depuis le GATE LOT 3B §2 — voir « Concurrence optimiste » en §3.
 - **Validation** : `household_member_id` doit appartenir au **même** foyer
   que la session (jamais un membre d'un autre foyer, invariant vérifié en
   service, revue `compliance-privacy-reviewer`) ; la question doit
-  appartenir à une version rattachée à la session ; valeur conforme au
-  type (`text`/`long_text`/`integer`/`decimal`/`money`/`date`/`boolean`/
-  `single_choice`/`multiple_choice`, sans coercition silencieuse, aucune
-  option dupliquée pour un choix multiple) ; `unknown` refusé (`400`) si la
-  question ne l'autorise pas (`allows_unknown = false`) ; `not_applicable`
-  refusé (`400`, correctif final avant premier commit) si la question ne
-  l'autorise pas explicitement (`allows_not_applicable = false`, valeur par
-  défaut) — ce contrôle est appliqué côté service sur tous les chemins
-  d'écriture (`PUT .../answers`, `POST .../answers/amend`), jamais
-  uniquement côté interface ; aucune valeur fournie si le statut n'est pas
-  `answered`. `cleared` reste un mécanisme technique de suppression logique
-  et ne satisfait jamais une question obligatoire à la finalisation, quelle
-  que soit la configuration de la question.
+  appartenir à une version rattachée à la session ; le membre doit être
+  **actuellement actif** (`409` sinon — GATE LOT 3B §5, un membre historisé
+  reste lisible mais ne peut plus recevoir de nouvelle réponse) ; valeur
+  conforme au type (`text`/`long_text`/`integer`/`decimal`/`money`/`date`/
+  `boolean`/`single_choice`/`multiple_choice`, sans coercition silencieuse,
+  aucune option dupliquée pour un choix multiple) ; `unknown` refusé (`400`)
+  si la question ne l'autorise pas (`allows_unknown = false`) ;
+  `not_applicable` refusé (`400`, correctif final avant premier commit) si
+  la question ne l'autorise pas explicitement (`allows_not_applicable =
+  false`, valeur par défaut) — ce contrôle est appliqué côté service sur
+  tous les chemins d'écriture (`PUT .../answers`, `POST .../answers/amend`),
+  jamais uniquement côté interface ; aucune valeur fournie si le statut
+  n'est pas `answered`. `cleared` reste un mécanisme technique de
+  suppression logique et ne satisfait jamais une question obligatoire à la
+  finalisation, quelle que soit la configuration de la question.
 - **Comportement** (décision GATE LOT 1, point 3.4) : chaque réponse insère
   toujours une nouvelle ligne et renseigne `superseded_by_answer_id` sur la
   précédente réponse active du même `(question_id, household_member_id)` —
   jamais de mise à jour en place. `sessions.revision` s'incrémente une fois
-  par appel (pas par réponse individuelle du lot).
-- **Interdiction explicite** : `409` si `session.status` n'est pas `draft`,
-  `in_progress` ou `suspended` (une session `completed`/`cancelled` ne peut
-  plus recevoir de réponse par cette route).
+  par appel (pas par réponse individuelle du lot), après vérification de
+  `expected_revision`.
+- **Interdiction explicite** : `409` si `session.status` n'est pas `draft`
+  ou `in_progress` (une session `suspended` — depuis le GATE LOT 3B §4 —,
+  `completed` ou `cancelled` ne peut plus recevoir de réponse par cette
+  route).
+- **Réponse** : `{ answers: [...], revision }`.
 - **Audit** : `réponse enregistrée` (si au moins une nouvelle réponse) et/ou
   `réponse remplacée` (si au moins une réponse existante était remplacée) —
-  jamais la valeur, jamais de donnée sensible.
+  jamais la valeur, jamais de donnée sensible. Aucun audit produit en cas de
+  refus de révision (`409`).
 
 ### `DELETE /api/advisory/sessions/:id/answers/:questionId`
-- **Corps** : `{ household_member_id? }`.
+- **Corps** : `{ household_member_id?, expected_revision }`.
 - **Comportement** : insère une nouvelle ligne `status = cleared` (jamais de
   suppression physique) — une question obligatoire ainsi effacée redevient
-  manquante pour la finalisation.
+  manquante pour la finalisation. Mêmes contraintes que `PUT .../answers`
+  (statut de session, membre actif, `expected_revision`).
+- **Réponse** : `{ id, revision }`.
 - **Audit** : `réponse effacée`.
 
 ### `POST /api/advisory/sessions/:id/answers/amend`
 - **Objectif** : seule route permettant de corriger une réponse d'une
   session déjà `completed` (décision GATE LOT 1, point 3.4).
-- **Corps** : `{ question_id, household_member_id?, status, value?, amendment_reason }`
+- **Corps** : `{ question_id, household_member_id?, status, value?, amendment_reason, expected_revision }`
   — `amendment_reason` obligatoire et non vide.
 - **Validation** : `409` si `session.status` n'est pas `completed` (corrigé —
   documenté à tort comme `400` avant ce correctif) ; `400` si
   `amendment_reason` est absent/vide ou si le type/statut de la réponse est
   non conforme (y compris le gating `allows_unknown`/`allows_not_applicable`
-  ci-dessus, qui s'applique identiquement à cette route).
+  ci-dessus, qui s'applique identiquement à cette route). **N'exige pas**
+  que le membre soit actuellement actif (GATE LOT 3B §5) : corriger un
+  enregistrement historique reste valide même si le membre concerné n'est
+  plus actif aujourd'hui.
 - **Comportement** : insère la nouvelle réponse avec `is_amendment = true`,
   jamais de retour en arrière du statut de la session (aucune route de ce
   lot ne rouvre une session finalisée). L'exécution automatique du moteur
   de règles n'existe pas encore (Lot 4) — à ajouter explicitement quand ce
   moteur existera, sans modifier le comportement d'amendement lui-même.
+- **Réponse** : `{ id, revision }`.
 - **Audit** : `réponse amendée`.
 - **Idempotence** : non — chaque appel est un nouvel amendement tracé.
+- **Interface (GATE LOT 3B §8)** : chaque question visible et répondue
+  d'une session `completed` porte une action contextualisée « Corriger
+  cette réponse » (ouvre directement l'amendement de cette question et ce
+  membre, sans sélecteur). Le point d'entrée global du header ouvre un
+  sélecteur avec recherche textuelle groupée par module/section, jamais un
+  `<select>` plat (ne passerait pas à l'échelle avec un questionnaire réel
+  de nombreuses questions).
 
 ---
 

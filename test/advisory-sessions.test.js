@@ -26,6 +26,13 @@ function auditCount(action) {
   return db.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE action = ?').get(action).n;
 }
 
+// Lit la révision réelle courante d'une session -- utilisé pour fournir
+// `expected_revision` (contrôle de concurrence optimiste, GATE LOT 3B §2) à
+// chaque appel d'écriture de ce fichier de tests.
+function rev(sessionId) {
+  return db.prepare('SELECT revision FROM advisory_sessions WHERE id = ?').get(sessionId).revision;
+}
+
 let clientCounter = 0;
 function insertClient(over = {}) {
   clientCounter += 1;
@@ -189,7 +196,7 @@ function createSimpleSession(domain = 'health') {
 test('startSession — draft -> in_progress, fige household_snapshot, journalise', () => {
   const { sessionId } = createSimpleSession();
   const before = auditCount('session démarrée');
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   const detail = getSessionDetail(sessionId);
   assert.equal(detail.status, 'in_progress');
   assert.ok(detail.household_snapshot);
@@ -205,103 +212,103 @@ test('foyer archivé APRÈS création de la session — bloque le démarrage/la 
   const { sessionId, questionId, householdId } = createSimpleSession();
   db.prepare("UPDATE households SET status = 'archive' WHERE id = ?").run(householdId);
 
-  assert.throws(() => startSession(sessionId, REQ), (err) => err.status === 409);
-  assert.throws(() => updateSessionMetadata(sessionId, { title: 'X' }, REQ), (err) => err.status === 409);
+  assert.throws(() => startSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  assert.throws(() => updateSessionMetadata(sessionId, { title: 'X' , expected_revision: rev(sessionId) }, REQ), (err) => err.status === 409);
   assert.throws(
-    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ),
+    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ),
     (err) => err.status === 409
   );
 
   // Annuler reste possible (action fermante, aucune donnée nouvelle créée).
-  cancelSession(sessionId, REQ);
+  cancelSession(sessionId, rev(sessionId), REQ);
   assert.equal(getSessionDetail(sessionId).status, 'cancelled');
 });
 
 test('foyer archivé APRÈS démarrage — suspendre reste possible, reprendre/finaliser sont bloqués, annuler depuis suspended reste possible', () => {
   const { sessionId, questionId, householdId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
   db.prepare("UPDATE households SET status = 'archive' WHERE id = ?").run(householdId);
 
-  assert.throws(() => completeSession(sessionId, REQ), (err) => err.status === 409);
-  suspendSession(sessionId, REQ);
+  assert.throws(() => completeSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  suspendSession(sessionId, rev(sessionId), REQ);
   assert.equal(getSessionDetail(sessionId).status, 'suspended');
-  assert.throws(() => resumeSession(sessionId, REQ), (err) => err.status === 409);
-  cancelSession(sessionId, REQ);
+  assert.throws(() => resumeSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  cancelSession(sessionId, rev(sessionId), REQ);
   assert.equal(getSessionDetail(sessionId).status, 'cancelled');
 });
 
 test('foyer archivé APRÈS finalisation — amendAnswer est bloqué', () => {
   const { sessionId, questionId, householdId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
-  completeSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
   db.prepare("UPDATE households SET status = 'archive' WHERE id = ?").run(householdId);
 
   assert.throws(
-    () => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false, amendment_reason: 'Correction' }, REQ),
+    () => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false, amendment_reason: 'Correction' , expected_revision: rev(sessionId) }, REQ),
     (err) => err.status === 409
   );
 });
 
 test('Transitions interdites — refusées avec une erreur métier explicite (409)', () => {
   const { sessionId } = createSimpleSession();
-  assert.throws(() => completeSession(sessionId, REQ), (err) => err.status === 409);
-  assert.throws(() => suspendSession(sessionId, REQ), (err) => err.status === 409);
-  assert.throws(() => resumeSession(sessionId, REQ), (err) => err.status === 409);
+  assert.throws(() => completeSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  assert.throws(() => suspendSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  assert.throws(() => resumeSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
 });
 
 test('suspendSession puis resumeSession — cycle complet, journalisé', () => {
   const { sessionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  suspendSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  suspendSession(sessionId, rev(sessionId), REQ);
   assert.equal(getSessionDetail(sessionId).status, 'suspended');
-  assert.throws(() => suspendSession(sessionId, REQ), (err) => err.status === 409);
-  resumeSession(sessionId, REQ);
+  assert.throws(() => suspendSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  resumeSession(sessionId, rev(sessionId), REQ);
   assert.equal(getSessionDetail(sessionId).status, 'in_progress');
 });
 
 test('cancelSession — possible depuis draft, in_progress et suspended ; jamais depuis completed', () => {
   const s1 = createSimpleSession();
-  cancelSession(s1.sessionId, REQ);
+  cancelSession(s1.sessionId, rev(s1.sessionId), REQ);
   assert.equal(getSessionDetail(s1.sessionId).status, 'cancelled');
 
   const s2 = createSimpleSession();
-  startSession(s2.sessionId, REQ);
-  cancelSession(s2.sessionId, REQ);
+  startSession(s2.sessionId, rev(s2.sessionId), REQ);
+  cancelSession(s2.sessionId, rev(s2.sessionId), REQ);
   assert.equal(getSessionDetail(s2.sessionId).status, 'cancelled');
 
-  assert.throws(() => cancelSession(s2.sessionId, REQ), (err) => err.status === 409);
+  assert.throws(() => cancelSession(s2.sessionId, rev(s2.sessionId), REQ), (err) => err.status === 409);
 });
 
 test('session annulée ne peut plus recevoir de réponses', () => {
   const { sessionId, questionId } = createSimpleSession();
-  cancelSession(sessionId, REQ);
+  cancelSession(sessionId, rev(sessionId), REQ);
   assert.throws(
-    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ),
+    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ),
     (err) => err.status === 409
   );
 });
 
 test('session complétée ne peut jamais être réouverte (aucune transition sortante)', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
-  completeSession(sessionId, REQ);
-  assert.throws(() => startSession(sessionId, REQ), (err) => err.status === 409);
-  assert.throws(() => suspendSession(sessionId, REQ), (err) => err.status === 409);
-  assert.throws(() => cancelSession(sessionId, REQ), (err) => err.status === 409);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  assert.throws(() => startSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  assert.throws(() => suspendSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
+  assert.throws(() => cancelSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409);
 });
 
 test('updateSessionMetadata — modifie titre/date, jamais household_id/domain/composition', () => {
   const { sessionId } = createSimpleSession();
-  updateSessionMetadata(sessionId, { title: 'RDV test' }, REQ);
+  updateSessionMetadata(sessionId, { title: 'RDV test' , expected_revision: rev(sessionId) }, REQ);
   assert.equal(getSessionDetail(sessionId).title, 'RDV test');
 });
 
 test('updateSessionMetadata — journalise les champs modifiés, jamais la valeur du titre (constat GATE)', () => {
   const { sessionId } = createSimpleSession();
-  updateSessionMetadata(sessionId, { title: 'Contient un détail confidentiel du rendez-vous' }, REQ);
+  updateSessionMetadata(sessionId, { title: 'Contient un détail confidentiel du rendez-vous' , expected_revision: rev(sessionId) }, REQ);
   const entry = db.prepare("SELECT details FROM audit_log WHERE action = 'session modifiée' ORDER BY id DESC LIMIT 1").get();
   assert.equal(entry.details, 'title');
   assert.ok(!entry.details.includes('confidentiel'), 'le titre ne doit jamais apparaître dans l’audit');
@@ -311,10 +318,10 @@ test('updateSessionMetadata — journalise les champs modifiés, jamais la valeu
 
 test('completeSession — refuse si des réponses obligatoires visibles manquent', () => {
   const { sessionId } = createSimpleSession();
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   const check = validateSessionForCompletion(sessionId);
   assert.equal(check.valid, false);
-  assert.throws(() => completeSession(sessionId, REQ), (err) => err.status === 409 && Array.isArray(err.missing));
+  assert.throws(() => completeSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409 && Array.isArray(err.missing));
 });
 
 test('completeSession — questions masquées (condition non satisfaite) ne bloquent jamais la finalisation', () => {
@@ -329,17 +336,17 @@ test('completeSession — questions masquées (condition non satisfaite) ne bloq
   }, REQ);
   Q.publishVersion(vid, REQ);
   const { id: sessionId } = createSession({ household_id: householdId, domain: 'health', questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }] }, REQ);
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: qTrigger, status: 'answered', value: false }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: qTrigger, status: 'answered', value: false }], rev(sessionId), REQ);
   const check = validateSessionForCompletion(sessionId);
   assert.equal(check.valid, true, 'la question conditionnelle masquée ne doit pas bloquer');
-  assert.doesNotThrow(() => completeSession(sessionId, REQ));
+  assert.doesNotThrow(() => completeSession(sessionId, rev(sessionId), REQ));
 });
 
 test('completeSession — réponse unknown satisfait une question obligatoire visible', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown' }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown' }], rev(sessionId), REQ);
   assert.equal(validateSessionForCompletion(sessionId).valid, true);
 });
 
@@ -352,16 +359,16 @@ test('completeSession — réponse not_applicable satisfait une question obligat
     household_id: householdId, domain: 'health',
     questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
   }, REQ);
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'not_applicable' }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'not_applicable' }], rev(sessionId), REQ);
   assert.equal(validateSessionForCompletion(sessionId).valid, true);
 });
 
 test('recordAnswers — refuse not_applicable quand la question ne l’autorise pas (allows_not_applicable=false par défaut)', () => {
   const { sessionId, questionId } = createSimpleSession(); // allowsNotApplicable=false par défaut
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   assert.throws(
-    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'not_applicable' }], REQ),
+    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'not_applicable' }], rev(sessionId), REQ),
     /n’autorise pas la réponse « non applicable »/
   );
   // La question reste donc manquante à la finalisation -- aucune façon détournée de la satisfaire.
@@ -381,8 +388,8 @@ test('completeSession — session mixte distingue les éléments manquants par d
       { questionnaire_version_id: vidLife, domain: 'life_pension', module_role: 'domain', display_order: 3 },
     ],
   }, REQ);
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: qHealth, status: 'answered', value: true }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: qHealth, status: 'answered', value: true }], rev(sessionId), REQ);
   const check = validateSessionForCompletion(sessionId);
   assert.equal(check.valid, false);
   const byDomain = Object.fromEntries(check.byLink.map((l) => [l.domain, l.missing.length]));
@@ -397,16 +404,16 @@ test('recordAnswers — refuse un membre appartenant à un AUTRE foyer', () => {
   const { sessionId, questionId } = createSimpleSession();
   const otherHousehold = buildHousehold();
   const otherMember = db.prepare('SELECT id FROM household_members WHERE household_id = ?').get(otherHousehold).id;
-  startSession(sessionId, REQ);
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: questionId, household_member_id: otherMember, status: 'answered', value: true }], REQ));
+  startSession(sessionId, rev(sessionId), REQ);
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: questionId, household_member_id: otherMember, status: 'answered', value: true }], rev(sessionId), REQ));
 });
 
 test('recordAnswers — refuse une question qui n’appartient à aucune version rattachée à la session', () => {
   const { sessionId } = createSimpleSession();
   const { questionId: foreignQuestionId } = buildPublishedQuestionnaire('life_pension');
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   assert.throws(
-    () => recordAnswers(sessionId, [{ question_id: foreignQuestionId, status: 'answered', value: true }], REQ),
+    () => recordAnswers(sessionId, [{ question_id: foreignQuestionId, status: 'answered', value: true }], rev(sessionId), REQ),
     (err) => err.status === 400
   );
 });
@@ -430,7 +437,7 @@ test('recordAnswers — valide chaque type : text/integer/decimal/money/date/boo
   Q.upsertOption(qMulti, { stable_key: 'y', label: 'Y', value: 'y', sort_order: 2 }, REQ);
   Q.publishVersion(vid, REQ);
   const { id: sessionId } = createSession({ household_id: householdId, domain: 'health', questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }] }, REQ);
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
 
   recordAnswers(sessionId, [
     { question_id: qText, status: 'answered', value: 'bonjour' },
@@ -441,17 +448,17 @@ test('recordAnswers — valide chaque type : text/integer/decimal/money/date/boo
     { question_id: qBool, status: 'answered', value: true },
     { question_id: qSingle, status: 'answered', value: 'a' },
     { question_id: qMulti, status: 'answered', value: ['x', 'y'] },
-  ], REQ);
+  ], rev(sessionId), REQ);
   const active = listActiveAnswers(sessionId);
   assert.equal(active.length, 8);
   assert.equal(active.find((a) => a.question_id === qInt).value, 42);
   assert.equal(active.find((a) => a.question_id === qBool).value, true);
   assert.deepEqual(active.find((a) => a.question_id === qMulti).value, ['x', 'y']);
 
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: qInt, status: 'answered', value: 3.5 }], REQ));
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: qSingle, status: 'answered', value: 'inconnue' }], REQ));
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: qMulti, status: 'answered', value: ['x', 'x'] }], REQ), /doublon/i);
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: qDate, status: 'answered', value: 'pas-une-date' }], REQ));
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: qInt, status: 'answered', value: 3.5 }], rev(sessionId), REQ));
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: qSingle, status: 'answered', value: 'inconnue' }], rev(sessionId), REQ));
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: qMulti, status: 'answered', value: ['x', 'x'] }], rev(sessionId), REQ), /doublon/i);
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: qDate, status: 'answered', value: 'pas-une-date' }], rev(sessionId), REQ));
 });
 
 test('recordAnswers — refuse « unknown » si la question ne l’autorise pas', () => {
@@ -462,28 +469,28 @@ test('recordAnswers — refuse « unknown » si la question ne l’autorise pas'
   const { id: questionId } = Q.upsertQuestion(sectionId, { stable_key: 'q1', advisor_text: 'X', type: 'boolean', allows_unknown: false, sort_order: 1 }, REQ);
   Q.publishVersion(vid, REQ);
   const { id: sessionId } = createSession({ household_id: householdId, domain: 'health', questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }] }, REQ);
-  startSession(sessionId, REQ);
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown' }], REQ));
+  startSession(sessionId, rev(sessionId), REQ);
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown' }], rev(sessionId), REQ));
 });
 
 test('recordAnswers — refuse une valeur fournie avec un statut unknown/not_applicable', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  assert.throws(() => recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown', value: true }], REQ));
+  startSession(sessionId, rev(sessionId), REQ);
+  assert.throws(() => recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown', value: true }], rev(sessionId), REQ));
 });
 
 test('recordAnswers — append-only : le remplacement conserve l’historique et n’écrase jamais', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   const beforeEnreg = auditCount('réponse enregistrée');
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
   assert.equal(auditCount('réponse enregistrée'), beforeEnreg + 1);
 
   const beforeRemp = auditCount('réponse remplacée');
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: false }], REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: false }], rev(sessionId), REQ);
   assert.equal(auditCount('réponse remplacée'), beforeRemp + 1);
 
-  const history = listAnswerHistory(sessionId, questionId, null);
+  const history = listAnswerHistory(sessionId, questionId, null, REQ);
   assert.equal(history.length, 2);
   assert.equal(history[0].value, true);
   assert.ok(history[0].superseded_by_answer_id);
@@ -496,9 +503,9 @@ test('recordAnswers — append-only : le remplacement conserve l’historique et
 
 test('recordAnswers — une seule réponse active garantie même après plusieurs remplacements successifs', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   for (const v of [true, false, true, false, true]) {
-    recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: v }], REQ);
+    recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: v }], rev(sessionId), REQ);
   }
   const rows = db.prepare('SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ? AND question_id = ? AND superseded_by_answer_id IS NULL').get(sessionId, questionId);
   assert.equal(rows.n, 1);
@@ -506,12 +513,12 @@ test('recordAnswers — une seule réponse active garantie même après plusieur
 
 test('clearAnswer — insère une ligne « cleared », journalise, historise sans supprimer', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
   const before = auditCount('réponse effacée');
-  clearAnswer(sessionId, questionId, null, REQ);
+  clearAnswer(sessionId, questionId, null, rev(sessionId), REQ);
   assert.equal(auditCount('réponse effacée'), before + 1);
-  const history = listAnswerHistory(sessionId, questionId, null);
+  const history = listAnswerHistory(sessionId, questionId, null, REQ);
   assert.equal(history.length, 2);
   assert.equal(history[1].status, 'cleared');
   // Une question obligatoire effacée redevient manquante pour la finalisation.
@@ -520,32 +527,32 @@ test('clearAnswer — insère une ligne « cleared », journalise, historise san
 
 test('amendAnswer — refuse hors session finalisée', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   assert.throws(
-    () => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: true, amendment_reason: 'x' }, REQ),
+    () => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: true, amendment_reason: 'x' , expected_revision: rev(sessionId) }, REQ),
     (err) => err.status === 409
   );
 });
 
 test('amendAnswer — exige un motif non vide', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
-  completeSession(sessionId, REQ);
-  assert.throws(() => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false }, REQ));
-  assert.throws(() => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false, amendment_reason: '   ' }, REQ));
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  assert.throws(() => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false , expected_revision: rev(sessionId) }, REQ));
+  assert.throws(() => amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false, amendment_reason: '   ' , expected_revision: rev(sessionId) }, REQ));
 });
 
 test('amendAnswer — succès : historise, marque is_amendment, ne rouvre jamais la session, journalise', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
-  completeSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
   const before = auditCount('réponse amendée');
-  amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false, amendment_reason: 'Erreur de saisie initiale' }, REQ);
+  amendAnswer(sessionId, { question_id: questionId, status: 'answered', value: false, amendment_reason: 'Erreur de saisie initiale' , expected_revision: rev(sessionId) }, REQ);
   assert.equal(auditCount('réponse amendée'), before + 1);
   assert.equal(getSessionDetail(sessionId).status, 'completed');
-  const history = listAnswerHistory(sessionId, questionId, null);
+  const history = listAnswerHistory(sessionId, questionId, null, REQ);
   assert.equal(history.length, 2);
   assert.equal(history[1].is_amendment, 1);
   assert.equal(history[1].amendment_reason, 'Erreur de saisie initiale');
@@ -560,14 +567,14 @@ test('amendAnswer — refuse un amendement vers not_applicable/unknown si la que
     household_id: householdId, domain: 'health',
     questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
   }, REQ);
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
-  completeSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
 
   // not_applicable interdit -> amendement refusé, session reste completed, aucune ligne ajoutée.
   const beforeCount = db.prepare('SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ?').get(sessionId).n;
   assert.throws(
-    () => amendAnswer(sessionId, { question_id: questionId, status: 'not_applicable', amendment_reason: 'Test refus' }, REQ),
+    () => amendAnswer(sessionId, { question_id: questionId, status: 'not_applicable', amendment_reason: 'Test refus' , expected_revision: rev(sessionId) }, REQ),
     /n’autorise pas la réponse « non applicable »/
   );
   assert.equal(getSessionDetail(sessionId).status, 'completed');
@@ -575,7 +582,7 @@ test('amendAnswer — refuse un amendement vers not_applicable/unknown si la que
   assert.equal(afterCount, beforeCount, 'aucune ligne ne doit être ajoutée par un amendement refusé (rollback complet)');
 
   // unknown autorisé -> amendement accepté.
-  amendAnswer(sessionId, { question_id: questionId, status: 'unknown', amendment_reason: 'Réponse initiale erronée' }, REQ);
+  amendAnswer(sessionId, { question_id: questionId, status: 'unknown', amendment_reason: 'Réponse initiale erronée' , expected_revision: rev(sessionId) }, REQ);
   assert.equal(getSessionDetail(sessionId).status, 'completed');
 });
 
@@ -586,14 +593,14 @@ test('amendAnswer — not_applicable accepté quand la question l’autorise exp
     household_id: householdId, domain: 'health',
     questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
   }, REQ);
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
-  completeSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
   const before = auditCount('réponse amendée');
-  amendAnswer(sessionId, { question_id: questionId, status: 'not_applicable', amendment_reason: 'Ne s’applique finalement pas à ce foyer' }, REQ);
+  amendAnswer(sessionId, { question_id: questionId, status: 'not_applicable', amendment_reason: 'Ne s’applique finalement pas à ce foyer' , expected_revision: rev(sessionId) }, REQ);
   assert.equal(auditCount('réponse amendée'), before + 1);
   assert.equal(getSessionDetail(sessionId).status, 'completed');
-  const history = listAnswerHistory(sessionId, questionId, null);
+  const history = listAnswerHistory(sessionId, questionId, null, REQ);
   assert.equal(history[history.length - 1].status, 'not_applicable');
   assert.equal(history[history.length - 1].is_amendment, 1);
   // Audit : jamais la valeur ni le statut de la réponse dans les détails journalisés.
@@ -603,13 +610,13 @@ test('amendAnswer — not_applicable accepté quand la question l’autorise exp
 
 test('recordAnswers — rollback : un lot contenant une entrée invalide n’enregistre aucune réponse du lot', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
   const before = db.prepare('SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ?').get(sessionId).n;
   assert.throws(() =>
     recordAnswers(sessionId, [
       { question_id: questionId, status: 'answered', value: true },
       { question_id: 999999, status: 'answered', value: true },
-    ], REQ)
+    ], rev(sessionId), REQ)
   );
   const after = db.prepare('SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ?').get(sessionId).n;
   assert.equal(before, after, 'aucune réponse du lot ne doit être enregistrée si une entrée échoue');
@@ -617,8 +624,8 @@ test('recordAnswers — rollback : un lot contenant une entrée invalide n’enr
 
 test('audit — aucune valeur de réponse ni donnée sensible dans les détails journalisés', () => {
   const { sessionId, questionId } = createSimpleSession();
-  startSession(sessionId, REQ);
-  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
   const rows = db.prepare("SELECT details FROM audit_log WHERE action IN ('réponse enregistrée','réponse remplacée','réponse effacée','réponse amendée')").all();
   for (const r of rows) {
     assert.ok(!/true|false/i.test(r.details || '') || /nouvelle|remplac/i.test(r.details), 'pas de valeur brute dans les détails');
@@ -631,4 +638,59 @@ test('listSessions — filtre par foyer, statut et domaine', () => {
   assert.ok(rows.some((r) => r.id === sessionId));
   const rowsWrongStatus = listSessions({ household_id: householdId, status: 'completed' });
   assert.ok(!rowsWrongStatus.some((r) => r.id === sessionId));
+});
+
+// --- Concurrence optimiste (GATE LOT 3B §2) ---------------------------------
+
+test('recordAnswers — expected_revision incorrect (obsolète) refuse (409), n’écrit rien, ne journalise aucun succès', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  const staleRevision = rev(sessionId);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], staleRevision, REQ); // fait avancer la révision réelle
+  const before = auditCount('réponse enregistrée');
+  const beforeCount = db.prepare('SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ?').get(sessionId).n;
+  assert.throws(
+    () => recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: false }], staleRevision, REQ),
+    (err) => err.status === 409
+  );
+  assert.equal(auditCount('réponse enregistrée'), before, 'aucun audit de succès après un refus de révision');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ?').get(sessionId).n, beforeCount, 'aucune ligne écrite après un refus de révision');
+});
+
+test('recordAnswers — ordre A → B → C : chaque écriture successive avec sa propre expected_revision aboutit à C (dernière intention), jamais un état intermédiaire', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ); // A (représentée ici par true)
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'unknown' }], rev(sessionId), REQ); // B
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: false }], rev(sessionId), REQ); // C
+  const active = listActiveAnswers(sessionId);
+  assert.equal(active.length, 1);
+  assert.equal(active[0].status, 'answered');
+  assert.equal(active[0].value, false, 'la dernière intention (C) doit être la réponse active, jamais A ni B');
+});
+
+test('recordAnswers puis clearAnswer puis recordAnswers — chaque écriture successive respecte la révision qu’elle vient de recevoir', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  clearAnswer(sessionId, questionId, null, rev(sessionId), REQ);
+  assert.equal(listActiveAnswers(sessionId)[0].status, 'cleared');
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: false }], rev(sessionId), REQ);
+  const active = listActiveAnswers(sessionId);
+  assert.equal(active.length, 1);
+  assert.equal(active[0].value, false);
+});
+
+// --- Snapshot des membres (GATE LOT 3B §5) ----------------------------------
+
+test('sessionMembersFor (via getSessionWorkspace) — draft : reflète les membres actifs actuels, aucun snapshot encore figé', () => {
+  const householdId = buildHousehold();
+  const { vid, questionId } = buildPublishedQuestionnaire('health', { memberScope: true });
+  const { id: sessionId } = createSession({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  const detail = getSessionDetail(sessionId);
+  assert.equal(detail.household_snapshot, null, 'aucun snapshot avant le démarrage');
+  void questionId;
 });

@@ -70,10 +70,11 @@
   route de prévisualisation `completion-check`).
 - **Écrans** : frontend minimal seulement (liste des sessions, création,
   détail technique, actions démarrer/suspendre/reprendre/annuler/finaliser)
-  — le rendu complet des questions, la progression visuelle et le mode
-  présentation restent différés au **Lot 3B**, non démarré (`UX_AND_CLIENT_
-  MODE.md` 1.1/1.4/1.5/1.6/1.13/1.14 restent des propositions non
-  implémentées).
+  — le rendu complet des questions et la progression visuelle sont différés
+  au **Lot 3B** (implémenté depuis, voir plus bas) ; le mode présentation
+  client reste différé au **Lot 8**, non démarré (`UX_AND_CLIENT_MODE.md`
+  §1.1/1.4/1.5/1.6/1.13/1.14 : §1.5 implémentée au Lot 3B, §1.11 reste une
+  proposition non implémentée pour le Lot 8).
 - **Divergence majeure actée en cours de lot** : la composition d'une
   session mixte se fait par une table d'association
   (`advisory_session_questionnaires`, une version `health` **et** une
@@ -113,13 +114,82 @@
   inverse de création (respect des clés étrangères) — aucune donnée hors de
   ce module n'est affectée.
 
-## Lot 3B — Interface complète du rendez-vous (non démarré)
+## Lot 3B — Interface de conduite du rendez-vous (implémenté)
 
-- **Objectif** : rendu complet des questions (par section, par portée
-  foyer/membre), progression visuelle, sauvegarde par lot en direct,
-  reprise d'une session suspendue avec restitution du contexte, mode
-  présentation client. Réutilise le socle backend du Lot 3A sans le
-  modifier.
+> **Statut : implémenté et testé.** **Divergence de périmètre corrigée par
+> rapport à la formulation ci-dessous** (écrite avant le lancement réel du
+> lot) : le **mode présentation client est explicitement exclu** de ce lot
+> par la décision humaine qui l'a lancé — il n'a jamais fait partie de
+> l'objectif réellement poursuivi, contrairement à ce que cette entrée
+> laissait entendre. Restent également hors périmètre (confirmés à
+> l'identique) : moteur de règles diagnostiques, findings, recommandations,
+> comparaison de produits/assureurs, calculs LAMal/3a/3b, rapport PDF,
+> consentements définitifs, IA, MCP, portail client.
+
+- **Objectif réellement livré** : espace de travail React
+  (`client/src/pages/SessionWorkspace.jsx`,
+  `/diagnostic-360/sessions/:id/workspace`) — ouverture d'une session,
+  navigation par module (commun/santé/vie-prévoyance, jamais fusionnés) puis
+  par section, sélection du membre concerné pour une question de portée
+  individuelle, saisie et sauvegarde des réponses (immédiate pour les
+  contrôles discrets, différée de 600 ms pour le texte/numérique), usage de
+  `unknown`/`not_applicable` uniquement lorsque la question l'autorise,
+  progression globale/par module, suspension/reprise, vérification des
+  éléments manquants et finalisation, consultation de l'historique d'une
+  question, amendement après finalisation avec motif obligatoire.
+- **Principe respecté** : le frontend ne réimplémente aucune règle de
+  visibilité/validation/finalisation — une projection unique et
+  entièrement résolue côté serveur (`getSessionWorkspace`/
+  `GET /api/advisory/sessions/:id/workspace`, `API_CONTRACT.md` §3) réutilise
+  à 100 % le moteur existant du Lot 3A (`evaluateCondition`,
+  `getVersionDetail`, `buildAnswerIndex`, `validateSessionForCompletion`).
+- **Aucune migration** : `PRAGMA user_version` reste à 10, aucune table
+  ajoutée — la progression est entièrement dérivée des réponses existantes,
+  jamais stockée en double.
+- **GATE de validation et de correction (avant tout commit)** : une revue
+  humaine dédiée a identifié plusieurs lacunes réelles dans
+  l'implémentation initiale, toutes corrigées avant le premier commit du
+  lot :
+  - **Concurrence optimiste** (`API_CONTRACT.md` §3) : le champ `revision`,
+    déjà présent mais dormant depuis le Lot 3A, protège désormais
+    réellement toute écriture (`expected_revision` obligatoire, `409` sur
+    conflit, aucune écriture ni audit de succès en cas de refus) — testé y
+    compris avec deux onglets concurrents et des requêtes réseau
+    délibérément inversées (arrivée au serveur dans l'ordre inverse de
+    l'émission).
+  - **File de sauvegarde réelle côté frontend** : les écritures d'une même
+    session sont désormais sérialisées (une seule à la fois), remplaçant un
+    simple jeton qui ne protégeait que l'affichage, jamais l'ordre réel
+    d'écriture en base.
+  - **Sauvegardes en attente** (`flushPendingSaves`) : une saisie encore en
+    débounce est explicitement envoyée avant tout changement de
+    membre/section/module, suspension, contrôle de finalisation ou sortie
+    du workspace — jamais perdue silencieusement.
+  - **Session suspendue réellement en pause** (décision humaine) :
+    n'accepte plus aucune nouvelle réponse avant reprise explicite
+    (comportement du Lot 3A corrigé).
+  - **Périmètre des membres figé** (`household_snapshot`, décision
+    humaine) : une session `in_progress` et au-delà fige son périmètre de
+    membres au démarrage — un membre retiré depuis reste visible
+    (historique, lecture seule), un membre ajouté depuis n'apparaît jamais
+    rétroactivement ; la validation de finalisation utilise ce même
+    périmètre figé.
+  - **Audit de la lecture du workspace et de l'historique**, avec
+    déduplication technique pour la première (décision initiale de
+    non-audit non validée).
+  - **En-têtes anti-cache** sur les routes exposant des réponses.
+  - **Amendement contextualisé** : chaque question répondue d'une session
+    finalisée porte une action directe « Corriger cette réponse » ; le
+    sélecteur global devient une recherche groupée par module/section,
+    remplaçant un `<select>` plat qui ne passerait pas à l'échelle.
+  - **Accessibilité tactile** : cible portée à ~40-44px pour les contrôles
+    propres au workspace.
+- **Tests** : voir rapport du GATE Lot 3B pour le décompte exact (projection
+  backend — domaines/mixte/module commun facultatif/visibilité dynamique/
+  portée membre/statuts de réponse/statuts de session/foyer archivé/version
+  archivée historique/minimisation/concurrence optimiste/snapshot des
+  membres/audit dédupliqué — et vérification navigateur manuelle couvrant
+  30 scénarios).
 - **Dépendances** : Lot 3A.
 
 ## Lot 4 — Moteur de règles

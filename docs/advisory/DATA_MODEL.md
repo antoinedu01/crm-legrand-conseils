@@ -395,7 +395,17 @@ d'un client via l'API `clients` existante.
 >   Lot 4, moteur de règles).
 > - **Champ ajouté, non listé explicitement mais invariant déjà documenté** :
 >   `household_snapshot` (JSON, figé au démarrage) — voir `MIGRATIONS.md`
->   Version 10.
+>   Version 10. Capturé dès le Lot 3A mais resté dormant (jamais lu) jusqu'au
+>   GATE LOT 3B §5, qui en fait désormais le périmètre de référence exclusif
+>   des membres d'une session `in_progress` et au-delà (voir §3.1 ci-dessous
+>   et `API_CONTRACT.md` §3, `GET .../workspace`).
+> - **Champ ajouté, non listé explicitement** : `revision` (entier, présent
+>   depuis la migration v10). Incrémenté à chaque écriture depuis le Lot 3A,
+>   mais utilisé comme un simple compteur jusqu'au GATE LOT 3B §2, qui en
+>   fait le mécanisme de contrôle de concurrence optimiste de **toute**
+>   écriture sur la session (métadonnées, transitions, réponses,
+>   effacement, amendement) — voir `API_CONTRACT.md` §3 « Concurrence
+>   optimiste ».
 > - La contrainte « une session utilise exactement une version **publiée**,
 >   choisie et immuable **dès la création** (pas seulement dès `in_progress`
 >   comme envisagé initialement) » est plus stricte que ce document et est

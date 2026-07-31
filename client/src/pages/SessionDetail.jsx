@@ -76,9 +76,12 @@ export default function SessionDetail() {
           {data.status === 'in_progress' && (
             <>
               <button onClick={checkCompletion}>Vérifier la finalisation</button>
-              <button className="primary" onClick={complete}>Finaliser</button>
+              <button onClick={complete}>Finaliser</button>
             </>
           )}
+          <button className="primary" onClick={() => navigate(`/diagnostic-360/sessions/${id}/workspace`)}>
+            Ouvrir l'espace de rendez-vous
+          </button>
         </div>
       </div>
 
@@ -140,7 +143,12 @@ export default function SessionDetail() {
 
       <div className="card">
         <h2>Questionnaire et réponses</h2>
-        <Empty>Le parcours de rendez-vous (questions, progression, réponses) arrive dans un prochain lot (3B).</Empty>
+        <p className="muted mb">
+          Le parcours de questions, la progression et la saisie des réponses se font désormais dans l'espace de rendez-vous dédié.
+        </p>
+        <button className="primary" onClick={() => navigate(`/diagnostic-360/sessions/${id}/workspace`)}>
+          Ouvrir l'espace de rendez-vous
+        </button>
       </div>
     </>
   );

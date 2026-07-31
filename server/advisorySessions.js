@@ -5,7 +5,7 @@
 import db from './db.js';
 import { assert, isDateStr, inEnum, checkTextFields } from './validate.js';
 import { audit } from './audit.js';
-import { AdvisoryError } from './advisoryHouseholds.js';
+import { AdvisoryError, displayName } from './advisoryHouseholds.js';
 import { evaluateCondition } from './advisoryConditions.js';
 import { getVersionDetail } from './advisoryQuestionnaires.js';
 
@@ -71,6 +71,26 @@ function assertTransition(session, action) {
     );
   }
   return next;
+}
+
+// Contrôle de concurrence optimiste (GATE LOT 3B §2) : toute écriture sur une
+// session doit indiquer la révision qu'elle croit modifier. Un simple jeton
+// qui ignore une réponse HTTP obsolète côté client ne protège pas la donnée
+// persistée elle-même (la requête obsolète peut très bien avoir déjà écrit en
+// base avant que sa réponse ne soit ignorée) — cette fonction est donc
+// appelée AVANT toute écriture, jamais seulement pour filtrer une réponse
+// après coup. Si la révision réelle a changé entre-temps (autre onglet,
+// requête concurrente arrivée en premier), on refuse : aucune ligne n'est
+// écrite, aucun audit de succès n'est produit, et l'appelant ne reçoit
+// qu'une erreur 409 compréhensible.
+function assertExpectedRevision(session, expectedRevision) {
+  assert(Number.isInteger(expectedRevision), 'expected_revision est requis (entier).');
+  if (expectedRevision !== session.revision) {
+    throw new AdvisoryError(
+      `Cette session a été modifiée ailleurs depuis votre dernière lecture (révision attendue ${expectedRevision}, révision réelle ${session.revision}). Rechargez le workspace avant de réessayer.`,
+      409
+    );
+  }
 }
 
 // --- Lecture -----------------------------------------------------------
@@ -186,6 +206,7 @@ export function createSession(data = {}, req) {
 export function updateSessionMetadata(id, data = {}, req) {
   const session = requireSession(id);
   assertHouseholdWritable(session.household_id);
+  assertExpectedRevision(session, data.expected_revision);
   const { title, scheduled_at } = data;
   checkTextFields({ title }, ['title'], 200);
   assert(isDateStr(scheduled_at), 'Date prévue invalide (AAAA-MM-JJ).');
@@ -193,7 +214,10 @@ export function updateSessionMetadata(id, data = {}, req) {
   const params = [];
   if ('title' in data) { fields.push('title = ?'); params.push(title || null); }
   if ('scheduled_at' in data) { fields.push('scheduled_at = ?'); params.push(scheduled_at || null); }
-  if (fields.length === 0) return { ok: true };
+  if (fields.length === 0) return { ok: true, revision: session.revision };
+  const newRevision = session.revision + 1;
+  fields.push('revision = ?');
+  params.push(newRevision);
   params.push(id);
   db.prepare(`UPDATE advisory_sessions SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...params);
   // Jamais la valeur du titre (texte libre, potentiellement sensible) dans
@@ -205,7 +229,7 @@ export function updateSessionMetadata(id, data = {}, req) {
   if ('title' in data) changedFields.push('title');
   if ('scheduled_at' in data) changedFields.push('scheduled_at');
   audit(req, 'session modifiée', 'advisory_session', id, changedFields.join(', '));
-  return { ok: true };
+  return { ok: true, revision: newRevision };
 }
 
 // --- Transitions -----------------------------------------------------------
@@ -221,63 +245,73 @@ function buildHouseholdSnapshot(householdId) {
   return JSON.stringify({ household_id: householdId, label: household.label, members });
 }
 
-export function startSession(id, req) {
+export function startSession(id, expectedRevision, req) {
   const session = requireSession(id);
   assertHouseholdWritable(session.household_id);
   assertTransition(session, 'start');
+  assertExpectedRevision(session, expectedRevision);
+  const newRevision = session.revision + 1;
   const snapshot = buildHouseholdSnapshot(session.household_id);
   db.prepare(
     `UPDATE advisory_sessions SET status = 'in_progress', started_at = datetime('now'),
-     last_activity_at = datetime('now'), household_snapshot = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(snapshot, id);
+     last_activity_at = datetime('now'), household_snapshot = ?, revision = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(snapshot, newRevision, id);
   audit(req, 'session démarrée', 'advisory_session', id, '');
-  return { ok: true };
+  return { ok: true, revision: newRevision };
 }
 
-export function suspendSession(id, req) {
+export function suspendSession(id, expectedRevision, req) {
   const session = requireSession(id);
   assertTransition(session, 'suspend');
+  assertExpectedRevision(session, expectedRevision);
+  const newRevision = session.revision + 1;
   db.prepare(
-    "UPDATE advisory_sessions SET status = 'suspended', suspended_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-  ).run(id);
+    "UPDATE advisory_sessions SET status = 'suspended', suspended_at = datetime('now'), revision = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(newRevision, id);
   audit(req, 'session suspendue', 'advisory_session', id, '');
-  return { ok: true };
+  return { ok: true, revision: newRevision };
 }
 
-export function resumeSession(id, req) {
+export function resumeSession(id, expectedRevision, req) {
   const session = requireSession(id);
   assertHouseholdWritable(session.household_id);
   assertTransition(session, 'resume');
+  assertExpectedRevision(session, expectedRevision);
+  const newRevision = session.revision + 1;
   db.prepare(
-    "UPDATE advisory_sessions SET status = 'in_progress', last_activity_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-  ).run(id);
+    "UPDATE advisory_sessions SET status = 'in_progress', last_activity_at = datetime('now'), revision = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(newRevision, id);
   audit(req, 'session reprise', 'advisory_session', id, '');
-  return { ok: true };
+  return { ok: true, revision: newRevision };
 }
 
-export function cancelSession(id, req) {
+export function cancelSession(id, expectedRevision, req) {
   const session = requireSession(id);
   assertTransition(session, 'cancel');
-  db.prepare("UPDATE advisory_sessions SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(id);
+  assertExpectedRevision(session, expectedRevision);
+  const newRevision = session.revision + 1;
+  db.prepare("UPDATE advisory_sessions SET status = 'cancelled', revision = ?, updated_at = datetime('now') WHERE id = ?").run(newRevision, id);
   audit(req, 'session annulée', 'advisory_session', id, '');
-  return { ok: true };
+  return { ok: true, revision: newRevision };
 }
 
-export function completeSession(id, req) {
+export function completeSession(id, expectedRevision, req) {
   const session = requireSession(id);
   assertHouseholdWritable(session.household_id);
   assertTransition(session, 'complete');
+  assertExpectedRevision(session, expectedRevision);
   const validation = validateSessionForCompletion(id);
   if (!validation.valid) {
     const err = new AdvisoryError('Des réponses obligatoires visibles sont manquantes ou invalides.', 409);
     err.missing = validation.byLink;
     throw err;
   }
+  const newRevision = session.revision + 1;
   db.prepare(
-    "UPDATE advisory_sessions SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-  ).run(id);
+    "UPDATE advisory_sessions SET status = 'completed', completed_at = datetime('now'), revision = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(newRevision, id);
   audit(req, 'session finalisée', 'advisory_session', id, '');
-  return { ok: true };
+  return { ok: true, revision: newRevision };
 }
 
 // --- Validation de finalisation (deux niveaux) ------------------------------
@@ -370,30 +404,340 @@ export function validateSessionForCompletion(sessionId) {
   const links = db
     .prepare('SELECT * FROM advisory_session_questionnaires WHERE session_id = ? ORDER BY display_order')
     .all(sessionId);
-  const activeMembers = db
-    .prepare("SELECT * FROM household_members WHERE household_id = ? AND status = 'actif'")
-    .all(session.household_id);
+  // Périmètre figé (GATE LOT 3B §5) : mêmes membres que ceux affichés par
+  // getSessionWorkspace, jamais recalculés séparément sur les membres vivants
+  // -- y compris les membres historisés (`can_answer: false`), pour ne
+  // jamais réduire silencieusement la portée d'une exigence déjà en vigueur
+  // au démarrage simplement parce qu'un membre a été retiré depuis.
+  const members = sessionMembersFor(session);
   const answerIndex = buildAnswerIndex(sessionId);
 
   const byLink = links.map((link) => ({
     domain: link.domain,
     questionnaire_version_id: link.questionnaire_version_id,
-    missing: validateLinkForCompletion(session, link, answerIndex, activeMembers),
+    missing: validateLinkForCompletion(session, link, answerIndex, members),
   }));
   const valid = byLink.every((l) => l.missing.length === 0);
   return { valid, byLink };
 }
 
+// --- Projection du workspace (Lot 3B) ---------------------------------------
+
+function activeMembersFor(householdId) {
+  return db
+    .prepare(
+      `SELECT hm.id, hm.client_id, hm.member_role, c.type, c.first_name, c.last_name, c.company_name
+       FROM household_members hm JOIN clients c ON c.id = hm.client_id
+       WHERE hm.household_id = ? AND hm.status = 'actif'
+       ORDER BY (hm.member_role = 'principal') DESC, hm.id`
+    )
+    .all(householdId)
+    .map((r) => ({ id: r.id, client_id: r.client_id, member_role: r.member_role, display_name: displayName(r) }));
+}
+
+// Résout les membres de RÉFÉRENCE d'une session (GATE LOT 3B §5, décision
+// humaine remplaçant le choix initial du Lot 3B qui utilisait toujours les
+// membres vivants). Une session encore `draft` (jamais démarrée) reflète les
+// membres actuellement actifs, puisqu'aucun `household_snapshot` n'a encore
+// été figé. Dès `in_progress` et pour toujours ensuite (suspended/completed/
+// cancelled), le snapshot figé au démarrage devient la référence exclusive :
+// - un membre ajouté au foyer après le démarrage n'apparaît jamais
+//   rétroactivement dans cette session ;
+// - un membre retiré depuis reste visible (jamais silencieusement
+//   supprimé), marqué `historical`/`no_longer_active`, avec `can_answer:
+//   false` -- son historique de réponses reste pleinement lisible, mais
+//   aucune nouvelle réponse ne peut lui être associée ;
+// - la validation de finalisation (`validateSessionForCompletion`) utilise
+//   la MÊME liste, pour que ce qu'affiche le workspace corresponde toujours
+//   exactement à ce que la finalisation validera réellement.
+function sessionMembersFor(session) {
+  if (session.status === 'draft' || !session.household_snapshot) {
+    return activeMembersFor(session.household_id).map((m) => ({
+      ...m, historical: false, no_longer_active: false, current_status: 'actif', can_answer: true,
+    }));
+  }
+  const snapshot = JSON.parse(session.household_snapshot);
+  const liveStatusById = new Map(
+    db.prepare('SELECT id, status FROM household_members WHERE household_id = ?').all(session.household_id)
+      .map((r) => [r.id, r.status])
+  );
+  return snapshot.members.map((m) => {
+    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(m.client_id) || {};
+    const currentStatus = liveStatusById.get(m.id) ?? null; // null = supprimé entre-temps (rare)
+    const stillActive = currentStatus === 'actif';
+    return {
+      id: m.id,
+      client_id: m.client_id,
+      member_role: m.member_role,
+      display_name: displayName(client),
+      historical: !stillActive,
+      no_longer_active: !stillActive,
+      current_status: currentStatus,
+      can_answer: stillActive,
+    };
+  });
+}
+
+// Fenêtre de déduplication pour l'audit de consultation du workspace (GATE
+// LOT 3B §6) : la projection est rechargée automatiquement après chaque
+// écriture (§2), ce qui produirait des centaines de lignes d'audit
+// quasi-identiques sans intérêt de traçabilité réel. Une seule action
+// identique par utilisateur et par session sur cette fenêtre est conservée.
+// Constante documentée, facilement modifiable ; aucune nouvelle table
+// requise (réutilise `audit_log` existant). Politique à reconfirmer par le
+// responsable protection des données avant toute mise en production avec
+// des données réelles (voir SECURITY_PRIVACY.md).
+const WORKSPACE_VIEW_DEDUP_MINUTES = 15;
+
+// N'enregistre jamais de valeur de réponse, de texte de question, de montant,
+// de date médicale, de détail de membre ni de condition JSON — uniquement
+// l'identifiant de session, l'utilisateur, la révision et le statut.
+function auditWorkspaceView(req, sessionId, revision, status) {
+  const email = req?.session?.userEmail || 'système';
+  const recent = db
+    .prepare(
+      `SELECT id FROM audit_log WHERE user_email = ? AND action = 'consultation workspace session'
+       AND entity = 'advisory_session' AND entity_id = ? AND created_at >= datetime('now', ?)
+       ORDER BY id DESC LIMIT 1`
+    )
+    .get(email, sessionId, `-${WORKSPACE_VIEW_DEDUP_MINUTES} minutes`);
+  if (recent) return;
+  audit(req, 'consultation workspace session', 'advisory_session', sessionId, `révision ${revision} — ${status}`);
+}
+
+// Dérivées directement de TRANSITIONS/assertSessionAcceptsAnswers — jamais
+// une seconde source de vérité que le frontend pourrait laisser diverger de
+// la machine d'état réelle (server/advisorySessions.js).
+function allowedActions(status) {
+  const acts = TRANSITIONS[status] || {};
+  return {
+    can_start: !!acts.start,
+    can_suspend: !!acts.suspend,
+    can_resume: !!acts.resume,
+    can_cancel: !!acts.cancel,
+    can_complete: !!acts.complete,
+    can_record_answers: ['draft', 'in_progress'].includes(status),
+    can_amend: status === 'completed',
+  };
+}
+
+// Projection complète et prête à afficher d'une session, pour le workspace
+// React du Lot 3B (GET /api/advisory/sessions/:id/workspace). Réutilise
+// entièrement le moteur existant — `evaluateCondition`, `getVersionDetail`,
+// `buildAnswerIndex`/`answerValueFor`, et le résultat déjà calculé de
+// `validateSessionForCompletion` pour la détermination des éléments
+// manquants — n'invente aucune nouvelle règle de visibilité, de validation
+// de réponse, de portée ou de complétude. Reste volontairement une fonction
+// SÉPARÉE de `validateLinkForCompletion` (Lot 3A, déjà testée et publiée)
+// plutôt qu'une refactorisation en base commune : les deux réutilisent les
+// mêmes briques pures (`evaluateCondition` au premier chef, jamais
+// réimplémenté ailleurs), ce qui est le point de non-duplication réellement
+// exigé — construire en plus l'arbre de rendu (options, aide, réponse
+// courante par membre) est un besoin distinct de la simple liste des
+// manques, qui n'a pas sa place dans la fonction de validation existante.
+// Portée membre : résolue sur les membres ACTIFS EN BASE au moment de
+// l'appel (comme `validateSessionForCompletion`), jamais sur
+// `household_snapshot` figé au démarrage — pour que ce que le conseiller
+// voit corresponde exactement à ce que `POST .../complete` validera
+// réellement (incohérence potentielle sinon, relevée en revue
+// d'architecture pré-implémentation).
+export function getSessionWorkspace(sessionId, req) {
+  const session = requireSession(sessionId);
+  const household = getHousehold(session.household_id);
+  if (!household) throw new AdvisoryError('Foyer introuvable.', 404);
+  const members = sessionMembersFor(session);
+  const links = db
+    .prepare('SELECT * FROM advisory_session_questionnaires WHERE session_id = ? ORDER BY display_order')
+    .all(sessionId);
+  const answerIndex = buildAnswerIndex(sessionId);
+  const completion = validateSessionForCompletion(sessionId);
+  const missingByVersion = new Map(
+    completion.byLink.map((l) => [l.questionnaire_version_id, new Set(l.missing.map((m) => `${m.question_id}|${m.household_member_id ?? 'household'}`))])
+  );
+  // Nombre total de lignes (actives + historisées) par clé — sert
+  // uniquement à indiquer qu'un historique existe (`history_available`),
+  // jamais à en dévoiler le contenu ici.
+  const historyCounts = new Map(
+    db
+      .prepare('SELECT question_id, household_member_id, COUNT(*) AS n FROM advisory_answers WHERE session_id = ? GROUP BY question_id, household_member_id')
+      .all(sessionId)
+      .map((r) => [`${r.question_id}|${r.household_member_id ?? 'household'}`, r.n])
+  );
+
+  let globalRequiredTotal = 0;
+  let globalRequiredAnswered = 0;
+
+  const modules = links.map((link) => {
+    const detail = getVersionDetail(link.questionnaire_version_id);
+    const missingSet = missingByVersion.get(link.questionnaire_version_id) || new Set();
+    const byStableKey = new Map();
+    for (const section of detail.sections) for (const q of section.questions) byStableKey.set(q.stable_key, q);
+
+    function householdGetAnswer(stableKey) {
+      const q = byStableKey.get(stableKey);
+      if (!q) return undefined;
+      const row = answerIndex.get(`${q.id}|household`);
+      if (!row) return undefined;
+      return { status: row.status, value: answerValueFor(row) };
+    }
+    function memberGetAnswer(memberId) {
+      return (stableKey) => {
+        const q = byStableKey.get(stableKey);
+        if (!q) return undefined;
+        const row = answerIndex.get(`${q.id}|${memberId}`);
+        if (!row) return undefined;
+        return { status: row.status, value: answerValueFor(row) };
+      };
+    }
+
+    let moduleRequiredTotal = 0;
+    let moduleRequiredAnswered = 0;
+
+    function projectQuestion(q, getAnswer, memberContext, memberId, sectionVisible) {
+      if (q.status !== 'active') return null;
+      const cond = q.display_condition ? JSON.parse(q.display_condition) : null;
+      const visible = sectionVisible && evaluateCondition(cond, { session: { domain: session.domain }, getAnswer, member: memberContext });
+      const key = `${q.id}|${memberId ?? 'household'}`;
+      const row = memberId != null ? answerIndex.get(`${q.id}|${memberId}`) : answerIndex.get(`${q.id}|household`);
+      const answer = row ? { status: row.status, value: answerValueFor(row) } : null;
+      const missing = visible && q.required && missingSet.has(key);
+      if (visible && q.required) {
+        moduleRequiredTotal += 1;
+        globalRequiredTotal += 1;
+        if (!missing) { moduleRequiredAnswered += 1; globalRequiredAnswered += 1; }
+      }
+      return {
+        id: q.id,
+        stable_key: q.stable_key,
+        advisor_text: q.advisor_text,
+        client_text: q.client_text,
+        help_text: q.help_text,
+        type: q.type,
+        scope: q.scope,
+        required: !!q.required,
+        allows_unknown: !!q.allows_unknown,
+        allows_not_applicable: !!q.allows_not_applicable,
+        sensitive: !!q.sensitive,
+        sort_order: q.sort_order,
+        options: (q.options || []).map((o) => ({ stable_key: o.stable_key, label: o.label, value: o.value, sort_order: o.sort_order, status: o.status })),
+        household_member_id: memberId ?? null,
+        visible,
+        answer,
+        missing,
+        history_available: (historyCounts.get(key) || 0) > 1,
+      };
+    }
+
+    const sections = [];
+    for (const section of detail.sections) {
+      if (section.status !== 'active') continue;
+      const sectionCondition = section.display_condition ? JSON.parse(section.display_condition) : null;
+      const sectionVisible = evaluateCondition(sectionCondition, { session: { domain: session.domain }, getAnswer: householdGetAnswer, member: null });
+
+      let instances;
+      if (section.applies_to === 'household') {
+        const questions = section.questions.map((q) => projectQuestion(q, householdGetAnswer, null, null, sectionVisible)).filter(Boolean);
+        instances = [{ household_member_id: null, member: null, questions }];
+      } else {
+        instances = members.map((member) => ({
+          household_member_id: member.id,
+          member: {
+            id: member.id,
+            display_name: member.display_name,
+            member_role: member.member_role,
+            historical: member.historical,
+            no_longer_active: member.no_longer_active,
+            current_status: member.current_status,
+            can_answer: member.can_answer,
+          },
+          questions: section.questions
+            .map((q) => projectQuestion(q, memberGetAnswer(member.id), { member_role: member.member_role }, member.id, sectionVisible))
+            .filter(Boolean),
+        }));
+      }
+      sections.push({
+        stable_key: section.stable_key,
+        title: section.title,
+        applies_to: section.applies_to,
+        sort_order: section.sort_order,
+        visible: sectionVisible,
+        instances,
+      });
+    }
+
+    return {
+      domain: link.domain,
+      module_role: link.module_role,
+      questionnaire_version_id: link.questionnaire_version_id,
+      display_order: link.display_order,
+      progress: { required_total: moduleRequiredTotal, required_answered: moduleRequiredAnswered },
+      sections,
+    };
+  });
+
+  const advisor = db.prepare('SELECT name FROM users WHERE id = ?').get(session.advisor_user_id);
+  const primaryClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(household.primary_client_id);
+
+  auditWorkspaceView(req, sessionId, session.revision, session.status);
+
+  return {
+    session: {
+      id: session.id,
+      status: session.status,
+      domain: session.domain,
+      title: session.title,
+      scheduled_at: session.scheduled_at,
+      started_at: session.started_at,
+      suspended_at: session.suspended_at,
+      completed_at: session.completed_at,
+      last_activity_at: session.last_activity_at,
+      revision: session.revision,
+      advisor_name: advisor ? advisor.name : null,
+    },
+    household: {
+      id: household.id,
+      label: household.label,
+      primary_display_name: displayName(primaryClient),
+      status: household.status,
+      members,
+    },
+    progress: { required_total: globalRequiredTotal, required_answered: globalRequiredAnswered, complete: completion.valid },
+    modules,
+    missing: completion.byLink,
+    actions: allowedActions(session.status),
+  };
+}
+
 // --- Réponses ----------------------------------------------------------
 
+// « suspended » exclu délibérément (GATE LOT 3B §4, décision humaine) : une
+// session suspendue est réellement mise en pause -- elle reste lisible,
+// consultable, annulable et reprenable, mais n'accepte plus aucune nouvelle
+// réponse tant que « resume » n'a pas été appelé explicitement. Avant cette
+// décision, une session suspendue acceptait encore des réponses (LOT 3A),
+// ce qui contredisait la sémantique attendue d'une pause.
 function assertSessionAcceptsAnswers(session) {
-  if (!['draft', 'in_progress', 'suspended'].includes(session.status)) {
+  if (!['draft', 'in_progress'].includes(session.status)) {
     throw new AdvisoryError(
       `Aucune réponse ne peut être enregistrée sur une session « ${session.status} ».`,
       409
     );
   }
   assertHouseholdWritable(session.household_id);
+}
+
+// Un membre historisé (retiré du foyer depuis le démarrage de la session,
+// GATE LOT 3B §5) ne doit plus recevoir de NOUVELLE réponse -- son historique
+// reste lisible, mais la saisie active se limite aux membres réellement
+// actifs aujourd'hui. Ne s'applique jamais à l'amendement (correction d'un
+// enregistrement historique, valide indépendamment du statut actuel du
+// membre).
+function assertMemberCanAnswer(householdMemberId) {
+  if (householdMemberId == null) return;
+  const member = db.prepare('SELECT status FROM household_members WHERE id = ?').get(householdMemberId);
+  if (!member || member.status !== 'actif') {
+    throw new AdvisoryError('Ce membre n’est plus actif dans le foyer : aucune nouvelle réponse ne peut lui être associée.', 409);
+  }
 }
 
 function getQuestionForSession(sessionId, questionId) {
@@ -526,9 +870,10 @@ function findActiveAnswerRow(sessionId, questionId, householdMemberId) {
 // ligne et rattache l'ancienne active via superseded_by_answer_id, jamais
 // d'écrasement. Une seule incrémentation de `revision` par appel (pas par
 // réponse individuelle du lot).
-export function recordAnswers(sessionId, answers = [], req) {
+export function recordAnswers(sessionId, answers = [], expectedRevision, req) {
   const session = requireSession(sessionId);
   assertSessionAcceptsAnswers(session);
+  assertExpectedRevision(session, expectedRevision);
   assert(Array.isArray(answers) && answers.length > 0, 'Au moins une réponse est requise.');
 
   let created = 0;
@@ -540,6 +885,7 @@ export function recordAnswers(sessionId, answers = [], req) {
       const { question_id, household_member_id, status, value } = entry;
       const question = getQuestionForSession(sessionId, question_id);
       assertMemberBelongsToSession(session, household_member_id ?? null);
+      assertMemberCanAnswer(household_member_id ?? null);
       if (question.scope === 'member') {
         assert(household_member_id != null, 'household_member_id est requis pour une question de portée « member ».');
       } else {
@@ -575,14 +921,16 @@ export function recordAnswers(sessionId, answers = [], req) {
 
   if (created > 0) audit(req, 'réponse enregistrée', 'advisory_session', sessionId, `${created} nouvelle(s)`);
   if (replaced > 0) audit(req, 'réponse remplacée', 'advisory_session', sessionId, `${replaced} remplacée(s)`);
-  return { answers: results };
+  return { answers: results, revision: session.revision + 1 };
 }
 
-export function clearAnswer(sessionId, questionId, householdMemberId, req) {
+export function clearAnswer(sessionId, questionId, householdMemberId, expectedRevision, req) {
   const session = requireSession(sessionId);
   assertSessionAcceptsAnswers(session);
+  assertExpectedRevision(session, expectedRevision);
   getQuestionForSession(sessionId, questionId);
   assertMemberBelongsToSession(session, householdMemberId ?? null);
+  assertMemberCanAnswer(householdMemberId ?? null);
   const existing = findActiveAnswerRow(sessionId, questionId, householdMemberId ?? null);
   const newRevision = session.revision + 1;
   const answerId = db.transaction(() => {
@@ -600,18 +948,22 @@ export function clearAnswer(sessionId, questionId, householdMemberId, req) {
     return info.lastInsertRowid;
   })();
   audit(req, 'réponse effacée', 'advisory_session', sessionId, `question #${questionId}`);
-  return { id: answerId };
+  return { id: answerId, revision: newRevision };
 }
 
 // Amendement après finalisation (§8.4) — seule route pouvant modifier une
 // session déjà `completed`. Motif obligatoire, jamais de retour en arrière
-// du statut de la session.
-export function amendAnswer(sessionId, { question_id, household_member_id, status, value, amendment_reason } = {}, req) {
+// du statut de la session. Contrairement à recordAnswers/clearAnswer,
+// n'appelle jamais assertMemberCanAnswer : corriger un enregistrement
+// historique reste valide même si le membre concerné n'est plus actif
+// aujourd'hui (GATE LOT 3B §5).
+export function amendAnswer(sessionId, { question_id, household_member_id, status, value, amendment_reason, expected_revision } = {}, req) {
   const session = requireSession(sessionId);
   if (session.status !== 'completed') {
     throw new AdvisoryError('L’amendement n’est possible que sur une session finalisée (utilisez l’enregistrement normal sinon).', 409);
   }
   assertHouseholdWritable(session.household_id);
+  assertExpectedRevision(session, expected_revision);
   assert(amendment_reason && amendment_reason.trim(), 'Le motif de correction est obligatoire.');
   checkTextFields({ amendment_reason }, ['amendment_reason'], 2000);
   const question = getQuestionForSession(sessionId, question_id);
@@ -639,7 +991,7 @@ export function amendAnswer(sessionId, { question_id, household_member_id, statu
     return info.lastInsertRowid;
   })();
   audit(req, 'réponse amendée', 'advisory_session', sessionId, `question #${question_id}`);
-  return { id: answerId };
+  return { id: answerId, revision: newRevision };
 }
 
 export function listActiveAnswers(sessionId) {
@@ -650,8 +1002,12 @@ export function listActiveAnswers(sessionId) {
     .map((r) => ({ ...r, value: answerValueFor(r) }));
 }
 
-export function listAnswerHistory(sessionId, questionId, householdMemberId) {
+export function listAnswerHistory(sessionId, questionId, householdMemberId, req) {
   requireSession(sessionId);
+  audit(
+    req, 'consultation historique réponse', 'advisory_session', sessionId,
+    `question #${questionId}${householdMemberId != null ? ` — membre #${householdMemberId}` : ''}`
+  );
   let sql = 'SELECT * FROM advisory_answers WHERE session_id = ? AND question_id = ?';
   const params = [sessionId, questionId];
   if (householdMemberId != null) {

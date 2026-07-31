@@ -6,6 +6,6 @@ const insert = db.prepare(
 
 // Journal d'audit exigé par le principe de traçabilité (nLPD art. 8, sécurité des données)
 export function audit(req, action, entity = null, entityId = null, details = null) {
-  const email = req.session?.userEmail || 'système';
+  const email = req?.session?.userEmail || 'système';
   insert.run(email, action, entity, entityId, details ? String(details).slice(0, 500) : null);
 }

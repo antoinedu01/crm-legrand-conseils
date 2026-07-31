@@ -215,6 +215,116 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .kcard details summary { cursor: pointer; color: var(--accent-ink); }
 .kcard details ul { margin: 6px 0 0 16px; padding: 0; color: var(--ink-2); }
 
+/* ---------- Workspace de rendez-vous (Lot 3B) ---------- */
+.wksp-modules { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.wksp-modules button {
+  border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent;
+  padding: 8px 14px; color: var(--ink-2); white-space: nowrap;
+}
+.wksp-modules button.active { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.wksp-modules button:hover { background: transparent; color: var(--accent-ink); }
+
+.wksp-layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .wksp-layout { grid-template-columns: 1fr; } }
+
+.wksp-rail { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
+@media (max-width: 900px) {
+  .wksp-rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+}
+.wksp-rail-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; text-align: left; border: 1px solid transparent;
+  color: var(--ink-2); font-size: 12.5px; font-weight: 500; background: transparent; white-space: nowrap;
+}
+.wksp-rail-item:hover { background: var(--wash); }
+.wksp-rail-item.active { background: var(--wash); color: var(--accent-ink); border-color: var(--border); }
+.wksp-rail-item .count { color: var(--muted); font-size: 11px; font-weight: 400; }
+@media (max-width: 900px) { .wksp-rail-item { flex-shrink: 0; } }
+
+.wksp-member-switch {
+  position: sticky; top: 0; z-index: 2; background: var(--page);
+  display: flex; align-items: center; gap: 8px; padding: 6px 0 12px; margin-bottom: 4px; flex-wrap: wrap;
+}
+.wksp-member-switch .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.wksp-member-switch .seg button { padding: 10px 12px; font-size: 12.5px; min-height: 40px; }
+.wksp-member-switch .seg button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Repère de progression persistant sous 900px (voir SessionWorkspace.jsx) --
+   remplace le rôle des tuiles/du rail, qui ne restent pas visibles au
+   défilement sous ce seuil. Le sélecteur de membre n'est plus sticky sous
+   900px pour éviter que deux bandeaux collent au même `top: 0` et se
+   superposent. */
+.wksp-progress-sticky { display: none; }
+@media (max-width: 900px) {
+  .wksp-progress-sticky {
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    position: sticky; top: 0; z-index: 3; background: var(--page);
+    padding: 7px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--ink-2);
+  }
+  .wksp-progress-sticky strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .wksp-member-switch { position: static; }
+}
+
+.wksp-question { padding: 16px 0; border-bottom: 1px solid var(--grid); }
+.wksp-question:last-child { border-bottom: none; }
+.wksp-question .q-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.wksp-question .q-text { font-weight: 600; margin-bottom: 4px; }
+.wksp-question .q-help { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+.wksp-question .q-input { max-width: 420px; }
+/* GATE LOT 3B §12 : cible tactile portée à ~40-44px pour les contrôles
+   interactifs propres au workspace (Oui/Non, valeurs spéciales, effacer,
+   historique, amender), sans modifier le style de bouton partagé par le
+   reste de l'application. */
+.wksp-question .q-input button, .wksp-question .q-actions button { min-height: 40px; padding-top: 10px; padding-bottom: 10px; }
+.wksp-question .q-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.wksp-question .q-actions button.toggled { background: var(--wash); border-color: var(--accent); color: var(--accent-ink); }
+.wksp-question .q-error { color: var(--critical); font-size: 12px; margin-top: 6px; }
+
+.save-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.save-state .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--baseline); flex-shrink: 0; }
+.save-state.saving .dot { background: var(--warning); }
+.save-state.saved { color: var(--good-text); }
+.save-state.saved .dot { background: var(--good); }
+.save-state.error { color: var(--critical); }
+.save-state.error .dot { background: var(--critical); }
+
+.radiogroup { display: flex; flex-direction: column; gap: 2px; }
+/* Zone de clic élargie (recommandation 24-44px) : la revue post-implémentation
+   a relevé que `label.check` seul (sans padding) donnait ~16-20px de hauteur
+   cliquable, insuffisant au doigt sur tablette. Portée volontairement limitée
+   à `.radiogroup` (propre au workspace) pour ne pas modifier l'apparence des
+   cases à cocher ailleurs dans l'application. */
+/* GATE LOT 3B §12 : cible tactile portée à ~44px (précédemment ~35px). */
+.radiogroup label.check { padding: 13px 6px; min-height: 32px; border-radius: 6px; }
+.radiogroup label.check:hover { background: var(--wash); }
+.radiogroup label.check input { flex-shrink: 0; width: 20px; height: 20px; }
+
+.missing-list { list-style: none; margin: 0; padding: 0; }
+.missing-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.missing-list li:last-child { border-bottom: none; }
+.missing-list button.link-row {
+  display: flex; justify-content: space-between; width: 100%; text-align: left;
+  border: none; background: transparent; padding: 8px 0; color: var(--ink); font-weight: 500;
+  min-height: 44px; align-items: center;
+}
+.missing-list button.link-row:hover { color: var(--accent-ink); }
+
+/* Sélecteur de recherche d'amendement (GATE LOT 3B §8) -- remplace le
+   <select> plat, borné en hauteur pour rester utilisable avec un
+   questionnaire réel de nombreuses questions. */
+.amend-picker { max-height: 360px; overflow-y: auto; margin-top: 8px; }
+
+.readonly-banner {
+  background: var(--wash); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 14px; font-size: 13px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); font-size: 13px; }
+.history-list li:last-child { border-bottom: none; }
+.history-list .h-meta { color: var(--muted); font-size: 11.5px; }
+
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { padding: 10px 0; border-bottom: 1px solid var(--grid); display: flex; gap: 10px; }
 .timeline li:last-child { border-bottom: none; }
