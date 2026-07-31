@@ -214,125 +214,236 @@
 
 ## 3. Sessions
 
+> **Implémenté au Lot 3A** (`server/routes/advisorySessions.js`,
+> `server/advisorySessions.js`). Diverge de la proposition LOT 1
+> ci-dessous : identifiants anglais, pas de colonne `questionnaire_version_id`
+> unique (composition modulaire via §4bis), pas de `meeting_mode`/
+> `internal_notes`/`rule_set_version_id` dans ce lot.
+
 ### `GET /api/advisory/sessions`
-- **Paramètres** : `household_id?`, `status?`, `domain?`.
-- **Réponse** : liste des sessions (tableau de bord des diagnostics).
+- **Paramètres** : `household_id?`, `status?`, `domain?`, `from?`, `to?`
+  (filtrent sur `scheduled_at`).
+- **Réponse** : liste des sessions.
+- **Audit** : aucun (lecture de liste).
 
 ### `POST /api/advisory/sessions`
-- **Corps** : `{ household_id, domain, scheduled_at? }`.
-- **Validation** : `domain` ∈ `{health, life_pension, mixed}` ; le foyer
-  doit exister et être `actif`.
-- **Comportement** : fige immédiatement `household_snapshot` (copie de la
-  composition actuelle du foyer) et sélectionne la dernière
-  `advisory_questionnaire_version` **publiée** pour le(s) domaine(s)
-  demandé(s) comme `questionnaire_version_id` par défaut (modifiable tant
-  que `status = brouillon`).
+- **Corps** : `{ household_id, domain, questionnaire_versions: [{ questionnaire_version_id, domain, module_role, display_order }], title?, scheduled_at? }`
+  — `questionnaire_versions` remplace un unique `questionnaire_version_id`
+  (composition modulaire, `DATA_MODEL.md` §3.2).
+- **Validation** : `domain` ∈ `{health, life_pension, mixed}` ; le foyer doit
+  exister (`400` sinon) et ne pas être `archive` (`409` sinon) ; chaque
+  version rattachée doit exister et être `published` (`400`/`409`) ; son
+  domaine réel doit correspondre au domaine déclaré dans le rattachement ;
+  invariants de composition par domaine de session (une version `health`
+  exactement pour une session `health`, une `health` **et** une
+  `life_pension` pour `mixed`, `common` toujours facultative, jamais deux
+  versions du même rôle de domaine) — voir `DATA_MODEL.md` §3.2.
 - **Réponse** : `201` `{ id }`.
-- **Audit** : `création session de diagnostic`.
+- **Audit** : `session créée`.
 
 ### `GET /api/advisory/sessions/:id`
-- **Réponse** : session + réponses + findings + recommandations +
-  consentements liés — la vue complète du mode conseiller.
-- **Audit** : `consultation session de diagnostic`.
+- **Réponse** : session (y compris `household_snapshot` une fois démarrée)
+  + composition (`questionnaire_versions`) + `answered_count`. Pas encore de
+  réponses/findings/recommandations/consentements imbriqués (ces objets
+  n'existent pas avant les lots suivants).
+- **Audit** : aucun dans ce lot (accès non journalisé, à la différence du
+  détail d'un foyer — à revoir si un contenu personnel plus sensible y
+  apparaît en Lot 5/6).
 
 ### `PUT /api/advisory/sessions/:id`
-- **Corps** : `{ status?, internal_notes?, meeting_mode?, started_at?, ended_at? }`.
-- **Validation** : transitions de statut contrôlées (`brouillon → en_cours →
-  termine`, `en_cours ↔ suspendu`, `* → annule`) ; refuse toute
-  modification de `household_snapshot`, `questionnaire_version_id` ou
-  `rule_set_version_id` une fois `status != brouillon`.
-- **Audit** : `modification session de diagnostic` (avec la transition de
-  statut en détail, comme le fait déjà `audit()` pour les contrats).
+- **Corps** : `{ title?, scheduled_at? }` uniquement — jamais `household_id`,
+  `domain` ni la composition, immuables après création.
+- **Audit** : `session modifiée`.
+
+### `GET /api/advisory/sessions/:id/completion-check`
+- **Objectif** : prévisualiser la validation de finalisation sans finaliser
+  — route de confort pour l'interface (identique à la vérification interne
+  de `POST .../complete`).
+- **Réponse** : `{ valid, byLink: [{ domain, questionnaire_version_id, missing: [...] }] }`
+  — `missing` distingue explicitement les éléments manquants par domaine
+  rattaché (`common`/`health`/`life_pension`), jamais une liste globale
+  indifférenciée pour une session mixte.
+
+### `POST /api/advisory/sessions/:id/start`
+- **Validation** : machine d'état stricte, indexée par (statut, action) —
+  seule la transition `draft → in_progress` est acceptée pour cette action.
+- **Comportement** : fige `household_snapshot` (copie de la composition
+  actuelle du foyer), horodate `started_at`/`last_activity_at`.
+- **Audit** : `session démarrée`.
 
 ### `POST /api/advisory/sessions/:id/suspend` / `/resume`
-- Raccourcis explicites pour la reprise d'une session interrompue, plutôt
-  que de passer par un `PUT` générique — plus lisible pour l'audit
-  (« rendez-vous interrompu puis repris » demandé dans les spécifications).
-- **Idempotence** : `suspend` sur une session déjà `suspendu` ne fait rien
-  (`200`, pas d'erreur) ; même logique pour `resume`.
-- **Audit** : `suspension session` / `reprise session`.
+- **Validation** : `suspend` uniquement depuis `in_progress` ; `resume`
+  uniquement depuis `suspended` — **jamais** interchangeables avec `start`
+  bien qu'ils ciblent tous deux `in_progress` (bug détecté et corrigé
+  pendant l'implémentation : une machine d'état indexée par statut cible
+  seul aurait permis à tort de « reprendre » une session en `draft`).
+- **Erreurs** : `409` sur toute transition hors de la machine d'état.
+- **Audit** : `session suspendue` / `session reprise`.
+
+### `POST /api/advisory/sessions/:id/complete`
+- **Validation** : uniquement depuis `in_progress` ; vérifie que toutes les
+  réponses obligatoires **visibles** (conditions d'affichage résolues) de
+  **chaque** version rattachée sont présentes (`answered`/`unknown`/
+  `not_applicable` — jamais `cleared` ni absente) ; une question masquée ne
+  bloque jamais la finalisation.
+- **Erreurs** : `409` avec `{ missing: [...] }` (même structure que
+  `completion-check`) si des réponses obligatoires manquent.
+- **Audit** : `session finalisée`.
+
+### `POST /api/advisory/sessions/:id/cancel`
+- **Validation** : depuis `draft`, `in_progress` ou `suspended` — jamais
+  depuis `completed`.
+- **Audit** : `session annulée`.
+
+**Aucune transition sortante n'existe depuis `completed` ni `cancelled`** —
+une session finalisée ou annulée ne peut jamais être réouverte silencieusement.
 
 ---
 
 ## 4. Questionnaires
 
+> **Implémenté au Lot 3A** (`server/routes/advisoryQuestionnaires.js`,
+> `server/advisoryQuestionnaires.js`) — **y compris** la création de
+> contenu (questionnaire/version/section/question/option), explicitement
+> demandée par les instructions du Lot 3A, à la différence de la
+> proposition LOT 1 ci-dessous qui la classait « hors périmètre lots 2-9 ».
+> Toutes ces routes restent privées, aucun éditeur public.
+
 ### `GET /api/advisory/questionnaires`
-- Liste des questionnaires par domaine, avec leur version publiée courante.
+- **Paramètres** : `domain?`, `status?`. Liste des questionnaires (familles).
 
-### `GET /api/advisory/questionnaires/:code/versions/:versionNumber`
-- Structure complète (sections, questions, options) d'une version précise —
-  utilisé aussi bien pour une session en cours que pour **relire une
-  session passée** avec la version qu'elle a réellement utilisée.
-- **Audit** : aucun (lecture de structure, pas de donnée personnelle).
+### `POST /api/advisory/questionnaires`
+- **Corps** : `{ stable_key, domain, name, description? }`. `domain` ∈
+  `{common, health, life_pension}` (jamais `mixed` à ce niveau — voir
+  `DATA_MODEL.md` §3).
+- **Erreurs** : `409` si `stable_key` déjà utilisée par un autre questionnaire.
+- **Audit** : `questionnaire créé`.
 
-### `POST /api/advisory/questionnaires/:code/versions` *(gestion, conseiller senior / usage interne)*
-- Crée une nouvelle version en `brouillon` à partir de la précédente.
-- **Hors périmètre d'implémentation immédiate** : cette route suppose un
-  éditeur de questionnaire, qui n'est pas un livrable des lots 2 à 9. Elle
-  est documentée ici pour la cohérence du modèle, son implémentation réelle
-  sera proposée explicitement le moment venu.
+### `POST /api/advisory/questionnaires/:id/versions`
+- **Corps** : `{ notes? }`. Crée un nouveau brouillon, `version_number`
+  strictement croissant par questionnaire.
+- **Audit** : `version créée`.
 
-### `POST /api/advisory/questionnaires/:code/versions/:versionNumber/publish`
-- Passe une version de `brouillon` à `publie` — **irréversible** (une version
-  publiée ne redevient jamais brouillon ; toute correction crée une nouvelle
-  version). Nécessite confirmation explicite côté interface.
-- **Audit** : `publication version questionnaire`.
+### `GET /api/advisory/questionnaires/versions`
+- **Paramètres** : `domain?`, `status?`. Liste toutes les versions (utilisée
+  par l'écran de création de session pour proposer les versions publiées
+  disponibles par domaine).
+
+### `GET /api/advisory/questionnaires/versions/:versionId`
+- Structure complète (sections, questions, options) d'une version précise.
+- **Erreurs** : `404` si introuvable.
+
+### `GET /api/advisory/questionnaires/versions/:versionId/validate`
+- Validation de format/cohérence sans publier (référence inconnue, cycle de
+  conditions, options manquantes/superflues, cohérence
+  `section.applies_to`/`question.scope`) — `{ valid, errors: [...] }`.
+
+### `POST /api/advisory/questionnaires/versions/:versionId/publish`
+- **Validation** : identique à `.../validate` ; refuse (`409`, avec `errors`)
+  si invalide ; refuse si la version n'est pas `draft`.
+- **Comportement** : calcule un `content_hash` (SHA-256), passe `published`,
+  **irréversible** (jamais de retour à `draft`).
+- **Audit** : `version publiée`.
+
+### `POST /api/advisory/questionnaires/versions/:versionId/archive`
+- Passe `archived` (depuis `draft` ou `published`) — n'altère jamais les
+  sessions historiques déjà rattachées. Idempotent.
+- **Audit** : `version archivée` (une seule fois, pas en cas d'idempotence).
+
+### `POST /api/advisory/questionnaires/versions/:versionId/clone`
+- **Validation** : uniquement depuis une version `published`.
+- **Comportement** : crée un nouveau brouillon (même questionnaire),
+  copiant intégralement sections/questions/options avec les mêmes clés
+  stables — la version d'origine n'est jamais modifiée.
+- **Audit** : `version clonée`.
+
+### `POST /api/advisory/questionnaires/versions/:versionId/sections`, `PUT .../sections/:sectionId`
+- Créent/modifient une section brouillon. Refusés (`409`) si la version
+  n'est plus `draft`.
+
+### `POST /api/advisory/questionnaires/sections/:sectionId/questions`, `PUT .../questions/:questionId`
+- Créent/modifient une question brouillon (mêmes contraintes d'immuabilité).
+- **`allows_not_applicable`** (booléen, défaut `false` — correctif final
+  avant premier commit du Lot 3A) : distinct de `allows_unknown`. Doit être
+  un booléen strict si fourni (`true`/`false`) — toute autre valeur est
+  refusée (`400`), jamais coercée silencieusement (contrairement à
+  `allows_unknown`/`required`, déjà tolérants). Retourné dans le détail de
+  version (`GET .../versions/:versionId`), conservé par le clonage, inclus
+  dans `content_hash` (voir `QUESTIONNAIRE_ENGINE.md` §7.1), et soumis à la
+  même règle d'immuabilité après publication que tout autre champ.
+
+### `POST /api/advisory/questionnaires/questions/:questionId/options`, `PUT .../options/:optionId`
+- Créent/modifient une option (choix simple/multiple uniquement).
 
 ---
 
 ## 5. Réponses
 
+> **Implémenté au Lot 3A**, sous `/api/advisory/sessions/:id/answers*`.
+
 ### `GET /api/advisory/sessions/:id/answers`
-- Réponses **actives** de la session (`superseded_by_answer_id IS NULL`),
-  avec les questions résolues (texte, type) pour affichage. Un paramètre
-  `include_superseded=true` peut exposer l'historique complet (mode
-  conseiller / audit uniquement, jamais en mode présentation).
+- Réponses **actives** de la session (`superseded_by_answer_id IS NULL`).
+
+### `GET /api/advisory/sessions/:id/answers/history`
+- **Paramètres** : `question_id`, `household_member_id?`. Historique complet
+  (append-only) d'une question — mode conseiller/audit uniquement.
 
 ### `PUT /api/advisory/sessions/:id/answers`
-- **Corps** : `{ answers: [{ question_id, household_member_id?, value, is_unknown?, is_not_applicable? }] }` —
-  écriture par lot (le questionnaire s'enregistre au fil de l'eau, pas
-  question par question, pour limiter les allers-retours réseau pendant un
-  rendez-vous en direct).
-- **Validation** : type de `value` conforme à `advisory_questions.type` de
-  la version figée, sans coercition automatique (même exigence stricte que
-  `contract_lamal.deductible` existant) ; refuse toute réponse pour une
-  question non applicable au foyer/membre (condition d'affichage non
-  satisfaite) sauf si `is_not_applicable = true`.
-- **Comportement** (décision GATE LOT 1, point 3.4) : chaque réponse
-  transmise **insère toujours une nouvelle ligne** `advisory_answers` et
-  renseigne `superseded_by_answer_id` sur la précédente réponse active du
-  même `(question_id, household_member_id)`, le cas échéant — jamais de
-  mise à jour en place.
-- **Interdiction explicite** : refuse toute écriture si `session.status`
-  n'est pas `brouillon` ou `en_cours` (une session `termine` ne peut plus
-  recevoir de réponse par cette route — voir `POST .../answers/amend`
-  ci-dessous pour le seul cas où une correction reste possible après
-  finalisation).
-- **Audit** : `enregistrement réponses` (résumé : nombre de réponses, jamais
-  le contenu détaillé dans le journal) ; `correction réponse` si au moins
-  une réponse transmise en remplaçait une existante.
+- **Corps** : `{ answers: [{ question_id, household_member_id?, status, value? }] }`
+  — écriture par lot. `status` ∈ `{answered, unknown, not_applicable, cleared}`
+  (remplace les deux booléens `is_unknown`/`is_not_applicable` envisagés en
+  LOT 1 — voir `DATA_MODEL.md` §4.6).
+- **Validation** : `household_member_id` doit appartenir au **même** foyer
+  que la session (jamais un membre d'un autre foyer, invariant vérifié en
+  service, revue `compliance-privacy-reviewer`) ; la question doit
+  appartenir à une version rattachée à la session ; valeur conforme au
+  type (`text`/`long_text`/`integer`/`decimal`/`money`/`date`/`boolean`/
+  `single_choice`/`multiple_choice`, sans coercition silencieuse, aucune
+  option dupliquée pour un choix multiple) ; `unknown` refusé (`400`) si la
+  question ne l'autorise pas (`allows_unknown = false`) ; `not_applicable`
+  refusé (`400`, correctif final avant premier commit) si la question ne
+  l'autorise pas explicitement (`allows_not_applicable = false`, valeur par
+  défaut) — ce contrôle est appliqué côté service sur tous les chemins
+  d'écriture (`PUT .../answers`, `POST .../answers/amend`), jamais
+  uniquement côté interface ; aucune valeur fournie si le statut n'est pas
+  `answered`. `cleared` reste un mécanisme technique de suppression logique
+  et ne satisfait jamais une question obligatoire à la finalisation, quelle
+  que soit la configuration de la question.
+- **Comportement** (décision GATE LOT 1, point 3.4) : chaque réponse insère
+  toujours une nouvelle ligne et renseigne `superseded_by_answer_id` sur la
+  précédente réponse active du même `(question_id, household_member_id)` —
+  jamais de mise à jour en place. `sessions.revision` s'incrémente une fois
+  par appel (pas par réponse individuelle du lot).
+- **Interdiction explicite** : `409` si `session.status` n'est pas `draft`,
+  `in_progress` ou `suspended` (une session `completed`/`cancelled` ne peut
+  plus recevoir de réponse par cette route).
+- **Audit** : `réponse enregistrée` (si au moins une nouvelle réponse) et/ou
+  `réponse remplacée` (si au moins une réponse existante était remplacée) —
+  jamais la valeur, jamais de donnée sensible.
+
+### `DELETE /api/advisory/sessions/:id/answers/:questionId`
+- **Corps** : `{ household_member_id? }`.
+- **Comportement** : insère une nouvelle ligne `status = cleared` (jamais de
+  suppression physique) — une question obligatoire ainsi effacée redevient
+  manquante pour la finalisation.
+- **Audit** : `réponse effacée`.
 
 ### `POST /api/advisory/sessions/:id/answers/amend`
 - **Objectif** : seule route permettant de corriger une réponse d'une
-  session déjà `termine` (décision GATE LOT 1, point 3.4).
-- **Corps** : `{ answers: [{ question_id, household_member_id?, value, is_unknown?, is_not_applicable? }], amendment_reason }` —
-  `amendment_reason` obligatoire et non vide.
-- **Validation** : identique à `PUT .../answers` pour le type et la
-  conformité de chaque réponse ; refuse (`400`) si `session.status` n'est
-  **pas** `termine` (dans ce cas, c'est `PUT .../answers` qu'il faut
-  utiliser).
-- **Comportement** : insère les nouvelles réponses avec `is_amendment =
-  true` et `amendment_reason` renseigné, renseigne `superseded_by_answer_id`
-  sur les réponses remplacées, puis déclenche automatiquement une nouvelle
-  exécution du moteur de règles (équivalent d'un appel interne à
-  `POST .../run-diagnostic`) — le conseiller n'a pas besoin de l'appeler
-  séparément.
-- **Réponse** : `{ new_findings: [...], changed: boolean }` — `changed`
-  indique si le résultat du diagnostic diffère de la dernière exécution
-  connue, signal utilisé par l'interface pour proposer la génération d'un
-  `rapport_corrige` (voir `REPORT_SPECIFICATION.md`).
-- **Audit** : `amendement réponse (session finalisée)`, avec
-  `amendment_reason` en détail.
+  session déjà `completed` (décision GATE LOT 1, point 3.4).
+- **Corps** : `{ question_id, household_member_id?, status, value?, amendment_reason }`
+  — `amendment_reason` obligatoire et non vide.
+- **Validation** : `409` si `session.status` n'est pas `completed` (corrigé —
+  documenté à tort comme `400` avant ce correctif) ; `400` si
+  `amendment_reason` est absent/vide ou si le type/statut de la réponse est
+  non conforme (y compris le gating `allows_unknown`/`allows_not_applicable`
+  ci-dessus, qui s'applique identiquement à cette route).
+- **Comportement** : insère la nouvelle réponse avec `is_amendment = true`,
+  jamais de retour en arrière du statut de la session (aucune route de ce
+  lot ne rouvre une session finalisée). L'exécution automatique du moteur
+  de règles n'existe pas encore (Lot 4) — à ajouter explicitement quand ce
+  moteur existera, sans modifier le comportement d'amendement lui-même.
+- **Audit** : `réponse amendée`.
 - **Idempotence** : non — chaque appel est un nouvel amendement tracé.
 
 ---

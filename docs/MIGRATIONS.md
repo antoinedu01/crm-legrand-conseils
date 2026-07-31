@@ -131,3 +131,107 @@ migration depuis une base héritée, idempotence, colonnes, index, et
 comportement des deux index uniques partiels (multi-foyer autorisé,
 doublon actif dans le même foyer refusé, deux principaux actifs refusés).
 Cette migration s'exécute dans une transaction SQLite unique.)*
+
+## Version 10
+
+**Objectif** : socle générique « sessions de conseil et questionnaires »
+(Lot 3A) — huit tables entièrement nouvelles, aucun contenu métier réel
+(santé/vie), uniquement le moteur générique et versionné. Numéro vérifié
+disponible au moment de l'implémentation : aucun bloc `< 10` n'existait, la
+version 9 restait la dernière ; aucune branche distante ne dépasse la
+version 9 (`feature/lead-generation-engine` reste à `< 6`).
+
+**Tables créées (8)** :
+- `advisory_questionnaires` — famille fonctionnelle de questionnaires
+  (`stable_key` unique, `domain` ∈ `common`/`health`/`life_pension` — **pas**
+  `mixed` à ce niveau, voir composition modulaire ci-dessous).
+- `advisory_questionnaire_versions` — version figée et publiable
+  indépendamment (`status` ∈ `draft`/`published`/`archived`,
+  `content_hash` SHA-256 calculé à la publication via le module `crypto` de
+  Node, déjà utilisé par `server/app.js`/`server/totp.js` — aucune
+  dépendance ajoutée).
+- `advisory_sections`, `advisory_questions`, `advisory_question_options` —
+  structure d'une version (clés stables uniques au niveau de la version,
+  `questionnaire_version_id` dupliqué sur `advisory_questions` depuis sa
+  section, même principe que `advisory_rules.domain` dupliqué depuis son
+  `rule_set`, `DATA_MODEL.md` §5.2). `advisory_questions.allows_not_applicable`
+  (`INTEGER NOT NULL DEFAULT 0`) ajoutée **directement dans cette migration
+  10** (correctif final avant premier commit du Lot 3A — jamais déployée
+  entre-temps, donc pas de migration 11 séparée) : distincte de
+  `allows_unknown` (déjà présente), désactivée par défaut, voir
+  `DATA_MODEL.md` §4.
+- `advisory_sessions` — un rendez-vous de conseil (`status` ∈
+  `draft`/`in_progress`/`suspended`/`completed`/`cancelled`, `domain` ∈
+  `health`/`life_pension`/`mixed`, `household_snapshot` JSON figé au
+  démarrage — ajout documenté ci-dessous).
+- `advisory_session_questionnaires` — **composition modulaire** (décision
+  évoluée en cours de lot par rapport à la proposition initiale, voir
+  ci-dessous) : associe une session à une ou plusieurs versions publiées
+  (`domain` ∈ `common`/`health`/`life_pension`, `module_role` ∈
+  `core`/`domain`, `display_order`).
+- `advisory_answers` — réponses append-only (`status` ∈
+  `answered`/`unknown`/`not_applicable`/`cleared`, `superseded_by_answer_id`,
+  `is_amendment`/`amendment_reason`, `revision`).
+
+Aucune autre table `advisory_*` créée (pas de `rule_sets`/`rules`/
+`rule_executions`/`findings`/`recommendations`/`consents`/`reports`, Lot 4+).
+
+**Décision d'architecture évoluée en cours de lot — composition modulaire au
+lieu d'une version « mixed »** : la conception initialement proposée
+prévoyait qu'une version de questionnaire puisse elle-même être « mixte »
+(sections tagués individuellement par domaine). La revue d'architecture a
+signalé un risque réel de duplication de contenu entre un questionnaire pur
+et un questionnaire mixte. Décision retenue : `advisory_session_questionnaires`
+rattache à une session une ou plusieurs versions **chacune mono-domaine**
+(`common`/`health`/`life_pension`) — une session mixte rattache exactement
+une version `health` et une version `life_pension`, plus éventuellement une
+version `common` partagée, sans jamais dupliquer de contenu. Contraintes
+uniques `(session_id, questionnaire_version_id)`,
+`(session_id, display_order)` et `(session_id, domain)` — cette dernière
+empêche nativement deux versions actives du même domaine dans une session.
+
+**Ajout non explicitement listé mais documenté — `household_snapshot`** :
+colonne JSON sur `advisory_sessions`, figée au démarrage (`in_progress`),
+jamais réécrite ensuite. Invariant central déjà documenté dans
+`DATA_MODEL.md` §2.2 point 10/§3.1 (empêcher qu'une modification ultérieure
+des membres du foyer réécrive silencieusement le contexte d'une session
+déjà démarrée) — absent de la liste explicite des champs du Lot 3A, ajouté
+par décision d'ingénierie documentée dans le rapport du lot (coût minime,
+garantie importante).
+
+**Identifiants techniques en anglais** (statuts, types, opérateurs de
+condition) : décision humaine explicite du Lot 3A, reconduisant la
+divergence déjà actée et documentée au Lot 2 pour `exact_match`/etc.
+
+**Index** : un index simple par clé étrangère/filtre courant, plus les
+contraintes uniques citées ci-dessus et deux index uniques partiels sur
+`advisory_answers` garantissant qu'une seule réponse reste active
+(`superseded_by_answer_id IS NULL`) par `(session_id, question_id)` en
+portée foyer/session, et par `(session_id, question_id, household_member_id)`
+en portée membre.
+
+**Aucun `CHECK` déclaratif** sur les colonnes-énumération (statuts, types,
+domaines) : convention déjà en vigueur pour `clients.status`/
+`contracts.status`/`households.status`, reconduite à l'identique.
+
+**Compatibilité** : migration strictement additive, aucune table existante
+modifiée. Aucune donnée existante réécrite.
+
+**Réversibilité** : `DROP TABLE` des 8 tables dans l'ordre inverse de
+création (respect des clés étrangères) — aucune donnée hors de ce module
+n'est affectée.
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire ; cette
+migration n'a, à ce jour, jamais été exécutée sur la base de production.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 10)`. Testée dans `test/migrations.test.js` : base neuve,
+migration depuis une base héritée, idempotence (y compris redémarrages
+répétés), les 8 tables et leurs colonnes — dont
+`advisory_questions.allows_not_applicable` (présence, type `INTEGER`,
+`NOT NULL`, valeur par défaut `0`) —, les index (dont les 3 contraintes
+uniques de composition et les 2 index partiels de réponse), hiérarchie
+questionnaire → version → section → question → option via les FK réelles,
+refus de deux versions du même domaine dans une session, coexistence de
+réponses actives pour deux membres différents. Cette migration s'exécute
+dans une transaction SQLite unique.)*

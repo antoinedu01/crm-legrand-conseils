@@ -110,6 +110,36 @@ export const MATCH_LEVELS = {
   no_match: 'Aucune correspondance',
 };
 
+// Legrand Diagnostic 360 — sessions et questionnaires génériques (Lot 3A).
+// Identifiants techniques en anglais (décision humaine explicite du Lot 3A,
+// même divergence assumée qu'au Lot 2 pour MATCH_LEVELS).
+export const SESSION_DOMAINS = {
+  health: 'Assurance Maladie',
+  life_pension: 'Vie et Prévoyance',
+  mixed: 'Mixte (Maladie + Vie/Prévoyance)',
+};
+
+export const SESSION_STATUSES = {
+  draft: 'Brouillon',
+  in_progress: 'En cours',
+  suspended: 'Suspendue',
+  completed: 'Finalisée',
+  cancelled: 'Annulée',
+};
+
+export const LINK_DOMAIN_LABELS = {
+  common: 'Commun',
+  health: 'Assurance Maladie',
+  life_pension: 'Vie et Prévoyance',
+};
+
+export const ANSWER_STATUSES = {
+  answered: 'Répondu',
+  unknown: 'Inconnu',
+  not_applicable: 'Non applicable',
+  cleared: 'Effacé',
+};
+
 const chf = new Intl.NumberFormat('fr-CH', {
   style: 'currency',
   currency: 'CHF',

@@ -48,41 +48,79 @@
   households;` — aucune autre table n'y référence de clé étrangère à ce
   stade, réversibilité totale.
 
-## Lot 3 — Sessions et questionnaire générique
+## Lot 3A — Sessions et questionnaire générique (implémenté)
+
+> **Statut : implémenté et testé.** Renommé « Lot 3A » en cours de route
+> (le frontend complet du rendez-vous, initialement inclus ici, est différé
+> au « Lot 3B » — voir note ci-dessous) ; migration 10, `server/
+> advisorySessions.js`, `server/advisoryQuestionnaires.js`, `server/
+> advisoryConditions.js`.
 
 - **Objectif** : `advisory_sessions`, moteur de questionnaire, structure de
   questionnaire versionnée, sans moteur de règles ni contenu métier
   spécifique maladie/vie (questionnaire de test générique pour valider le
   moteur).
-- **Tables** : `advisory_sessions`, `advisory_questionnaires`,
+- **Tables (8, une de plus que prévu)** : `advisory_questionnaires`,
   `advisory_questionnaire_versions`, `advisory_sections`,
-  `advisory_questions`, `advisory_question_options`, `advisory_answers`.
-- **Routes** : `API_CONTRACT.md` §3-5.
-- **Écrans** : `UX_AND_CLIENT_MODE.md` 1.1, 1.4, 1.5, 1.6, 1.13, 1.14.
-- **Tests** : cycle de vie complet d'une session (brouillon → en_cours →
-  suspendu → repris → terminé), immuabilité après `termine`, conditions
-  d'affichage, réponse inconnue/non applicable, versionnement (une nouvelle
-  version n'altère pas une session déjà figée sur l'ancienne), modèle
-  append-only des réponses (`superseded_by_answer_id`, une correction en
-  cours de session ne supprime jamais la précédente), refus de
-  `PUT .../answers` sur une session `termine`, route `POST .../answers/
-  amend` fonctionnelle (motif obligatoire, marquage `is_amendment`), session
-  `domain = mixed` assemblant bien les deux questionnaires sans mélanger
-  leurs domaines respectifs.
-- **Risques** : complexité du moteur de conditions d'affichage — prévoir un
-  sous-ensemble minimal d'opérateurs pour ce lot, extensible plus tard sans
-  migration (le format JSON est déjà extensible par construction).
+  `advisory_questions`, `advisory_question_options`, `advisory_sessions`,
+  `advisory_session_questionnaires` (**ajoutée** — composition modulaire,
+  voir `DATA_MODEL.md` §3.2), `advisory_answers`.
+- **Routes** : `API_CONTRACT.md` §3-5 (réécrites pour refléter
+  l'implémentation réelle — composition modulaire, identifiants anglais,
+  route de prévisualisation `completion-check`).
+- **Écrans** : frontend minimal seulement (liste des sessions, création,
+  détail technique, actions démarrer/suspendre/reprendre/annuler/finaliser)
+  — le rendu complet des questions, la progression visuelle et le mode
+  présentation restent différés au **Lot 3B**, non démarré (`UX_AND_CLIENT_
+  MODE.md` 1.1/1.4/1.5/1.6/1.13/1.14 restent des propositions non
+  implémentées).
+- **Divergence majeure actée en cours de lot** : la composition d'une
+  session mixte se fait par une table d'association
+  (`advisory_session_questionnaires`, une version `health` **et** une
+  version `life_pension` distinctes, jamais fusionnées) plutôt que par une
+  version de questionnaire elle-même « mixed » — décision prise après que
+  la revue d'architecture a signalé un risque réel de duplication de
+  contenu avec la première approche.
+- **Tests (176 nouveaux : migration, conditions, questionnaires, sessions,
+  API)** : cycle de vie complet d'une session (draft → in_progress →
+  suspended → repris → completed), machine d'état stricte action-par-action
+  (bug détecté et corrigé : `resume` ne doit jamais être acceptable depuis
+  `draft` même s'il cible le même statut que `start`), immuabilité après
+  `completed`, conditions d'affichage (déterminisme, cycles, références
+  inconnues, publication refusée si invalide), réponse `unknown`/
+  `not_applicable`/`cleared`, versionnement (clonage, archivage sans
+  altérer les sessions historiques), modèle append-only des réponses
+  (ordre d'écriture corrigé : la ligne active doit être retirée avant
+  l'insertion de la nouvelle, sinon violation transitoire de l'index unique
+  partiel), refus de `PUT .../answers` sur une session `completed`, route
+  `POST .../answers/amend` fonctionnelle, session `domain = mixed`
+  distinguant les éléments manquants par domaine à la finalisation, membre
+  d'un autre foyer refusé dans une réponse (invariant de confidentialité
+  vérifié en test).
+- **Risques** : complexité du moteur de conditions d'affichage, maîtrisée
+  par une restriction explicite (une condition ne référence jamais une
+  question d'une autre version).
 - **Critères d'acceptation** : reprise d'une session suspendue restitue
-  exactement l'état précédent ; une session terminée refuse toute nouvelle
+  exactement l'état précédent ; une session finalisée refuse toute nouvelle
   réponse par la route normale (`409`), seule la route d'amendement dédiée
-  reste ouverte, avec motif obligatoire.
-- **Actions interdites** : ne pas coder de logique de règles métier dans ce
-  lot (aucune table `advisory_rules` encore utilisée) ; ne pas coder de
-  question en dur côté React.
+  reste ouverte, avec motif obligatoire. Tous vérifiés par test.
+- **Actions interdites (respectées)** : aucune logique de règles métier
+  dans ce lot (aucune table `advisory_rules` créée) ; aucune question codée
+  en dur côté React (aucun contenu métier réel, uniquement des
+  questionnaires fictifs de démonstration).
 - **Dépendances** : Lot 2.
-- **Retour arrière** : `DROP TABLE` des 7 tables listées, dans l'ordre
+- **Retour arrière** : `DROP TABLE` des 8 tables listées, dans l'ordre
   inverse de création (respect des clés étrangères) — aucune donnée hors de
   ce module n'est affectée.
+
+## Lot 3B — Interface complète du rendez-vous (non démarré)
+
+- **Objectif** : rendu complet des questions (par section, par portée
+  foyer/membre), progression visuelle, sauvegarde par lot en direct,
+  reprise d'une session suspendue avec restitution du contexte, mode
+  présentation client. Réutilise le socle backend du Lot 3A sans le
+  modifier.
+- **Dépendances** : Lot 3A.
 
 ## Lot 4 — Moteur de règles
 
@@ -234,9 +272,13 @@
 
 - **Objectif** : uniquement si décidé explicitement par vous après usage
   réel des lots précédents — introduction d'une authentification client
-  distincte, réutilisant `advisory_answers.answered_by = 'client_direct'`
-  et la fonction de projection filtrée déjà existante (Lot 8) plutôt que
-  d'en construire une seconde.
+  distincte, et de la fonction de projection filtrée déjà existante
+  (Lot 8) plutôt que d'en construire une seconde. **Point corrigé (Lot 3A,
+  GATE)** : `advisory_answers` n'a pas de distinction `conseiller`/
+  `client_direct` implémentée (seul `answered_by_user_id` existe,
+  référençant toujours le conseiller) — ce lot devra donc concevoir
+  explicitement comment distinguer une réponse saisie par le client,
+  plutôt que de réutiliser une valeur qui n'existe pas.
 - **Risques** : chantier d'authentification à part entière, hors du modèle
   mono-utilisateur actuel — nécessite une conception dédiée, pas une
   extension mineure.

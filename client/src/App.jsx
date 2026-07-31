@@ -14,6 +14,8 @@ import Settings from './pages/Settings.jsx';
 import Development from './pages/Development.jsx';
 import Households from './pages/Households.jsx';
 import HouseholdDetail from './pages/HouseholdDetail.jsx';
+import Sessions from './pages/Sessions.jsx';
+import SessionDetail from './pages/SessionDetail.jsx';
 
 const NAV = [
   ['/', '📊', 'Tableau de bord'],
@@ -24,6 +26,7 @@ const NAV = [
   ['/compagnies', '🏢', 'Compagnies'],
   ['/taches', '✅', 'Tâches'],
   ['/diagnostic-360/foyers', '🧭', 'Diagnostic 360'],
+  ['/diagnostic-360/sessions', '🗓️', 'Sessions RDV'],
   ['/conformite', '🛡️', 'Conformité'],
   ['/parametres', '⚙️', 'Paramètres'],
 ];
@@ -85,6 +88,8 @@ export default function App() {
           <Route path="/taches" element={<Tasks />} />
           <Route path="/diagnostic-360/foyers" element={<Households />} />
           <Route path="/diagnostic-360/foyers/:id" element={<HouseholdDetail />} />
+          <Route path="/diagnostic-360/sessions" element={<Sessions />} />
+          <Route path="/diagnostic-360/sessions/:id" element={<SessionDetail />} />
           <Route path="/conformite" element={<Compliance />} />
           <Route path="/parametres" element={<Settings user={auth.user} onSaved={refresh} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

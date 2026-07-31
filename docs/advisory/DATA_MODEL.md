@@ -190,6 +190,18 @@ réactivation (aucune procédure de réactivation n'existe à ce lot — elle
 reste donc interdite plutôt que non spécifiée) ; seule la lecture reste
 possible. Voir `API_CONTRACT.md` §1 pour le détail par route.
 
+**Extension au Lot 3A (corrigée lors du GATE de validation)** : une session
+créée *avant* l'archivage de son foyer ne doit pas devenir un moyen détourné
+de continuer à produire de l'activité nouvelle. Un foyer archivé bloque donc
+désormais aussi, sur ses sessions : `start`, `resume`, `complete`,
+l'enregistrement/l'effacement de réponses, l'amendement, et la modification
+des métadonnées de session (`409`). Restent volontairement autorisées, y
+compris sur un foyer archivé : la lecture, ainsi que `suspend` et `cancel`
+(actions fermantes qui ne créent aucune donnée métier nouvelle et permettent
+de clôturer proprement une session orpheline). Avant ce correctif, aucune de
+ces fonctions ne vérifiait le statut du foyer — constat confirmé
+empiriquement lors du GATE, corrigé dans `server/advisorySessions.js`.
+
 ### 2.2 `household_members`
 
 **Objectif** : relier une personne (`clients`) à un foyer, avec un rôle
@@ -360,6 +372,35 @@ d'un client via l'API `clients` existante.
 
 ## 3. Sessions de conseil
 
+> **Statut d'implémentation (Lot 3A, GATE)** : `advisory_sessions` et
+> `advisory_answers` sont implémentées et testées (`server/advisorySessions.js`).
+> Plusieurs points ci-dessous, écrits en Lot 1 avant implémentation,
+> divergent de ce qui a été réellement construit — divergences explicitement
+> assumées (décisions humaines du Lot 3A) :
+> - **Identifiants techniques en anglais** partout (`status` de session :
+>   `draft`/`in_progress`/`suspended`/`completed`/`cancelled`, au lieu de
+>   `brouillon`/`en_cours`/`suspendu`/`termine`/`annule` — même divergence que
+>   `match_level` au Lot 2).
+> - **Composition modulaire au lieu d'un `questionnaire_version_id` unique** :
+>   une session ne porte pas directement de colonne `questionnaire_version_id`
+>   ni `rule_set_version_id` — elle est reliée à une ou plusieurs versions via
+>   la table `advisory_session_questionnaires` (§3.1bis), pour permettre une
+>   session mixte sans dupliquer le contenu santé/vie-prévoyance dans une
+>   version « mixed » artificielle (évolution décidée en cours de Lot 3A par
+>   rapport à la proposition initiale de ce document et de
+>   `QUESTIONNAIRE_ENGINE.md` §8.1).
+> - **Champs non implémentés dans ce lot** (hors périmètre du socle
+>   générique, à réintroduire quand pertinent) : `meeting_mode`,
+>   `internal_notes`, `rule_set_version_id` (n'a de sens qu'à partir du
+>   Lot 4, moteur de règles).
+> - **Champ ajouté, non listé explicitement mais invariant déjà documenté** :
+>   `household_snapshot` (JSON, figé au démarrage) — voir `MIGRATIONS.md`
+>   Version 10.
+> - La contrainte « une session utilise exactement une version **publiée**,
+>   choisie et immuable **dès la création** (pas seulement dès `in_progress`
+>   comme envisagé initialement) » est plus stricte que ce document et est
+>   celle réellement implémentée.
+
 ### 3.1 `advisory_sessions`
 
 **Objectif** : représenter un rendez-vous et son cycle de vie complet, tel
@@ -423,15 +464,96 @@ lors d'une demande d'effacement, en conservant un enregistrement minimal
 l'intégrité référentielle des `advisory_findings`/`advisory_recommendations`
 liés.
 
-**Immuable après validation** (passage à `termine`) : `household_snapshot`,
-`questionnaire_version_id`, `rule_set_version_id`, toutes les réponses, tous
-les findings, toutes les exécutions de règles. **Modifiable** : `status` (ex.
-réouverture explicite auditée si une erreur est découverte — à définir en
-LOT 2 si un tel cas doit exister), `internal_notes` (jusqu'à archivage).
+**Immuable après validation** (passage à `completed`) : `household_snapshot`,
+la composition `advisory_session_questionnaires`, toutes les réponses.
+**Modifiable** : rien ne rouvre jamais une session `completed` (aucune
+transition sortante dans la machine d'état implémentée — voir §3.2) ;
+`title`/`scheduled_at` restent modifiables via une route dédiée tant que la
+session n'est pas `completed`/`cancelled`.
+
+### 3.2 `advisory_session_questionnaires` (implémentée au Lot 3A — composition modulaire)
+
+**Objectif** : relier une session à une ou plusieurs versions **publiées**
+de questionnaire, chacune mono-domaine, sans jamais dupliquer de contenu
+pour représenter une session mixte (voir note de statut d'implémentation en
+tête de §3). Remplace la colonne `questionnaire_version_id` unique
+initialement envisagée sur `advisory_sessions`.
+
+| Champ | Type logique | Contraintes |
+|---|---|---|
+| `id` | entier | clé primaire |
+| `session_id` | référence → `advisory_sessions.id` | non nul |
+| `questionnaire_version_id` | référence → `advisory_questionnaire_versions.id` | non nul, doit être `published` au moment du rattachement |
+| `domain` | énumération | `common` \| `health` \| `life_pension` — rôle joué par cette version **dans cette session** (dupliqué depuis le domaine réel du questionnaire, vérifié cohérent en service) |
+| `module_role` | énumération | `core` (⇔ `domain = common`) \| `domain` (⇔ `domain ∈ {health, life_pension}`) |
+| `display_order` | entier | ordre d'affichage déterministe |
+| `created_at` | horodatage | non nul |
+
+**Contraintes** : `UNIQUE(session_id, questionnaire_version_id)` (une même
+version jamais rattachée deux fois) ; `UNIQUE(session_id, display_order)`
+(ordre jamais ambigu) ; `UNIQUE(session_id, domain)` (au plus une version
+par rôle de domaine — empêche nativement deux versions `health` ou deux
+`life_pension` dans la même session).
+
+**Invariants de composition** (vérifiés en service à la création de la
+session, jamais modifiables ensuite) : une session `health` contient
+exactement une version `health` et 0-1 version `common`, jamais de version
+`life_pension` ; symétrique pour `life_pension` ; une session `mixed`
+contient exactement une version `health` **et** une version `life_pension`,
+plus 0-1 version `common`.
+
+**Suppression** : aucune route ne supprime physiquement une ligne — la
+composition d'une session est fixée à sa création (simplification
+documentée : l'invariant exigé n'est que « immuable dès `in_progress` », ce
+lot va plus loin en la rendant immuable dès la création, aucune route de
+modification n'existant).
 
 ---
 
 ## 4. Questionnaire dynamique versionné
+
+> **Statut d'implémentation (Lot 3A, GATE)** : les tables §4.1-§4.6 sont
+> implémentées et testées (`server/advisoryQuestionnaires.js`), avec les
+> divergences suivantes par rapport à la proposition ci-dessous :
+> - `advisory_questionnaires.domain` ∈ `common`/`health`/`life_pension`
+>   (**pas** `mixed` — voir §3 et `MIGRATIONS.md` Version 10).
+> - Statuts en anglais : versions `draft`/`published`/`archived` (au lieu de
+>   `brouillon`/`publie`/`archive`) ; sections/questions/options `active`/
+>   `archived` (au lieu d'un simple booléen `active`).
+> - Types de question en anglais et légèrement reformulés :
+>   `single_choice`/`multiple_choice`/`text`/`long_text`/`integer`/`decimal`/
+>   `money`/`date`/`boolean` (au lieu de `choix_unique`/`choix_multiple`/
+>   `montant`/`nombre`/`date`/`texte_court`/`texte_long`/`oui_non`).
+> - `advisory_questions.scope` ∈ `household`/`member`/`session` (remplace
+>   `applies_to_member` booléen — trois valeurs plutôt que deux, portée
+>   `session` distincte de `household` pour les questions relatives au
+>   rendez-vous lui-même plutôt qu'au foyer ; cardinalité technique
+>   identique, distinction purement sémantique, voir `advisory_answers`
+>   ci-dessous).
+> - `advisory_sections.applies_to` ∈ `household`/`member` (anglais).
+> - Ajout d'un `content_hash` (SHA-256) sur les versions, calculé à la
+>   publication — empreinte d'immuabilité non prévue explicitement par ce
+>   document, ajoutée pour vérifier qu'une version publiée n'est jamais
+>   altérée.
+> - Ajout d'un flag `sensitive` (booléen) sur les questions — préparatoire,
+>   **non encore consulté par aucune route de ce lot** (voir
+>   `SECURITY_PRIVACY.md`).
+> - Le format des conditions d'affichage diverge de l'esquisse de
+>   `QUESTIONNAIRE_ENGINE.md` §4 (opérateurs renommés/étendus) — voir
+>   `QUESTIONNAIRE_ENGINE.md` §4 mis à jour et `server/advisoryConditions.js`.
+> - **Ajout `advisory_questions.allows_not_applicable`** (booléen, défaut
+>   `false` — correctif final avant premier commit du Lot 3A, ajouté
+>   directement dans la migration 10 puisqu'elle n'était pas encore déployée).
+>   Distinct de `allows_unknown` : « je ne sais pas » (`unknown`) et « ne
+>   s'applique pas à ce foyer » (`not_applicable`) sont deux notions
+>   différentes, chacune activable indépendamment par le concepteur du
+>   questionnaire. Une question peut donc n'autoriser qu'une réponse normale,
+>   normale ou `unknown`, normale ou `not_applicable`, ou les trois.
+>   Contrairement à `allows_unknown` (`true` par défaut), `allows_not_applicable`
+>   est **désactivée** par défaut : l'activer est un choix explicite, jamais
+>   une facilité par défaut, pour qu'elle ne devienne pas un moyen détourné de
+>   satisfaire une question obligatoire sans y répondre (voir §4.6 pour la
+>   sémantique de finalisation).
 
 ### 4.1 `advisory_questionnaires`
 
@@ -491,6 +613,7 @@ diagnostic passé » demandée dans les spécifications.
 | `type` | énumération | non | `choix_unique` \| `choix_multiple` \| `montant` \| `nombre` \| `date` \| `texte_court` \| `texte_long` \| `oui_non` |
 | `required` | booléen | non | — |
 | `allows_unknown` | booléen | non | si vrai, « je ne sais pas » est une réponse explicite valide, distincte d'une non-réponse |
+| `allows_not_applicable` | booléen | non | si vrai, « ne s'applique pas à ce foyer » (`not_applicable`) est une réponse explicite valide — **distinct** de `allows_unknown` ; défaut `false` (contrairement à `allows_unknown`, défaut `true`) |
 | `applies_to_member` | booléen | non | reprend/affine `section.applies_to` au niveau question si besoin |
 | `display_condition` | JSON structuré | oui | — |
 | `validation_rule` | JSON structuré | oui | bornes, regex, référence à une énumération — jamais codée en dur côté React |
@@ -512,6 +635,31 @@ diagnostic passé » demandée dans les spécifications.
 
 ### 4.6 `advisory_answers`
 
+> **Implémenté avec un champ `status` unique** (`answered`/`unknown`/
+> `not_applicable`/`cleared`), remplaçant les deux booléens `is_unknown`/
+> `is_not_applicable` envisagés ci-dessous — un quatrième état `cleared`
+> (effacement explicite d'une réponse, sans la supprimer physiquement) a été
+> ajouté, non prévu par la proposition initiale. **Invariant vérifié en
+> service, critique pour la confidentialité** (revue
+> `compliance-privacy-reviewer`) : `household_member_id` doit appartenir au
+> **même** foyer que la session (`assertMemberBelongsToSession`,
+> `server/advisorySessions.js`) — jamais un membre d'un autre foyer, même si
+> son identifiant existe réellement en base. **Gating des statuts
+> `unknown`/`not_applicable`** (correctif final avant premier commit) :
+> `unknown` n'est accepté que si `advisory_questions.allows_unknown` est
+> vrai ; `not_applicable` n'est accepté que si
+> `advisory_questions.allows_not_applicable` est vrai — contrôlé côté
+> service (`validateAnswerValue`, `server/advisorySessions.js`), donc sur
+> tous les chemins d'écriture (`recordAnswers`, `amendAnswer`), jamais
+> uniquement côté interface. `cleared` reste un mécanisme technique de
+> suppression logique : il ne satisfait jamais une question obligatoire,
+> quelle que soit la configuration de la question. À la finalisation, une
+> question obligatoire visible est satisfaite par `answered` (valide),
+> `unknown` (si autorisée) ou `not_applicable` (si autorisée) — jamais par
+> `cleared` ni par une absence de réponse ; l'écriture étant déjà filtrée en
+> amont, la validation de finalisation n'a pas besoin de revérifier ce
+> gating (aucun statut interdit ne peut exister en base).
+
 **Objectif** : réponses données pendant une session, typées explicitement
 (pas un blob unique), avec réponse « inconnue » et « non applicable » comme
 états explicites distincts d'une absence de réponse.
@@ -525,7 +673,7 @@ diagnostic passé » demandée dans les spécifications.
 | `value_text` / `value_number` / `value_boolean` / `value_date` / `value_json` | typés | oui (un seul rempli selon le type de question) | jamais de coercition silencieuse de type (même principe que `contract_lamal.deductible` existant) |
 | `is_unknown` | booléen | non | réponse explicite « je ne sais pas » |
 | `is_not_applicable` | booléen | non | question masquée/neutralisée par une condition d'affichage |
-| `answered_by` | énumération | non | `conseiller` \| `client_direct` — la seconde valeur prépare, sans l'activer, un futur mode de saisie autonome par le client (voir §13 `ARCHITECTURE.md`) |
+| `answered_by_user_id` | référence → `users.id` | oui | **implémenté différemment de la proposition initiale** : une référence directe au conseiller authentifié (`session.advisor_user_id`, jamais transmis par le client), pas une énumération `conseiller`/`client_direct`. Le mode de saisie autonome par le client (Lot 13, conditionnel) n'a pas encore de point d'ancrage dans ce schéma — à concevoir explicitement le moment venu (nouvelle colonne ou nouvelle valeur), pas supposé acquis par ce champ. Voir aussi `ARCHITECTURE.md` §12 et `IMPLEMENTATION_ROADMAP.md` Lot 13, mis à jour en conséquence. |
 | `superseded_by_answer_id` | référence → elle-même | oui | non nul dès qu'une réponse plus récente la remplace — jamais mis à jour en place |
 | `is_amendment` | booléen | non (défaut `false`) | vrai uniquement si cette réponse a été enregistrée après que la session soit passée `termine` |
 | `amendment_reason` | texte long | oui | obligatoire si `is_amendment = true`, jamais renseigné sinon |

@@ -551,6 +551,238 @@ if (version < 9) {
   migrate();
 }
 
+// Aucun bloc « version < 10 » n'existait avant ce lot (dernier bloc : < 9,
+// ci-dessus). Vérifié à nouveau juste avant l'écriture de cette migration :
+// aucune autre branche distante ne dépasse la version 9 (LOT 3A, Legrand
+// Diagnostic 360 — audit préalable documenté dans le rapport du lot).
+if (version < 10) {
+  // LOT 3A — Legrand Diagnostic 360 (Lot 3A) : sessions de rendez-vous et
+  // moteur générique de questionnaires versionnés. Migration purement
+  // additive, aucune table existante modifiée. Identifiants techniques en
+  // anglais snake_case (statuts, types, opérateurs), décision humaine
+  // explicite reconduisant la divergence déjà actée et documentée au Lot 2
+  // (`exact_match`/`probable_match`/etc.) — assumée vis-à-vis du reste du
+  // CRM en français. Aucun `CHECK` déclaratif sur les colonnes-énumération
+  // (statuts, types, domaines) : convention déjà en vigueur pour
+  // `clients.status`/`contracts.status`/`households.status` (validation en
+  // applicatif uniquement, cf. `server/validate.js`), reconduite ici à
+  // l'identique pour rester cohérent avec le reste du schéma.
+  const migrate = db.transaction(() => {
+    db.exec(`
+      -- Une famille fonctionnelle de questionnaires (ex. « Questionnaire
+      -- Assurance Maladie »). domain ne contient PLUS 'mixed' depuis la
+      -- décision de composition modulaire (voir advisory_session_questionnaires
+      -- ci-dessous) : 'mixed' est désormais un concept exclusivement de
+      -- SESSION (assemblage de plusieurs versions), jamais d'un questionnaire
+      -- ou d'une version pris isolément — ceci évite toute duplication du
+      -- contenu santé/vie-prévoyance dans une version « mixte » artificielle.
+      CREATE TABLE IF NOT EXISTS advisory_questionnaires (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stable_key TEXT NOT NULL UNIQUE,        -- jamais réutilisée pour 2 questionnaires différents
+        domain TEXT NOT NULL,                   -- common | health | life_pension
+        name TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'active',  -- active | archived (statut grossier de la famille)
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_questionnaires_domain ON advisory_questionnaires(domain);
+      CREATE INDEX IF NOT EXISTS idx_advisory_questionnaires_status ON advisory_questionnaires(status);
+
+      -- Une version figée et publiable indépendamment des suivantes. Une
+      -- session référence toujours une (ou plusieurs, voir
+      -- advisory_session_questionnaires) version PRÉCISE, jamais « la
+      -- dernière » de façon implicite.
+      CREATE TABLE IF NOT EXISTS advisory_questionnaire_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        questionnaire_id INTEGER NOT NULL REFERENCES advisory_questionnaires(id),
+        version_number INTEGER NOT NULL,        -- strictement croissant par questionnaire_id (garanti par le service, pas par SQL)
+        status TEXT NOT NULL DEFAULT 'draft',   -- draft | published | archived
+        notes TEXT,
+        content_hash TEXT,                      -- empreinte SHA-256 (module crypto de Node, déjà utilisé par server/app.js et server/totp.js — aucune dépendance ajoutée), calculée à la publication sur une sérialisation stable de la structure (sections+questions+options), pour détecter toute altération d'une version déjà publiée
+        published_by_user_id INTEGER REFERENCES users(id),
+        published_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(questionnaire_id, version_number)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_questionnaire_versions_questionnaire
+        ON advisory_questionnaire_versions(questionnaire_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_questionnaire_versions_status
+        ON advisory_questionnaire_versions(status);
+
+      -- Une section, ordonnée, au sein d'une version. Plus de colonne
+      -- « domain » ici (contrairement à une conception antérieure envisagée) :
+      -- puisqu'une version entière appartient déjà à un seul domaine
+      -- (common|health|life_pension, jamais mixed), une section hérite
+      -- simplement du domaine de sa version, sans champ redondant.
+      CREATE TABLE IF NOT EXISTS advisory_sections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        questionnaire_version_id INTEGER NOT NULL REFERENCES advisory_questionnaire_versions(id),
+        stable_key TEXT NOT NULL,               -- stable au sein de la version
+        title TEXT NOT NULL,
+        description TEXT,
+        sort_order INTEGER NOT NULL,
+        applies_to TEXT NOT NULL DEFAULT 'household', -- household (une fois) | member (répétée par personne concernée)
+        display_condition TEXT,                 -- JSON déclaratif (server/advisoryConditions.js), jamais de code exécutable
+        status TEXT NOT NULL DEFAULT 'active',   -- active | archived
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(questionnaire_version_id, stable_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_sections_version ON advisory_sections(questionnaire_version_id);
+
+      -- Une question. questionnaire_version_id est dupliqué depuis la section
+      -- parente (même principe que advisory_rules.domain dupliqué depuis son
+      -- rule_set, documenté dans DATA_MODEL.md §5.2 — jamais divergent,
+      -- contrainte applicative) afin de pouvoir exprimer directement en SQL
+      -- l'unicité de stable_key AU NIVEAU DE LA VERSION (pas seulement de la
+      -- section), tel qu'exigé par le LOT 3A.
+      CREATE TABLE IF NOT EXISTS advisory_questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        section_id INTEGER NOT NULL REFERENCES advisory_sections(id),
+        questionnaire_version_id INTEGER NOT NULL REFERENCES advisory_questionnaire_versions(id),
+        stable_key TEXT NOT NULL,
+        advisor_text TEXT NOT NULL,
+        client_text TEXT,
+        type TEXT NOT NULL,                     -- single_choice|multiple_choice|text|long_text|integer|decimal|money|date|boolean
+        scope TEXT NOT NULL DEFAULT 'household', -- household|member|session
+        required INTEGER NOT NULL DEFAULT 0,
+        allows_unknown INTEGER NOT NULL DEFAULT 1,
+        allows_not_applicable INTEGER NOT NULL DEFAULT 0, -- distinct de allows_unknown : « ne s'applique pas à ce foyer » n'est pas « je ne sais pas ». Désactivé par défaut (contrairement à allows_unknown) : autoriser « non applicable » est un choix explicite du concepteur de questionnaire, pas une facilité par défaut, pour éviter qu'elle ne devienne un moyen détourné de satisfaire une question obligatoire sans y répondre.
+        sort_order INTEGER NOT NULL,
+        help_text TEXT,
+        display_condition TEXT,                 -- JSON déclaratif, jamais de code exécutable
+        validation_rule TEXT,                    -- JSON déclaratif (bornes/longueur selon le type), jamais de code
+        sensitive INTEGER NOT NULL DEFAULT 0,    -- classification simple ; PRÉPARATOIRE : non encore consultée par aucune route de ce lot (voir SECURITY_PRIVACY.md)
+        status TEXT NOT NULL DEFAULT 'active',   -- active | archived
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(questionnaire_version_id, stable_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_questions_section ON advisory_questions(section_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_questions_version ON advisory_questions(questionnaire_version_id);
+
+      -- Options pour single_choice/multiple_choice. Immuables dès que la
+      -- version parente est publiée (garanti par le service, pas par SQL).
+      CREATE TABLE IF NOT EXISTS advisory_question_options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question_id INTEGER NOT NULL REFERENCES advisory_questions(id),
+        stable_key TEXT NOT NULL,
+        label TEXT NOT NULL,
+        value TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',   -- active | archived
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(question_id, stable_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_question_options_question ON advisory_question_options(question_id);
+
+      -- Un rendez-vous de conseil. Ne porte plus directement de
+      -- questionnaire_version_id (remplacé par la table d'association
+      -- advisory_session_questionnaires ci-dessous, composition modulaire).
+      -- household_snapshot : copie figée de la composition du foyer au
+      -- moment du démarrage (DATA_MODEL.md §2.2 point 10 / §3.1) — garantit
+      -- qu'une modification ultérieure des membres du foyer ne réécrit
+      -- jamais silencieusement le contexte d'une session déjà démarrée ou
+      -- terminée. Ajoutée par décision d'ingénierie documentée dans le
+      -- rapport du lot (absente de la liste explicite du LOT 3A, mais
+      -- invariant central déjà documenté au LOT 1, coût d'ajout minime).
+      CREATE TABLE IF NOT EXISTS advisory_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        household_id INTEGER NOT NULL REFERENCES households(id),
+        advisor_user_id INTEGER NOT NULL REFERENCES users(id), -- jamais transmis par le client, dérivé de la session authentifiée
+        domain TEXT NOT NULL,                    -- health | life_pension | mixed
+        status TEXT NOT NULL DEFAULT 'draft',     -- draft|in_progress|suspended|completed|cancelled
+        title TEXT,
+        scheduled_at TEXT,
+        started_at TEXT,
+        suspended_at TEXT,
+        completed_at TEXT,
+        last_activity_at TEXT,
+        revision INTEGER NOT NULL DEFAULT 0,      -- incrémenté à chaque écriture de réponse (par appel, pas par réponse individuelle d'un lot) ou amendement
+        household_snapshot TEXT,                  -- JSON, figé au démarrage (in_progress), jamais réécrit ensuite
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_sessions_household ON advisory_sessions(household_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_sessions_status ON advisory_sessions(status);
+      CREATE INDEX IF NOT EXISTS idx_advisory_sessions_household_status ON advisory_sessions(household_id, status);
+
+      -- Table d'association « composition modulaire » (décision explicite
+      -- remplaçant une première proposition de version « mixed » dupliquant
+      -- le contenu santé/vie-prévoyance, et remplaçant aussi l'idée de deux
+      -- colonnes fixes questionnaire_version_id/_secondary sur la session).
+      -- Une session santé/vie-prévoyance rattache une version « domain »
+      -- (health ou life_pension) et, facultativement, une version « common »
+      -- partagée (composition du foyer, situation professionnelle,
+      -- coordonnées, objectifs globaux). Une session mixte rattache
+      -- exactement une version health ET une version life_pension, plus
+      -- éventuellement une version common.
+      CREATE TABLE IF NOT EXISTS advisory_session_questionnaires (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES advisory_sessions(id),
+        questionnaire_version_id INTEGER NOT NULL REFERENCES advisory_questionnaire_versions(id),
+        domain TEXT NOT NULL,                    -- common | health | life_pension (rôle joué par cette version DANS cette session)
+        module_role TEXT NOT NULL,               -- core (= common) | domain (= health/life_pension)
+        display_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(session_id, questionnaire_version_id), -- une même version ne peut être rattachée qu'une fois à la même session
+        UNIQUE(session_id, display_order),            -- ordre d'affichage déterministe, jamais ambigu
+        UNIQUE(session_id, domain)                    -- au plus une version par rôle de domaine (common/health/life_pension) dans une session — empêche nativement deux versions actives du même domaine spécialisé
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_session_questionnaires_session
+        ON advisory_session_questionnaires(session_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_session_questionnaires_version
+        ON advisory_session_questionnaires(questionnaire_version_id);
+
+      -- Réponses, modèle strictement append-only : une correction n'écrase
+      -- jamais une ligne, elle insère une nouvelle ligne et renseigne
+      -- superseded_by_answer_id sur l'ancienne. Aucune colonne de domaine
+      -- ici : le domaine se déduit toujours de
+      -- answer → question → section → questionnaire_version → questionnaire
+      -- → domain (jamais stocké en double).
+      CREATE TABLE IF NOT EXISTS advisory_answers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES advisory_sessions(id),
+        question_id INTEGER NOT NULL REFERENCES advisory_questions(id),
+        household_member_id INTEGER REFERENCES household_members(id), -- rempli si question.scope = 'member' ; le service vérifie qu'il appartient bien au foyer de la session
+        status TEXT NOT NULL,                    -- answered|unknown|not_applicable|cleared
+        value_text TEXT,
+        value_number REAL,
+        value_boolean INTEGER,
+        value_date TEXT,
+        value_json TEXT,
+        superseded_by_answer_id INTEGER REFERENCES advisory_answers(id),
+        is_amendment INTEGER NOT NULL DEFAULT 0,
+        amendment_reason TEXT,                   -- obligatoire si is_amendment = 1 (validé côté service)
+        revision INTEGER NOT NULL,               -- valeur de sessions.revision après incrémentation, au moment de cette écriture
+        answered_by_user_id INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_answers_session ON advisory_answers(session_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_answers_question ON advisory_answers(question_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_answers_member ON advisory_answers(household_member_id);
+      -- Une réponse active (superseded_by_answer_id IS NULL) par (session,
+      -- question) pour les portées household/session (household_member_id
+      -- absent — cardinalité techniquement identique entre les deux
+      -- portées ; la distinction household/session est purement sémantique,
+      -- jamais technique, cf. rapport du lot).
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_answers_active_household_or_session
+        ON advisory_answers(session_id, question_id)
+        WHERE superseded_by_answer_id IS NULL AND household_member_id IS NULL;
+      -- Une réponse active par (session, question, membre) pour la portée member.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_answers_active_member
+        ON advisory_answers(session_id, question_id, household_member_id)
+        WHERE superseded_by_answer_id IS NULL AND household_member_id IS NOT NULL;
+    `);
+
+    db.pragma('user_version = 10');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

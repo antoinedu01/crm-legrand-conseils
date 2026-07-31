@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAsync, Modal, Field, Badge, Empty } from '../components/ui.jsx';
-import { HOUSEHOLD_STATUS, MEMBER_ROLES, DEMOTABLE_ROLES, MATCH_LEVELS, fmtDate } from '../labels.js';
+import {
+  HOUSEHOLD_STATUS, MEMBER_ROLES, DEMOTABLE_ROLES, MATCH_LEVELS, fmtDate, fmtDateTime,
+  SESSION_DOMAINS, SESSION_STATUSES,
+} from '../labels.js';
 
 function age(birthDate) {
   if (!birthDate) return null;
@@ -319,6 +322,40 @@ function SetPrimaryForm({ household, members, onClose, onSaved }) {
   );
 }
 
+// Aperçu minimal des sessions de ce foyer (Lot 3A — socle sessions et
+// questionnaires). Le parcours complet du rendez-vous (questions,
+// progression, mode présentation) reste réservé au Lot 3B ; ici, seul un
+// lien technique vers la fiche session existe.
+function HouseholdSessions({ householdId }) {
+  const navigate = useNavigate();
+  const { data, loading } = useAsync(() => api.get(`/api/advisory/sessions?household_id=${householdId}`), [householdId]);
+  return (
+    <div className="card">
+      <h2>Diagnostics</h2>
+      {loading ? (
+        <p className="muted">Chargement…</p>
+      ) : data.length === 0 ? (
+        <Empty>
+          Aucune session de conseil pour ce foyer — à créer depuis « Sessions RDV ».
+        </Empty>
+      ) : (
+        <table className="data">
+          <thead><tr><th>Domaine</th><th>Statut</th><th>Dernière activité</th></tr></thead>
+          <tbody>
+            {data.map((s) => (
+              <tr key={s.id} className="click" onClick={() => navigate(`/diagnostic-360/sessions/${s.id}`)}>
+                <td>{SESSION_DOMAINS[s.domain]}</td>
+                <td><Badge value={s.status} label={SESSION_STATUSES[s.status]} /></td>
+                <td className="muted">{fmtDateTime(s.last_activity_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export default function HouseholdDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -402,10 +439,7 @@ export default function HouseholdDetail() {
         </table>
       </div>
 
-      <div className="card">
-        <h2>Diagnostics</h2>
-        <Empty>Aucun diagnostic pour le moment — le parcours de rendez-vous arrive dans un prochain lot.</Empty>
-      </div>
+      <HouseholdSessions householdId={id} />
 
       {showEdit && (
         <HouseholdEditForm household={data} onClose={() => setShowEdit(false)} onSaved={() => { setShowEdit(false); reload(); }} />

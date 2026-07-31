@@ -196,8 +196,13 @@ seule, jamais de modifier un dossier client, jamais activé par défaut.
 ## 12. Possibilité future d'un portail client
 
 Le modèle de données anticipe cette possibilité sans l'implémenter :
-- `advisory_answers.answered_by` distingue déjà `conseiller` de
-  `client_direct`.
+- **Point corrigé (Lot 3A, GATE)** : `advisory_answers` ne porte
+  aujourd'hui qu'un `answered_by_user_id` référençant le conseiller
+  authentifié — la distinction `conseiller`/`client_direct` initialement
+  envisagée ici n'a pas été implémentée et n'a donc **pas** de point
+  d'ancrage réel dans le schéma actuel. Elle reste à concevoir
+  explicitement (nouvelle colonne ou nouvelle valeur) au moment du Lot 13,
+  pas supposée acquise par ce document. Voir `DATA_MODEL.md` §4.6.
 - Le mode présentation client est déjà une projection filtrée servie
   indépendamment du mode conseiller — un futur portail réutiliserait la même
   fonction de filtrage plutôt que d'en inventer une seconde.

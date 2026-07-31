@@ -51,31 +51,78 @@ une propriété déclarative de la question elle-même.
 
 ## 4. Format déclaratif d'une condition d'affichage
 
-Une condition référence soit une réponse précédente (par `stable_key`), soit
-un attribut calculable du foyer (nombre d'enfants, âge d'un membre, domaine
-de la session). Forme logique proposée (pas un format figé, à raffiner en
-Lot 3) :
+> **Implémenté au Lot 3A** (`server/advisoryConditions.js`), avec un format
+> définitif divergeant de l'esquisse initiale ci-dessous (opérateurs
+> renommés/étendus, forme de référence différente) — décision humaine
+> explicite du Lot 3A, testée exhaustivement (déterminisme, cycles,
+> références inconnues).
+
+Une condition référence soit une réponse à une question **de la même
+version de questionnaire** (jamais une autre version — voir restriction
+ci-dessous), soit une propriété de session en liste blanche (`domain`),
+soit une propriété du membre en cours d'évaluation en liste blanche
+(`member_role`). Forme réellement implémentée :
+
+```json
+{ "op": "equals", "ref": { "question": "franchise_connue" }, "value": "non" }
+```
 
 ```json
 {
-  "all": [
-    { "answer": "possede_enfants", "equals": true },
-    { "member_attribute": "age", "member_role": "enfant", "gte": 0 }
+  "op": "and",
+  "conditions": [
+    { "op": "exists", "ref": { "question": "possede_enfants" } },
+    { "op": "equals", "ref": { "session_property": "domain" }, "value": "mixed" }
   ]
 }
 ```
 
-ou, pour une condition simple :
+**Opérateurs implémentés (liste fermée, 12)** : `equals`, `not_equals`,
+`in`, `not_in`, `exists`, `not_exists`, `greater_than`, `greater_or_equal`,
+`less_than`, `less_or_equal` (comparateurs), `and`, `or` (combinateurs — pas
+de `not` séparé, une négation s'exprime via `not_equals`/`not_in`/
+`not_exists`). Ce n'est **pas** un langage d'expression arbitraire
+exécutable (pas de `eval`, pas de `new Function`) — un interpréteur fermé,
+testable (`test/advisory-conditions.test.js`), comme le sont déjà les
+validations de `contract_lamal` par énumération fermée.
 
-```json
-{ "answer": "franchise_connue", "equals": "non" }
-```
+**Règles de résolution explicites** (tranchées pendant l'implémentation,
+absentes de l'esquisse initiale) :
+- `exists` est vrai uniquement si la réponse a le statut `answered` avec une
+  valeur — `unknown`/`not_applicable`/`cleared`/absence comptent tous comme
+  « n'existe pas ».
+- Toute comparaison (`equals` **et** `not_equals` y compris) sur une donnée
+  absente est **toujours fausse** — jamais de vérité par défaut.
+- `and`/`or` évaluent systématiquement toutes leurs sous-conditions (logique
+  booléenne pure, sans court-circuit qui changerait un résultat).
 
-Opérateurs proposés : `equals`, `not_equals`, `in`, `gte`, `lte`, `is_unknown`,
-combinables via `all` (ET) / `any` (OU) / `not`. Ce n'est **pas** un langage
-d'expression arbitraire exécutable (pas de `eval`) — un interpréteur fermé,
-testable, comme le sont déjà les validations de `contract_lamal` par
-énumération fermée.
+**Limite de profondeur d'imbrication (corrigée lors du GATE de validation)** :
+`validateConditionFormat` refuse toute condition imbriquée au-delà de 20
+niveaux `and`/`or`. Aucune condition métier réelle n'en a jamais besoin ;
+cette limite existe uniquement pour empêcher un JSON pathologiquement
+imbriqué (des milliers de niveaux) de faire déborder la pile d'appel — un
+`RangeError` non intercepté, confirmé empiriquement lors du GATE à partir
+d'environ 10 000 niveaux, avant l'ajout de cette limite. La largeur (un
+tableau `conditions` très large) reste bornée séparément par la limite de
+taille de requête existante (`express.json({ limit: '1mb' })`,
+`server/app.js`) : aucune limite de largeur dédiée n'était donc nécessaire.
+
+**Restriction de portée (décision explicite du Lot 3A, pour limiter la
+complexité et garantir le déterminisme)** : une condition ne peut référencer
+qu'une question de la **même** version de questionnaire — jamais une
+question d'une autre version rattachée à la même session (`common` ↔
+`health` ↔ `life_pension`), jamais de recherche implicite par `stable_key`
+à travers plusieurs versions. Les dépendances inter-domaines restent
+réservées au futur moteur de règles (Lot 4+) ou à une évolution
+explicitement versionnée.
+
+**Détection de cycle et de référence inconnue** : à la publication d'une
+version (jamais à l'exécution), le service construit le graphe de
+dépendances de toutes les conditions (sections **et** questions) de cette
+version et refuse la publication si une référence pointe vers une
+`stable_key` inconnue de la version, ou si une dépendance circulaire existe
+entre questions (ex. Q1 visible seulement si Q2 = « oui », et Q2 visible
+seulement si Q1 = « oui » — aucune des deux ne serait jamais affichable).
 
 ## 5. Questions de clarification
 
@@ -113,6 +160,54 @@ coercition silencieuse de type).
   nouvelle version n'efface pas les réponses passées qui la référençaient —
   elle reste lisible dans le contexte de l'ancienne version figée.
 
+### 7.1 Empreinte de contenu (`content_hash`)
+
+**Ce que c'est** : une empreinte technique d'intégrité (SHA-256, module
+`crypto` de Node — aucune dépendance ajoutée), calculée une seule fois à la
+publication d'une version et stockée sur `advisory_questionnaire_versions.content_hash`.
+Elle permet de vérifier après coup qu'une version publiée n'a pas été
+altérée. **Ce n'est jamais une signature cryptographique ni une preuve
+juridique** — aucune clé privée, aucun tiers de confiance, aucune valeur
+probante au sens légal : c'est un simple contrôle d'intégrité interne.
+
+**Indépendance vis-à-vis des identifiants techniques (correctif final avant
+premier commit du Lot 3A)** : les identifiants SQLite (`id` de section, de
+question, d'option, de version) sont des détails techniques qui varient
+entre une version originale et son clone (`cloneVersionToNewDraft`), entre
+deux bases distinctes, ou après une restauration — **sans que le contenu
+fonctionnel n'ait changé**. Ils n'influencent donc jamais l'empreinte.
+`computeContentHash` (`server/advisoryQuestionnaires.js`) construit une
+structure canonique :
+- **Ordre** : sections, questions et options sont triées par `sort_order`
+  puis par `stable_key` (jamais par `id` ni par ordre physique d'insertion).
+- **Champs inclus** : `stable_key`, textes (`title`/`description` de
+  section ; `advisor_text`/`client_text`/`help_text` de question),
+  `type`, `scope`/`applies_to`, `required`, `allows_unknown`,
+  `allows_not_applicable`, `sort_order`, `display_condition`,
+  `validation_rule`, et pour les options : `stable_key`, `label`, `value`,
+  `sort_order`.
+- **Jamais inclus** : identifiants de lignes, identifiants de clé étrangère,
+  `created_at`/`updated_at`, auteur, `status`, `content_hash` lui-même,
+  numéro de version.
+
+**Canonicalisation JSON** : `display_condition` et `validation_rule` sont
+des objets JSON dont l'ordre des clés n'a aucune signification
+fonctionnelle. `canonicalizeJson` (fonction locale, aucune dépendance
+externe) trie récursivement les clés de tout objet par ordre alphabétique
+avant sérialisation, tout en conservant l'ordre des tableaux (fonctionnellement
+significatif, ex. la liste de valeurs d'un opérateur `in`) ; elle n'exécute
+jamais aucun code et ne modifie jamais le contenu réellement stocké en base
+— une vue transitoire utilisée uniquement pour le calcul de l'empreinte.
+
+**Propriétés vérifiées par test** (`test/advisory-questionnaires.test.js`) :
+même contenu inséré dans un ordre physique différent → même empreinte ;
+mêmes objets JSON avec un ordre de clés différent → même empreinte ; un
+original publié puis son clone publié sans modification → même empreinte
+malgré des identifiants SQLite entièrement différents ; identique même sous
+un écart artificiel important entre les plages d'identifiants ; sensible à
+tout changement fonctionnel réel (texte, `sort_order`, `stable_key`, option,
+`allows_unknown`, `allows_not_applicable`).
+
 ## 8. Reprise de session
 
 Une session `suspendu` conserve toutes ses réponses déjà enregistrées et sa
@@ -123,14 +218,24 @@ connues, sans réinitialiser quoi que ce soit.
 
 ### 8.1 Session mixte (`domain = mixed`)
 
-Une session mixte assemble, à la suite l'une de l'autre, les sections du
-questionnaire `health` et celles du questionnaire `life_pension` — chaque
-section garde la trace de son domaine d'origine (via son
-`advisory_questionnaire_version_id` propre). Le moteur ne mélange jamais les
-deux questionnaires en un seul : il enchaîne deux parcours distincts au sein
-d'une même session, ce qui permet à chaque réponse, chaque règle et chaque
-constat de rester rattaché à son domaine (décision GATE LOT 1, point 3.3 —
-voir aussi `DATA_MODEL.md` §3.1 et `RULES_ENGINE.md`).
+> **Implémenté au Lot 3A par composition modulaire** (`advisory_session_
+> questionnaires`, `DATA_MODEL.md` §3.2), remplaçant l'esquisse ci-dessous
+> qui envisageait une version « mixed » assemblant elle-même les deux
+> contenus — la revue d'architecture a signalé un risque réel de
+> duplication de contenu entre un questionnaire pur et un questionnaire
+> mixte avec cette approche.
+
+Une session mixte rattache, via `advisory_session_questionnaires`,
+**exactement une version `health` et une version `life_pension`** (chacune
+un questionnaire à part entière, jamais fusionné), plus éventuellement une
+version `common` partagée (composition du foyer, situation professionnelle,
+coordonnées, objectifs globaux du rendez-vous — pour éviter de dupliquer
+ces informations dans les deux questionnaires spécialisés). Chaque version
+garde son domaine propre et ses conditions d'affichage restent scopées à
+elle-même (§4) — ce qui permet à chaque réponse de rester rattachée à son
+domaine d'origine sans ambiguïté (décision GATE LOT 1, point 3.3 — voir
+aussi `DATA_MODEL.md` §3.1/§3.2 et `RULES_ENGINE.md`), sans qu'aucun contenu
+ne soit jamais dupliqué entre un questionnaire pur et une session mixte.
 
 ### 8.2 Correction pendant et après la session
 

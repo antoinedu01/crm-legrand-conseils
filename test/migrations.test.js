@@ -346,9 +346,12 @@ function insertFixtureClient(db, firstName = 'Test', lastName = 'Fixture') {
   return info.lastInsertRowid;
 }
 
-test('migration v9 — une base neuve atteint directement user_version = 9', async () => {
+test('migration v9 — une base neuve atteint au moins user_version = 9', async () => {
+  // >= plutôt que === : une base neuve enchaîne désormais aussi la
+  // migration v10 (Lot 3A) — même fragilité déjà rencontrée et corrigée
+  // pour les tests v8 lors du Lot 2, qui se reproduit à chaque nouveau lot.
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 9);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 9);
 });
 
 test('migration v9 — une base héritée en v6 est migrée vers v9 sans perte de données', async () => {
@@ -360,17 +363,17 @@ test('migration v9 — une base héritée en v6 est migrée vers v9 sans perte d
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 9);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 9);
   const preserved = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.lastInsertRowid);
   assert.equal(preserved.first_name, 'Test');
   assert.equal(preserved.last_name, 'Existant');
 });
 
-test("migration v9 — idempotence : un second import de la même base n'échoue pas et reste en v9", async () => {
+test("migration v9 — idempotence : un second import de la même base n'échoue pas et reste au moins en v9", async () => {
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 9);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 9);
 });
 
 test('migration v9 — les tables households et household_members existent avec les colonnes attendues', async () => {
@@ -469,4 +472,180 @@ test('migration v9 — un même foyer peut ravoir un principal actif après arch
     db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')")
       .run(householdId, secondClientId)
   );
+});
+
+// --- Migration v10 (Lot 3A — sessions et questionnaires génériques) --------
+
+function insertFixtureUser(db, email = 'conseiller@exemple.ch') {
+  return db
+    .prepare('INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)')
+    .run(email, 'Conseiller Test', 'hash-fictif').lastInsertRowid;
+}
+
+const ADVISORY_V10_TABLES = [
+  'advisory_questionnaires', 'advisory_questionnaire_versions', 'advisory_sections',
+  'advisory_questions', 'advisory_question_options', 'advisory_sessions',
+  'advisory_session_questionnaires', 'advisory_answers',
+];
+
+test('migration v10 — une base neuve atteint au moins user_version = 10', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.ok(db.pragma('user_version', { simple: true }) >= 10);
+});
+
+test('migration v10 — une base héritée en v6 est migrée vers v10 sans perte de données', async () => {
+  const dir = tempDir();
+  const legacy = buildLegacyV6Database(dir);
+  const client = legacy
+    .prepare("INSERT INTO clients (type, first_name, last_name, status) VALUES ('particulier', ?, ?, 'client')")
+    .run('Test', 'Existant10');
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 10);
+  const preserved = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.lastInsertRowid);
+  assert.equal(preserved.last_name, 'Existant10');
+});
+
+test("migration v10 — idempotence : un second import de la même base n'échoue pas et reste au moins en v10", async () => {
+  const dir = tempDir();
+  await importFreshDb(dir);
+  const db = await importFreshDb(dir);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 10);
+});
+
+test('migration v10 — les 8 tables attendues existent, et aucune table hors périmètre (rule_sets/findings/etc.)', async () => {
+  const db = await importFreshDb(tempDir());
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'advisory_%'").all().map((t) => t.name);
+  for (const t of ADVISORY_V10_TABLES) assert.ok(tables.includes(t), `table manquante : ${t}`);
+  assert.equal(tables.length, ADVISORY_V10_TABLES.length, `tables inattendues : ${tables.filter((t) => !ADVISORY_V10_TABLES.includes(t))}`);
+});
+
+test('migration v10 — colonnes attendues sur advisory_sessions et advisory_answers', async () => {
+  const db = await importFreshDb(tempDir());
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  const sessionCols = cols('advisory_sessions');
+  for (const c of ['household_id', 'advisor_user_id', 'domain', 'status', 'started_at', 'suspended_at',
+    'completed_at', 'last_activity_at', 'revision', 'household_snapshot']) {
+    assert.ok(sessionCols.includes(c), `colonne manquante sur advisory_sessions : ${c}`);
+  }
+  const answerCols = cols('advisory_answers');
+  for (const c of ['session_id', 'question_id', 'household_member_id', 'status', 'value_text', 'value_number',
+    'value_boolean', 'value_date', 'value_json', 'superseded_by_answer_id', 'is_amendment', 'amendment_reason', 'revision']) {
+    assert.ok(answerCols.includes(c), `colonne manquante sur advisory_answers : ${c}`);
+  }
+});
+
+// Correctif final GATE LOT 3A : allows_not_applicable ajoutée DIRECTEMENT
+// dans la migration 10 existante (jamais committée/déployée à ce stade — pas
+// de migration 11 pour ce seul correctif).
+test('migration v10 — advisory_questions.allows_not_applicable existe, INTEGER NOT NULL, défaut 0 (désactivé)', async () => {
+  const db = await importFreshDb(tempDir());
+  const col = db.prepare("PRAGMA table_info(advisory_questions)").all().find((c) => c.name === 'allows_not_applicable');
+  assert.ok(col, 'colonne allows_not_applicable manquante');
+  assert.equal(col.notnull, 1);
+  assert.equal(col.dflt_value, '0');
+  assert.equal(col.type, 'INTEGER');
+});
+
+test('migration v10 — allows_not_applicable : base héritée en v6 migrée directement avec la colonne présente et désactivée par défaut', async () => {
+  const dir = tempDir();
+  const legacy = buildLegacyV6Database(dir);
+  legacy.close();
+  const db = await importFreshDb(dir);
+  const col = db.prepare("PRAGMA table_info(advisory_questions)").all().find((c) => c.name === 'allows_not_applicable');
+  assert.ok(col);
+  assert.equal(col.dflt_value, '0');
+});
+
+test('migration v10 — allows_not_applicable : redémarrages répétés (3x) restent idempotents, colonne stable', async () => {
+  const dir = tempDir();
+  for (let i = 0; i < 3; i++) {
+    const db = await importFreshDb(dir);
+    assert.ok(db.pragma('user_version', { simple: true }) >= 10);
+    const col = db.prepare("PRAGMA table_info(advisory_questions)").all().find((c) => c.name === 'allows_not_applicable');
+    assert.ok(col, `colonne absente au redémarrage #${i + 1}`);
+  }
+});
+
+test('migration v10 — index attendus existent (dont les contraintes uniques de composition et les index partiels de réponses)', async () => {
+  const db = await importFreshDb(tempDir());
+  const idx = (t) => db.prepare("SELECT name, \"unique\", partial FROM pragma_index_list(?)").all(t);
+  const sessionQuestionnaireIdx = idx('advisory_session_questionnaires');
+  assert.equal(sessionQuestionnaireIdx.filter((i) => i.unique).length, 3, 'les 3 contraintes uniques de composition sont attendues');
+  const answerIdx = idx('advisory_answers');
+  const partials = answerIdx.filter((i) => i.partial);
+  assert.equal(partials.length, 2, 'les 2 index uniques partiels d’activité de réponse sont attendus');
+});
+
+test('migration v10 — hiérarchie questionnaire/version/section/question/option insérable via les FK réelles', async () => {
+  const db = await importFreshDb(tempDir());
+  const qid = db.prepare("INSERT INTO advisory_questionnaires (stable_key, domain, name) VALUES ('demo', 'common', 'Démo')").run().lastInsertRowid;
+  const vid = db.prepare('INSERT INTO advisory_questionnaire_versions (questionnaire_id, version_number) VALUES (?, 1)').run(qid).lastInsertRowid;
+  const sid = db.prepare("INSERT INTO advisory_sections (questionnaire_version_id, stable_key, title, sort_order) VALUES (?, 's1', 'Section', 1)").run(vid).lastInsertRowid;
+  const qsid = db.prepare(
+    "INSERT INTO advisory_questions (section_id, questionnaire_version_id, stable_key, advisor_text, type, sort_order) VALUES (?, ?, 'q1', 'Texte ?', 'boolean', 1)"
+  ).run(sid, vid).lastInsertRowid;
+  assert.doesNotThrow(() =>
+    db.prepare("INSERT INTO advisory_question_options (question_id, stable_key, label, value, sort_order) VALUES (?, 'o1', 'Oui', 'oui', 1)").run(qsid)
+  );
+});
+
+test('migration v10 — advisory_session_questionnaires refuse deux versions du même domaine dans la même session', async () => {
+  const db = await importFreshDb(tempDir());
+  const userId = insertFixtureUser(db);
+  const clientId = insertFixtureClient(db);
+  const householdId = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  const qid = db.prepare("INSERT INTO advisory_questionnaires (stable_key, domain, name) VALUES ('h1', 'health', 'Santé 1')").run().lastInsertRowid;
+  const v1 = db.prepare("INSERT INTO advisory_questionnaire_versions (questionnaire_id, version_number, status) VALUES (?, 1, 'published')").run(qid).lastInsertRowid;
+  const qid2 = db.prepare("INSERT INTO advisory_questionnaires (stable_key, domain, name) VALUES ('h2', 'health', 'Santé 2')").run().lastInsertRowid;
+  const v2 = db.prepare("INSERT INTO advisory_questionnaire_versions (questionnaire_id, version_number, status) VALUES (?, 1, 'published')").run(qid2).lastInsertRowid;
+  const sessionId = db.prepare("INSERT INTO advisory_sessions (household_id, advisor_user_id, domain) VALUES (?, ?, 'health')").run(householdId, userId).lastInsertRowid;
+  db.prepare(
+    "INSERT INTO advisory_session_questionnaires (session_id, questionnaire_version_id, domain, module_role, display_order) VALUES (?, ?, 'health', 'domain', 1)"
+  ).run(sessionId, v1);
+  assert.throws(() =>
+    db.prepare(
+      "INSERT INTO advisory_session_questionnaires (session_id, questionnaire_version_id, domain, module_role, display_order) VALUES (?, ?, 'health', 'domain', 2)"
+    ).run(sessionId, v2)
+  );
+});
+
+test('migration v10 — advisory_answers : une seule réponse active par (session, question) en portée foyer/session', async () => {
+  const db = await importFreshDb(tempDir());
+  const userId = insertFixtureUser(db);
+  const clientId = insertFixtureClient(db);
+  const householdId = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  const sessionId = db.prepare("INSERT INTO advisory_sessions (household_id, advisor_user_id, domain) VALUES (?, ?, 'health')").run(householdId, userId).lastInsertRowid;
+  const qid = db.prepare("INSERT INTO advisory_questionnaires (stable_key, domain, name) VALUES ('h3', 'health', 'Santé 3')").run().lastInsertRowid;
+  const vid = db.prepare('INSERT INTO advisory_questionnaire_versions (questionnaire_id, version_number) VALUES (?, 1)').run(qid).lastInsertRowid;
+  const sid = db.prepare("INSERT INTO advisory_sections (questionnaire_version_id, stable_key, title, sort_order) VALUES (?, 's1', 'S', 1)").run(vid).lastInsertRowid;
+  const questionId = db.prepare(
+    "INSERT INTO advisory_questions (section_id, questionnaire_version_id, stable_key, advisor_text, type, sort_order) VALUES (?, ?, 'q1', 'T', 'boolean', 1)"
+  ).run(sid, vid).lastInsertRowid;
+  db.prepare("INSERT INTO advisory_answers (session_id, question_id, status, value_boolean, revision) VALUES (?, ?, 'answered', 1, 1)").run(sessionId, questionId);
+  assert.throws(() =>
+    db.prepare("INSERT INTO advisory_answers (session_id, question_id, status, value_boolean, revision) VALUES (?, ?, 'answered', 0, 2)").run(sessionId, questionId)
+  );
+});
+
+test('migration v10 — advisory_answers : deux membres différents peuvent chacun avoir une réponse active à la même question', async () => {
+  const db = await importFreshDb(tempDir());
+  const userId = insertFixtureUser(db);
+  const clientId = insertFixtureClient(db);
+  const householdId = db.prepare('INSERT INTO households (primary_client_id) VALUES (?)').run(clientId).lastInsertRowid;
+  const member1 = db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'principal')").run(householdId, clientId).lastInsertRowid;
+  const secondClientId = insertFixtureClient(db, 'Enfant', 'Test');
+  const member2 = db.prepare("INSERT INTO household_members (household_id, client_id, member_role) VALUES (?, ?, 'enfant')").run(householdId, secondClientId).lastInsertRowid;
+  const sessionId = db.prepare("INSERT INTO advisory_sessions (household_id, advisor_user_id, domain) VALUES (?, ?, 'health')").run(householdId, userId).lastInsertRowid;
+  const qid = db.prepare("INSERT INTO advisory_questionnaires (stable_key, domain, name) VALUES ('h4', 'health', 'Santé 4')").run().lastInsertRowid;
+  const vid = db.prepare('INSERT INTO advisory_questionnaire_versions (questionnaire_id, version_number) VALUES (?, 1)').run(qid).lastInsertRowid;
+  const sid = db.prepare("INSERT INTO advisory_sections (questionnaire_version_id, stable_key, title, sort_order, applies_to) VALUES (?, 's1', 'S', 1, 'member')").run(vid).lastInsertRowid;
+  const questionId = db.prepare(
+    "INSERT INTO advisory_questions (section_id, questionnaire_version_id, stable_key, advisor_text, type, scope, sort_order) VALUES (?, ?, 'q1', 'T', 'boolean', 'member', 1)"
+  ).run(sid, vid).lastInsertRowid;
+  assert.doesNotThrow(() => {
+    db.prepare("INSERT INTO advisory_answers (session_id, question_id, household_member_id, status, value_boolean, revision) VALUES (?, ?, ?, 'answered', 1, 1)").run(sessionId, questionId, member1);
+    db.prepare("INSERT INTO advisory_answers (session_id, question_id, household_member_id, status, value_boolean, revision) VALUES (?, ?, ?, 'answered', 0, 1)").run(sessionId, questionId, member2);
+  });
 });

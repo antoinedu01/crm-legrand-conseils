@@ -29,6 +29,27 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
 - Les enfants et personnes à charge ne sont jamais tenus de fournir email,
   téléphone, adresse ou profession (cf. `DATA_MODEL.md` §1.1, §2.2) —
   minimisation déjà portée par le schéma `clients` existant, pas un ajout.
+- **Lot 3A — invariant de confidentialité critique, vérifié en service et
+  testé** : une réponse de portée `member` (`advisory_answers.
+  household_member_id`) doit référencer un membre appartenant au **même**
+  foyer que la session — jamais un membre d'un autre foyer, même si son
+  identifiant existe réellement en base. Implémenté par
+  `assertMemberBelongsToSession` (`server/advisorySessions.js`), même
+  principe que `assertLegalRepresentativeValid` (Lot 2).
+- **Lot 3A — flag `sensitive` préparatoire, non enforcé** : les questions
+  portent un booléen `sensitive` (classification simple) qui n'est
+  consulté par **aucune** route de ce lot — ni pour filtrer une réponse
+  dans une API, ni pour un affichage particulier. À ne jamais présenter
+  comme une protection déjà active tant qu'aucune route ne le consulte
+  réellement ; une future route (mode présentation client, Lot 8, ou export,
+  Lot 10) devra décider explicitement comment l'utiliser.
+- **Lot 3A — contenu libre non classifié** : les types `text`/`long_text`
+  permettent une saisie libre sans classification de contenu. Aucun risque
+  réel dans ce lot (questionnaires fictifs uniquement), mais le risque
+  redevient réel dès qu'un contenu métier réel (Lot 5/6) autorise ce type
+  de champ sur une question potentiellement sensible — la protection ne
+  peut venir que d'une revue humaine du contenu à la publication d'une
+  version, jamais du schéma lui-même.
 
 ## 3. Consentements
 
@@ -102,6 +123,49 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
   audit affirmant une création réussie alors que la transaction a échoué.
   Une personne déjà existante ajoutée au foyer ne produit jamais cette
   entrée `création client`.
+- **Lot 3A** : 22 actions d'audit distinctes, une par site d'appel
+  (`questionnaire créé`, `version créée`/`publiée`/`archivée`/`clonée`,
+  `section créée`/`modifiée`, `question créée`/`modifiée`, `option
+  créée`/`modifiée`, `session créée`/`modifiée`/`démarrée`/`suspendue`/
+  `reprise`/`finalisée`/`annulée`, `réponse
+  enregistrée`/`remplacée`/`effacée`/`amendée`), toutes vérifiées par test
+  pour ne **jamais** contenir la valeur d'une réponse, une date de
+  naissance, un montant ou une donnée médicale — uniquement des
+  identifiants, énumérations et compteurs. Le rollback transactionnel de
+  ces entrées est vérifié empiriquement (une réponse annulée par une
+  entrée invalide dans le même lot n'écrit aucune entrée d'audit
+  résiduelle). Les six actions `section`/`question`/`option`
+  `créée`/`modifiée` ont été ajoutées lors du GATE de validation : les
+  fonctions `upsertSection`/`upsertQuestion`/`upsertOption`
+  (`server/advisoryQuestionnaires.js`) recevaient déjà `req` mais
+  n'appelaient jamais `audit()`, contrairement à la convention du Lot 2 qui
+  journalise systématiquement jusqu'aux entités imbriquées (ajout/
+  modification/retrait d'un membre de foyer). Corrigé pour rester cohérent
+  avec cette convention ; leur `details` ne contient que la clé stable
+  (`stable_key`), jamais le texte de la question ni le libellé de l'option.
+- **Correctif final avant premier commit — `allows_not_applicable`** :
+  ajout d'un champ booléen distinct de `allows_unknown` sur
+  `advisory_questions` (défaut `false`). Sans ce contrôle, le statut
+  `not_applicable` pouvait auparavant satisfaire n'importe quelle question
+  obligatoire à la finalisation sans que le concepteur du questionnaire ne
+  l'ait jamais explicitement autorisé — corrigé côté service
+  (`validateAnswerValue`, `server/advisorySessions.js`), sur tous les
+  chemins d'écriture (`recordAnswers`, `amendAnswer`), jamais uniquement
+  côté interface. Les audits `réponse enregistrée`/`remplacée`/`amendée`
+  continuent de ne jamais contenir le statut ni la valeur de la réponse,
+  vérifié par test y compris pour un amendement vers `not_applicable`.
+- **`content_hash` : précision de nature (correctif final)** — l'empreinte
+  SHA-256 des versions de questionnaire (`QUESTIONNAIRE_ENGINE.md` §7.1) est
+  un simple contrôle technique d'intégrité interne, **jamais une signature
+  cryptographique ni une preuve juridique** : aucune clé privée, aucun tiers
+  de confiance, aucune valeur probante au sens légal ne doit lui être
+  attribuée.
+- **Constat de la revue de conformité (non corrigé, hors périmètre de ce
+  lot)** : `createHousehold()` (Lot 2) journalise encore le nom affiché du
+  principal (`displayName(client)`), contrairement au motif plus strict
+  adopté depuis pour `création client`/les actions du Lot 3A. Signalé pour
+  une correction future, non modifié ici pour rester dans le périmètre du
+  Lot 3A.
 
 ## 7. Verrouillage de session
 

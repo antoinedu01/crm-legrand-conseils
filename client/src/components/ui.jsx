@@ -34,6 +34,8 @@ const TONES = {
   archive: 'serious',
   principal: 'good', conjoint: 'info', enfant: 'info', autre_charge: '',
   exact_match: 'critical', probable_match: 'serious', possible_similarity: 'warn', no_match: '',
+  draft: 'info', in_progress: 'warn', suspended: 'serious', completed: 'good', cancelled: 'critical',
+  answered: 'good', unknown: 'warn', not_applicable: '', cleared: 'serious',
 };
 
 export function Badge({ value, label }) {
