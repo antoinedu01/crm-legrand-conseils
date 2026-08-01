@@ -8,11 +8,11 @@
 import db from './db.js';
 import { assert, inEnum, ValidationError } from './validate.js';
 import { audit } from './audit.js';
-import { AdvisoryError } from './advisoryHouseholds.js';
+import { AdvisoryError, displayName } from './advisoryHouseholds.js';
 import { evaluateRuleCondition, refKind, resolveQuantifierMembers } from './advisoryRuleConditions.js';
 import { sessionMembersFor, answerValueFor } from './advisorySessions.js';
 import { getVersionDetail } from './advisoryQuestionnaires.js';
-import { getRuleSetDetail, RULE_SET_DOMAINS } from './advisoryRules.js';
+import { getRuleSetDetail, listRuleSets, RULE_SET_DOMAINS } from './advisoryRules.js';
 
 // Identifie la version du MOTEUR lui-même (jamais celle d'un rule_set) —
 // à incrémenter si l'algorithme d'exécution change de façon à pouvoir
@@ -58,6 +58,24 @@ function assertExpectedRevision(session, expectedRevision) {
       409
     );
   }
+}
+
+// Préconditions communes à toute exécution (indépendantes du domaine) —
+// extraites de `executeRuleSetForSession` (LOT 4B) pour être réutilisées
+// TELLES QUELLES par `executeApplicableRuleSetsForSession` : la session doit
+// être vérifiée UNE SEULE FOIS avant de lancer plusieurs domaines, jamais
+// domaine par domaine (une session `in_progress` ou un foyer archivé n'est
+// pas un problème « propre à un domaine », c'est un rejet de l'appel entier
+// — à la différence de l'absence de rule_set publié, qui elle reste bien
+// spécifique à chaque domaine, voir plus bas).
+function assertSessionExecutable(session, household, expectedRevision) {
+  if (!ELIGIBLE_SESSION_STATUSES.includes(session.status)) {
+    throw new AdvisoryError(`Aucune exécution du moteur de règles n'est possible sur une session « ${session.status} ».`, 409);
+  }
+  if (household && household.status === 'archive') {
+    throw new AdvisoryError('Ce foyer est archivé : aucune nouvelle activité n’est possible sur ses sessions.', 409);
+  }
+  assertExpectedRevision(session, expectedRevision);
 }
 
 // --- Résolution du rule_set figé pour ce couple (session, domaine) ---------
@@ -237,6 +255,19 @@ function allowedExecutionDomainsForSession(sessionDomain) {
   return ['common', sessionDomain];
 }
 
+// Matrice des domaines REQUIS par type de session (GATE LOT 4B §3, décision
+// humaine confirmée) : `common` n'est JAMAIS requis, quel que soit le
+// domaine de la session (constats transverses, facultatifs par nature) --
+// seuls les domaines correspondant explicitement au(x) type(s) déclaré(s)
+// de la session le sont. Distincte de `allowedExecutionDomainsForSession`
+// (qui liste tout ce qui peut être exécuté, common inclus) : celle-ci ne
+// sert QU'à calculer l'état global agrégé ci-dessous, jamais à décider quoi
+// exécuter.
+function requiredDomainsForSession(sessionDomain) {
+  if (sessionDomain === 'mixed') return ['health', 'life_pension'];
+  return [sessionDomain];
+}
+
 export function executeRuleSetForSession(sessionId, domain, expectedRevision, req, { rule_set_id } = {}) {
   const session = requireSession(sessionId);
   assert(inEnum(domain, RULE_SET_DOMAINS) && domain != null, 'Domaine d\'exécution inconnu (common, health ou life_pension attendu).');
@@ -247,14 +278,8 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
   if (!allowedExecutionDomainsForSession(session.domain).includes(domain)) {
     throw new AdvisoryError(`Cette session (domaine « ${session.domain} ») n'accepte pas d'exécution pour le domaine « ${domain} ».`, 409);
   }
-  if (!ELIGIBLE_SESSION_STATUSES.includes(session.status)) {
-    throw new AdvisoryError(`Aucune exécution du moteur de règles n'est possible sur une session « ${session.status} ».`, 409);
-  }
   const household = getHousehold(session.household_id);
-  if (household && household.status === 'archive') {
-    throw new AdvisoryError('Ce foyer est archivé : aucune nouvelle activité n’est possible sur ses sessions.', 409);
-  }
-  assertExpectedRevision(session, expectedRevision);
+  assertSessionExecutable(session, household, expectedRevision);
 
   const { ruleSetId: pinnedRuleSetId, isFirstExecution } = resolvePinnedRuleSetId(sessionId, domain, rule_set_id);
   const ruleSet = getRuleSetDetail(pinnedRuleSetId);
@@ -327,11 +352,24 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
         return false;
       }
 
+      // `scope` (constat GATE LOT 4B, revue advisory-architect) : une
+      // question de portée `member` est déclarée manquante dès qu'AU MOINS
+      // UN membre n'a pas répondu (`isRequiredDataPresent` ci-dessus,
+      // vérification `every`, jamais résolue à UN membre précis parmi
+      // plusieurs potentiellement concernés) -- `household_member_id` reste
+      // donc toujours `null` ici, y compris pour une question de portée
+      // membre. Sans ce champ, un écran de lecture ne peut pas distinguer
+      // « aucune instance foyer n'existe pour cette question » (portée
+      // membre : une navigation directe vers UNE réponse précise n'a pas de
+      // sens, plusieurs membres pouvant être concernés) d'une véritable
+      // absence de réponse foyer -- risque déjà constaté d'un lien de
+      // navigation qui échoue silencieusement faute de pouvoir distinguer
+      // les deux cas.
       function structuredDataRef(ref) {
         const kind = refKind(ref);
         if (kind === 'answer') {
           const q = byStableKey.get(ref.answer);
-          return { kind: 'answer', stable_key: ref.answer, question_id: q ? q.id : null };
+          return { kind: 'answer', stable_key: ref.answer, question_id: q ? q.id : null, scope: q ? q.scope : null };
         }
         return { kind: 'contract_branch', contract_branch: ref.contract_branch };
       }
@@ -478,6 +516,16 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
       // tous deux conservés (jamais l'un supprimé au profit de l'autre) et
       // marqués `needs_review` avec renvoi croisé — c'est au conseiller de
       // trancher, jamais au moteur.
+      //
+      // Constat GATE LOT 4B (QA formelle, écran des constats) : EXCLUT
+      // explicitement les findings produits par LA MÊME règle (`finding_
+      // scope = member`, un finding distinct par membre correspondant,
+      // GATE LOT 4A §3) -- ces findings partagent nécessairement le même
+      // `category_hint` (copié depuis la même règle) sans que cela
+      // constitue un recoupement réel : ce n'est jamais qu'une même règle
+      // s'appliquant normalement à plusieurs membres, jamais deux avis
+      // contradictoires. Seuls des findings issus de règles DIFFÉRENTES
+      // partageant une catégorie constituent un recoupement à signaler.
       const byCategory = new Map();
       findingsInMemory.forEach((f, idx) => {
         const cat = f.result_payload?.category_hint;
@@ -487,7 +535,10 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
       });
       const conflictGroups = new Map(); // idx -> [other idx...]
       for (const [, idxs] of byCategory) {
-        if (idxs.length > 1) for (const i of idxs) conflictGroups.set(i, idxs.filter((j) => j !== i));
+        for (const i of idxs) {
+          const others = idxs.filter((j) => j !== i && findingsInMemory[j].rule.id !== findingsInMemory[i].rule.id);
+          if (others.length > 0) conflictGroups.set(i, others);
+        }
       }
 
       // Empreinte minimale des entrées utilisées (§13) : références
@@ -611,6 +662,93 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
   }
 }
 
+// --- Orchestration : lancement groupé sur tous les domaines applicables ---
+
+// Un message d'échec renvoyé à l'appelant (route, UI) ne doit jamais
+// exposer le détail brut d'une erreur interne inattendue (même principe que
+// pour toute autre route de ce module, constat GATE LOT 4A sur les fuites
+// SQL) : seules les erreurs métier volontaires (`AdvisoryError`,
+// `ValidationError`, déjà rédigées pour être lues par un humain) sont
+// transmises telles quelles ; toute autre erreur devient un message
+// générique — le détail réel reste uniquement dans
+// `advisory_rule_executions.error_message` (déjà écrit par
+// `recordFailedExecution`, déjà couvert par l'audit existant).
+// Partagé avec `resolveDomainAnalysisState` (§9 ci-dessous, GATE LOT 4B §3) :
+// le message renvoyé pour tout échec autre qu'une AdvisoryError/ValidationError
+// (donc pour TOUTE ligne `advisory_rule_executions.status = 'failed'`,
+// puisque `recordFailedExecution` n'est jamais appelée pour ces deux
+// dernières -- voir le bloc catch d'`executeRuleSetForSession`) doit rester
+// EXACTEMENT le même texte générique, qu'il soit lu juste après le lancement
+// (résultat de `executeApplicableRuleSetsForSession`) ou relu plus tard sur
+// un rechargement de la projection (`resolveDomainAnalysisState`) -- jamais
+// le détail brut réellement stocké en base (`error_message`, potentiellement
+// technique/SQL), qui lui reste réservé au diagnostic serveur.
+const GENERIC_DOMAIN_FAILURE_MESSAGE = 'Une erreur inattendue est survenue pendant cette exécution ; elle a été tracée côté serveur.';
+function domainFailureMessage(err) {
+  if (err instanceof AdvisoryError || err instanceof ValidationError) return err.message;
+  return GENERIC_DOMAIN_FAILURE_MESSAGE;
+}
+
+// GATE LOT 4B §7 (revue advisory-architect) : PAS d'atomicité globale entre
+// domaines — chaque domaine garde sa PROPRE transaction indépendante,
+// exactement comme des appels manuels répétés à `executeRuleSetForSession`.
+// Une atomicité globale (SAVEPOINT imbriqué autour de tous les domaines)
+// casserait la garantie « toujours tracer, jamais silencieux » de
+// `recordFailedExecution`, et transformerait à tort un état parfaitement
+// normal (« aucun ensemble de règles publié pour ce domaine ») en motif
+// d'annulation de tout le reste. Retourne un résultat STRUCTURÉ par
+// domaine — à l'appelant (route, UI) de lire `status` domaine par domaine ;
+// ne JAMAIS présenter un résultat partiel comme une analyse complète.
+//
+// Les préconditions communes à la SESSION (statut, foyer archivé, révision
+// attendue) sont vérifiées AVANT LA BOUCLE, une première fois : si la
+// session elle-même n'est pas exécutable, l'appel entier est rejeté
+// (409/400) sans qu'aucun domaine ne soit tenté. Chaque appel à
+// `executeRuleSetForSession` ci-dessous revérifie ensuite les mêmes
+// préconditions par construction (fonction partagée, jamais dupliquée) —
+// une revérification intentionnellement redondante, jamais un risque
+// d'incohérence : rien ne peut changer la session entre deux domaines
+// (transaction synchrone, aucune écriture sur `advisory_sessions` par une
+// exécution). Seule l'absence de rule_set PUBLIÉ reste réellement
+// spécifique à chaque domaine (`skipped_no_published_rule_set`) : ce n'est
+// jamais une erreur, un domaine peut légitimement n'avoir encore aucun
+// ensemble de règles publié.
+export function executeApplicableRuleSetsForSession(sessionId, expectedRevision, req) {
+  const session = requireSession(sessionId);
+  const household = getHousehold(session.household_id);
+  assertSessionExecutable(session, household, expectedRevision);
+
+  const domains = allowedExecutionDomainsForSession(session.domain);
+  return domains.map((domain) => {
+    // Un domaine déjà pinné (première exécution réussie antérieure) doit
+    // IMPÉRATIVEMENT être ré-exécuté avec son rule_set déjà figé, jamais
+    // avec la dernière version publiée du domaine (reproductibilité,
+    // `resolvePinnedRuleSetId`) — sans cette vérification préalable, fournir
+    // ici la dernière publication en date romprait à tort le pin avec un
+    // 409 « déjà lié à un autre ensemble » dès qu'une nouvelle version a été
+    // publiée depuis, alors qu'une simple relance après amendement doit
+    // rester silencieusement compatible.
+    const alreadyPinned = db
+      .prepare("SELECT rule_set_id FROM advisory_rule_executions WHERE session_id = ? AND domain = ? AND status = 'completed' ORDER BY id ASC LIMIT 1")
+      .get(sessionId, domain);
+    let ruleSetIdToUse;
+    if (!alreadyPinned) {
+      // Au plus un ensemble publié par domaine, garanti par l'index unique
+      // partiel `idx_advisory_rule_sets_one_published_per_domain`
+      // (migration 11) — jamais besoin de choisir parmi plusieurs.
+      const published = listRuleSets({ domain, status: 'published' });
+      if (published.length === 0) return { domain, status: 'skipped_no_published_rule_set' };
+      ruleSetIdToUse = published[0].id;
+    }
+    try {
+      const result = executeRuleSetForSession(sessionId, domain, expectedRevision, req, { rule_set_id: ruleSetIdToUse });
+      return { domain, status: 'completed', execution_id: result.execution_id, findings_count: result.findings_count };
+    } catch (err) {
+      return { domain, status: 'failed', error: domainFailureMessage(err) };
+    }
+  });
+}
+
 // --- Lecture -------------------------------------------------------------
 
 // Consultation de données SENSIBLES (revue compliance-privacy-reviewer,
@@ -695,19 +833,37 @@ function parseFinding(r) {
 export function getExecutionDetail(sessionId, executionId, req) {
   const execution = db.prepare('SELECT * FROM advisory_rule_executions WHERE id = ?').get(executionId);
   if (!execution || execution.session_id !== Number(sessionId)) return null;
-  const findings = db.prepare(`SELECT * FROM advisory_findings f WHERE f.rule_execution_id = ? ORDER BY ${FINDINGS_ORDER_BY}`).all(executionId).map(parseFinding);
+  const rows = db.prepare(`SELECT * FROM advisory_findings f WHERE f.rule_execution_id = ? ORDER BY ${FINDINGS_ORDER_BY}`).all(executionId);
+  // Même hydratation groupée que `getSessionFindingsWorkspace` (constat
+  // GATE LOT 4B, revue advisory-architect) : cette route reste réutilisée
+  // telle quelle par l'historique des analyses de l'espace conseiller des
+  // findings (`HistoryModal`, `client/src/pages/SessionFindings.jsx`) — sans
+  // cette hydratation, l'écran d'historique dégradait silencieusement
+  // l'auteur d'un écartement et le texte de question en repli générique,
+  // précisément sur l'écran dont la traçabilité est la raison d'être.
+  const session = requireSession(sessionId);
+  const membersById = new Map(sessionMembersFor(session).map((m) => [m.id, m]));
+  const findings = hydrateFindingRows(rows, sessionId).map((f) => ({
+    ...f,
+    member: f.household_member_id != null ? membersById.get(f.household_member_id) || null : null,
+  }));
   const inputsSnapshot = execution.inputs_snapshot ? JSON.parse(execution.inputs_snapshot) : null;
   const hasSensitive = hasFrozenSensitiveRefInFindings(findings) || hasFrozenSensitiveRefInSnapshot(inputsSnapshot);
   auditSensitiveDataAccessIfNeeded(req, execution.session_id, execution.domain, hasSensitive);
   return { ...execution, inputs_snapshot: inputsSnapshot, findings };
 }
 
-// Ordre de priorité partagé par les 3 routes de lecture de findings (constat
+// Ordre de priorité partagé par les routes de lecture de findings (constat
 // GATE LOT 4A, revue client-meeting-ux : un même ensemble de findings ne
 // doit jamais s'afficher dans un ordre différent selon l'écran qui
-// l'interroge) — `critical` > `high` > `medium` > `low`, puis `sort_order`
-// (ordre d'auteur), puis `id` (déterminisme total en cas d'égalité).
+// l'interroge) — étendu au LOT 4B §11 (revue rules-engine-auditor) :
+// 1. conflits actifs (`needs_review`) d'abord, puis 2. `critical` > 3. `high`
+// > 4. `medium` > 5. `low`, puis `sort_order` (ordre d'auteur), puis `id`
+// (déterminisme total en cas d'égalité). Le tri reste entièrement calculé
+// côté serveur : aucun écran ne doit ré-ordonner ce résultat différemment
+// sans le documenter explicitement (source de vérité serveur).
 const FINDINGS_ORDER_BY = `
+  f.needs_review DESC,
   f.priority = 'critical' DESC, f.priority = 'high' DESC, f.priority = 'medium' DESC, f.sort_order, f.id`;
 
 // Findings ACTIFS : uniquement `status = 'active'` (jamais `!= 'superseded'`,
@@ -808,6 +964,415 @@ export function dismissFinding(sessionId, findingId, { dismiss_reason, expected_
   })();
   audit(req, 'finding écarté', 'advisory_session', finding.session_id, `${finding.stable_key} — ${finding.finding_type}`);
   return { ok: true };
+}
+
+// --- Projection « espace conseiller des findings » (LOT 4B) ----------------
+
+// États résumés d'un domaine pour l'en-tête de l'écran des constats (§9) —
+// TOUJOURS dérivés à la lecture, jamais une colonne stockée (même principe
+// que `allowedActions` en Lot 3B, dérivé de TRANSITIONS) :
+// - `no_rule_set_available` : aucune exécution complétée pour ce domaine
+//   sur cette session ET aucun ensemble de règles publié pour en lancer une
+//   première -- un état parfaitement normal (un domaine facultatif, ou pas
+//   encore équipé), jamais présenté comme une erreur.
+// - `not_yet_run` : aucune exécution complétée pour ce domaine, mais un
+//   ensemble de règles est publié -- un lancement est possible. Dans cet
+//   état, `hasEverCompleted` est nécessairement faux lui aussi (constat
+//   GATE LOT 4B, revue rules-engine-auditor) : la chaîne de supersession
+//   garantit qu'une exécution complétée n'est JAMAIS orpheline (la
+//   dernière du couple session/domaine n'a, par construction, jamais de
+//   `superseded_by_execution_id` tant qu'aucune nouvelle ne l'a remplacée)
+//   -- il ne peut donc pas exister de domaine « déjà pinné mais jamais
+//   réussi » distinct de ce cas.
+// - `up_to_date` : la dernière exécution complétée porte la révision
+//   COURANTE de la session -- rien n'a changé depuis.
+// - `stale` : la session a été amendée (`amendAnswer`) depuis cette
+//   dernière exécution -- une relance est SUGGÉRÉE, jamais automatique
+//   (§7.5) : les findings affichés restent ceux de la dernière exécution
+//   réussie jusqu'à ce que le conseiller relance explicitement l'analyse.
+function resolveDomainAnalysisState(sessionId, domain, sessionRevision) {
+  const lastCompleted = db
+    .prepare("SELECT * FROM advisory_rule_executions WHERE session_id = ? AND domain = ? AND status = 'completed' AND superseded_by_execution_id IS NULL ORDER BY id DESC LIMIT 1")
+    .get(sessionId, domain);
+  const lastAny = db
+    .prepare('SELECT id, status FROM advisory_rule_executions WHERE session_id = ? AND domain = ? ORDER BY id DESC LIMIT 1')
+    .get(sessionId, domain);
+  const hasEverCompleted = !!db
+    .prepare("SELECT 1 FROM advisory_rule_executions WHERE session_id = ? AND domain = ? AND status = 'completed' LIMIT 1")
+    .get(sessionId, domain);
+  // Au plus un ensemble publié par domaine (index unique partiel, migration
+  // 11) -- une simple présence suffit, jamais besoin d'en choisir un.
+  const hasPublished = listRuleSets({ domain, status: 'published' }).length > 0;
+  const canLaunch = hasEverCompleted || hasPublished;
+
+  let state;
+  if (!lastCompleted) state = canLaunch ? 'not_yet_run' : 'no_rule_set_available';
+  else state = lastCompleted.session_revision === sessionRevision ? 'up_to_date' : 'stale';
+
+  const lastAttemptFailed = !!(lastAny && lastAny.status === 'failed' && (!lastCompleted || lastAny.id > lastCompleted.id));
+
+  return {
+    state,
+    can_launch: canLaunch,
+    // Statut de publication ACTUEL et RIEN d'autre (jamais « a déjà été
+    // publié un jour ») -- distinct de `state`, qui, lui, dérive de la
+    // dernière exécution COMPLÉTÉE indépendamment de son statut de
+    // publication courant (une exécution reste valide même après archivage
+    // du rule_set qui l'a produite, reproductibilité oblige). Ce champ sert
+    // spécifiquement à trancher l'APPLICABILITÉ de `common` à l'analyse
+    // COURANTE (MICRO-GATE LOT 4B, correction humaine finale) : un rule_set
+    // `common` seulement archivé ne doit jamais rendre ce domaine
+    // « applicable », même si une exécution passée (via ce même rule_set,
+    // avant son archivage) reste `up_to_date`/`stale` au sens de `state`.
+    has_published_rule_set: hasPublished,
+    last_execution: lastCompleted
+      ? {
+          id: lastCompleted.id,
+          ended_at: lastCompleted.ended_at,
+          session_revision: lastCompleted.session_revision,
+          rules_evaluated_count: lastCompleted.rules_evaluated_count,
+          findings_count: lastCompleted.findings_count,
+          rule_set_id: lastCompleted.rule_set_id,
+          rule_set_version_number: lastCompleted.rule_set_version_number,
+          content_hash: lastCompleted.content_hash,
+          engine_version: lastCompleted.engine_version,
+        }
+      : null,
+    // Un DERNIER essai en échec, plus récent que la dernière exécution
+    // complétée (ou en l'absence de toute exécution complétée) -- jamais
+    // masqué : le conseiller doit savoir qu'un lancement a été tenté et a
+    // échoué, même si ce domaine affiche par ailleurs `not_yet_run`/`stale`.
+    last_attempt_failed: lastAttemptFailed,
+    // Erreur MINIMISÉE (GATE LOT 4B §3) : jamais le contenu brut de
+    // `advisory_rule_executions.error_message` (potentiellement technique,
+    // voir `recordFailedExecution`) -- seulement le même texte générique
+    // sûr que la réponse de lancement elle-même (`domainFailureMessage`),
+    // pour que ce champ reste identique qu'il soit lu juste après le
+    // lancement ou relu plus tard sur un rechargement de la page. `null`
+    // quand aucune tentative récente n'a échoué.
+    last_attempt_error: lastAttemptFailed ? GENERIC_DOMAIN_FAILURE_MESSAGE : null,
+  };
+}
+
+// État global agrégé (GATE LOT 4B §3, affiné par le MICRO-GATE §3 --
+// décision humaine confirmée) : DISTINCT de `state` par domaine ci-dessus --
+// combine les états des domaines APPLICABLES à ce calcul en une seule
+// valeur résumée pour l'en-tête de l'écran des constats. Priorité stricte,
+// la première règle qui s'applique l'emporte -- jamais recalculée
+// différemment ailleurs (même principe que `FINDINGS_ORDER_BY` : une seule
+// source de vérité, jamais un second calcul divergent côté client).
+//
+// « Applicable » (voir l'appelant, `getSessionFindingsWorkspace`) désigne
+// TOUJOURS les domaines REQUIS par le type de session
+// (`requiredDomainsForSession`), PLUS `common` SI ET SEULEMENT SI un
+// ensemble de règles lui a déjà été publié pour cette session (`state !==
+// 'no_rule_set_available'`) -- la facultativité de `common` ne signifie
+// « son absence est acceptable » (exclu du calcul quand aucun ensemble ne
+// lui a jamais été publié) et JAMAIS « un `common` existant peut échouer ou
+// être obsolète sans affecter l'état global » (MICRO-GATE §3, correction
+// humaine explicite) : dès qu'un ensemble `common` publié existe, ce
+// domaine est traité EXACTEMENT comme un domaine requis par cette fonction
+// -- aucune branche spéciale ci-dessous ne le traite différemment.
+function resolveGlobalAnalysisState(applicableDomainStates) {
+  if (applicableDomainStates.length === 0) return 'not_analyzed'; // vacuité défensive, ne devrait jamais survenir (chaque type de session a toujours >= 1 domaine requis)
+
+  const everCompleted = (s) => !!s.last_execution;
+  const isUpToDate = (s) => s.state === 'up_to_date';
+  const isStale = (s) => s.state === 'stale';
+  const isUnavailable = (s) => s.state === 'no_rule_set_available';
+  const isNeverRun = (s) => s.state === 'not_yet_run';
+  const hasFailed = (s) => !!s.last_attempt_failed;
+  const isUsable = (s) => isUpToDate(s) || isStale(s);
+
+  // 1. Aucun domaine applicable n'a JAMAIS été équipé du moindre ensemble
+  // de règles publié -- rien n'est simplement possible pour cette session,
+  // jamais confondu avec « pas encore lancé » (qui reste actionnable) --
+  // règle GATE §3 explicite : « ensemble de règles spécialisé manquant ->
+  // unavailable ».
+  if (applicableDomainStates.every(isUnavailable)) return 'unavailable';
+
+  // 2. Aucun domaine applicable n'a jamais complété la moindre exécution, et
+  // aucune tentative n'a échoué -- point de départ normal d'une session tout
+  // juste finalisée, jamais présenté comme une erreur.
+  if (applicableDomainStates.every((s) => !everCompleted(s) && !hasFailed(s))) return 'not_analyzed';
+
+  // 3. Tous les domaines applicables ont une exécution complétée à la
+  // révision COURANTE (jamais un mélange de révisions différentes, règle
+  // GATE §3 : ce contrôle par-domaine est déjà celui de
+  // `resolveDomainAnalysisState` lui-même, jamais recalculé différemment
+  // ici) et aucune tentative plus récente n'a échoué depuis -- seul cas
+  // réellement « à jour ».
+  if (applicableDomainStates.every((s) => isUpToDate(s) && !hasFailed(s))) return 'up_to_date';
+
+  // 4. Aucun domaine applicable n'a JAMAIS produit le moindre résultat
+  // exploitable (ni à jour, ni obsolète) alors qu'au moins une tentative a
+  // échoué quelque part -- rien à montrer, un échec pur et sans issue de
+  // secours (contrairement au cas 5 ci-dessous, où au moins un AUTRE
+  // domaine applicable reste consultable).
+  if (applicableDomainStates.every((s) => !isUsable(s)) && applicableDomainStates.some(hasFailed)) return 'error';
+
+  // 5. Au moins un domaine applicable porte un résultat exploitable (à jour
+  // ou obsolète) tandis qu'un AUTRE domaine applicable a échoué, n'a jamais
+  // pu être équipé, ou n'a encore jamais été lancé -- couverture requise
+  // incomplète. Règle GATE §3 explicite : « succès sur un domaine requis +
+  // échec sur un autre = partiel » -- généralisée ici aux trois façons dont
+  // un autre domaine applicable peut rester sans résultat exploitable
+  // (échoué, jamais équipé, ou simplement jamais lancé), pas seulement
+  // l'échec. Couvre aussi « common publié mais non exécuté alors qu'un
+  // domaine spécialisé est à jour » (MICRO-GATE §3).
+  if (applicableDomainStates.some(isUsable) && applicableDomainStates.some((s) => hasFailed(s) || isUnavailable(s) || isNeverRun(s))) return 'partial';
+
+  // 6. Ce qui reste : tous les domaines applicables portent un résultat
+  // exploitable, aucun n'a échoué, mais pas tous à jour (au moins un est
+  // obsolète, sinon l'étape 3 aurait déjà conclu). Deux cas distingués
+  // (MICRO-GATE §3, correction humaine explicite -- absent de la première
+  // version de cette fonction, qui renvoyait uniformément `stale`) :
+  // - AUCUN domaine applicable n'est à jour (tous obsolètes) -> `stale`,
+  //   une relance est SUGGÉRÉE, jamais automatique ;
+  // - AU MOINS UN domaine applicable est à jour pendant qu'un AUTRE reste
+  //   obsolète (mélange) -> `partial`, la couverture n'est que
+  //   partiellement à jour, jamais présentée comme simplement « obsolète »
+  //   (qui donnerait à tort l'impression qu'AUCUNE partie n'est fiable).
+  if (applicableDomainStates.some(isUpToDate)) return 'partial';
+  return 'stale';
+}
+
+// Hydratation groupée (jamais requête par finding, constat GATE LOT 4B,
+// revue advisory-architect) : `source`/`source_reference`/`effective_from`/
+// `effective_until` ne vivent que sur `advisory_rules` (jamais dupliqués sur
+// le finding, contrairement à `title`/`summary`/`advisor_explanation`) ; le
+// nom d'un conseiller ayant écarté un finding, de même. Le texte de
+// question (`advisor_text`) associé à chaque référence `used_inputs_ref` de
+// type `answer` est également hydraté ici -- pour que le panneau de
+// traçabilité affiche l'intitulé de la question réellement utilisée, jamais
+// seulement un identifiant technique brut -- en réutilisant `buildQuestionIndex`
+// (déjà appelé par le moteur d'exécution lui-même), jamais une résolution
+// distincte.
+//
+// GATE LOT 4B (§2, navigation historique par answer_id) : trois champs
+// supplémentaires, TOUS dérivés à la lecture (jamais dupliqués dans le JSON
+// figé `used_inputs_ref`, qui reste la trace immuable écrite par
+// `buildUsedInputsRef` à l'exécution) -- même principe que `advisor_text`
+// ci-dessus. `question_stable_key` est un simple alias explicite de
+// `stable_key` (déjà la clé stable de la QUESTION, pas de la règle) : exposé
+// sous ce nom précis pour que le contrat de la projection soit sans
+// ambiguïté. `section_id` permet au front de retrouver la section contenant
+// la question sans requête supplémentaire. `is_current_answer` indique si
+// `answer_id` désigne encore la ligne ACTIVE de `advisory_answers` pour ce
+// couple (question, membre) -- `null` quand `answer_id` est lui-même absent
+// (aucune réponse n'existait au moment de l'exécution, cas déjà normal et
+// distinct d'une réponse depuis remplacée).
+function hydrateFindingRows(findingRows, sessionId) {
+  if (findingRows.length === 0) return [];
+  const parsed = findingRows.map(parseFinding);
+  const ruleIds = [...new Set(parsed.map((f) => f.rule_id))];
+  const rulePlaceholders = ruleIds.map(() => '?').join(',');
+  const ruleSourceById = new Map(
+    db
+      .prepare(`SELECT id, source, source_reference, effective_from, effective_until FROM advisory_rules WHERE id IN (${rulePlaceholders})`)
+      .all(...ruleIds)
+      .map((r) => [r.id, r])
+  );
+
+  const dismissedByIds = [...new Set(parsed.filter((f) => f.dismissed_by_user_id).map((f) => f.dismissed_by_user_id))];
+  const dismissedByName = new Map();
+  if (dismissedByIds.length > 0) {
+    const placeholders = dismissedByIds.map(() => '?').join(',');
+    for (const row of db.prepare(`SELECT id, name FROM users WHERE id IN (${placeholders})`).all(...dismissedByIds)) {
+      dismissedByName.set(row.id, row.name);
+    }
+  }
+
+  const byStableKey = buildQuestionIndex(sessionId);
+  const byQuestionId = new Map([...byStableKey.values()].map((q) => [q.id, q]));
+
+  const answerIds = [...new Set(
+    parsed.flatMap((f) => f.used_inputs_ref).filter((r) => r.kind === 'answer' && r.answer_id != null).map((r) => r.answer_id)
+  )];
+  const currentAnswerIds = new Set();
+  if (answerIds.length > 0) {
+    const placeholders = answerIds.map(() => '?').join(',');
+    for (const row of db
+      .prepare(`SELECT id FROM advisory_answers WHERE id IN (${placeholders}) AND superseded_by_answer_id IS NULL`)
+      .all(...answerIds)) {
+      currentAnswerIds.add(row.id);
+    }
+  }
+
+  return parsed.map((f) => {
+    const ruleSource = ruleSourceById.get(f.rule_id) || {};
+    return {
+      ...f,
+      source: ruleSource.source || null,
+      source_reference: ruleSource.source_reference || null,
+      effective_from: ruleSource.effective_from || null,
+      effective_until: ruleSource.effective_until || null,
+      dismissed_by_name: f.dismissed_by_user_id ? dismissedByName.get(f.dismissed_by_user_id) || null : null,
+      used_inputs_ref: f.used_inputs_ref.map((ref) => {
+        if (ref.kind !== 'answer') return ref;
+        const q = ref.question_id != null ? byQuestionId.get(ref.question_id) : null;
+        return {
+          ...ref,
+          advisor_text: q ? q.advisor_text : null,
+          question_stable_key: ref.stable_key,
+          section_id: q ? q.section_id : null,
+          is_current_answer: ref.answer_id != null ? currentAnswerIds.has(ref.answer_id) : null,
+        };
+      }),
+    };
+  });
+}
+
+// Fenêtre de déduplication distincte de `auditWorkspaceView` (Lot 3B,
+// server/advisorySessions.js) : cet écran (constats) est un écran
+// DIFFÉRENT du workspace de saisie des réponses -- même politique de
+// déduplication (15 minutes), jamais la même ligne d'action, pour que la
+// traçabilité distingue toujours clairement lequel des deux écrans a été
+// consulté (§25, aucune confusion entre les deux historiques).
+const FINDINGS_WORKSPACE_VIEW_DEDUP_MINUTES = 15;
+function auditFindingsWorkspaceView(req, sessionId, revision, status) {
+  const email = req?.session?.userEmail || 'système';
+  const recent = db
+    .prepare(
+      `SELECT id FROM audit_log WHERE user_email = ? AND action = 'consultation espace constats session'
+       AND entity = 'advisory_session' AND entity_id = ? AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1`
+    )
+    .get(email, sessionId, `-${FINDINGS_WORKSPACE_VIEW_DEDUP_MINUTES} minutes`);
+  if (recent) return;
+  audit(req, 'consultation espace constats session', 'advisory_session', sessionId, `révision ${revision} — ${status}`);
+}
+
+// Projection complète et prête à afficher pour l'espace conseiller des
+// findings (LOT 4B, GET /api/advisory/sessions/:id/findings-workspace) --
+// mirroir délibéré de `getSessionWorkspace` (Lot 3B, server/advisorySessions.js)
+// dans son esprit (une fonction, un audit de consultation, un objet
+// `actions` dérivé) mais un objet SÉPARÉ : ce lot ne modifie jamais la
+// projection existante du workspace de réponses. `by_domain` groupe
+// STRUCTURELLEMENT les résultats par domaine réel (jamais une liste
+// interleaved) -- rend structurellement impossible un mélange accidentel de
+// domaines à l'affichage (constat client-meeting-ux, GATE LOT 4B §5).
+export function getSessionFindingsWorkspace(sessionId, req) {
+  const session = requireSession(sessionId);
+  const household = getHousehold(session.household_id);
+  if (!household) throw new AdvisoryError('Foyer introuvable.', 404);
+  const members = sessionMembersFor(session);
+  const membersById = new Map(members.map((m) => [m.id, m]));
+
+  const domains = allowedExecutionDomainsForSession(session.domain);
+  const allFindingsForAudit = [];
+
+  const byDomain = {};
+  for (const domain of domains) {
+    const state = resolveDomainAnalysisState(sessionId, domain, session.revision);
+    let findings = [];
+    if (state.last_execution) {
+      const rows = db
+        .prepare(`SELECT * FROM advisory_findings f WHERE f.rule_execution_id = ? ORDER BY ${FINDINGS_ORDER_BY}`)
+        .all(state.last_execution.id);
+      findings = hydrateFindingRows(rows, sessionId).map((f) => ({
+        ...f,
+        // Le membre concerné est résolu via `sessionMembersFor` -- JAMAIS
+        // une consultation directe de `household_members` (constat GATE
+        // LOT 4B, revues rules-engine-auditor/compliance-privacy-reviewer :
+        // risque d'IDOR si un membre appartenant à un AUTRE foyer était
+        // consulté indépendamment de son rattachement réel à CETTE
+        // session).
+        member: f.household_member_id != null ? membersById.get(f.household_member_id) || null : null,
+      }));
+      allFindingsForAudit.push(...findings);
+    }
+    byDomain[domain] = { domain, ...state, findings };
+  }
+
+  auditSensitiveDataAccessIfNeeded(req, sessionId, 'tous domaines applicables', hasFrozenSensitiveRefInFindings(allFindingsForAudit));
+  auditFindingsWorkspaceView(req, sessionId, session.revision, session.status);
+
+  // État global agrégé (GATE LOT 4B §3, affiné par deux corrections
+  // humaines successives du MICRO-GATE §1/§3) -- porte sur les domaines
+  // REQUIS par ce type de session, PLUS `common` SI ET SEULEMENT SI un
+  // ensemble de règles `common` est ACTUELLEMENT publié pour cette session
+  // (`has_published_rule_set`, dérivé à la lecture d'une requête `status =
+  // 'published'` -- JAMAIS « un ensemble a déjà été publié un jour »,
+  // correction humaine finale explicite). Un ensemble `common` seulement
+  // ARCHIVÉ ne rend donc plus ce domaine applicable, même si une exécution
+  // passée via ce même ensemble (avant son archivage) reste `up_to_date`/
+  // `stale` au sens de `state` (reproductibilité : une exécution déjà
+  // pinnée reste valide même après archivage de son rule_set, voir
+  // `executeRuleSetForSession`) -- ces deux notions sont désormais
+  // délibérément DÉCORRÉLÉES pour cette décision d'applicabilité. La
+  // facultativité de `common` signifie « son absence (ou son
+  // indisponibilité actuelle) est acceptable » et JAMAIS « un `common`
+  // ACTUELLEMENT publié peut échouer/être obsolète sans affecter l'état
+  // global » : dès qu'un ensemble `common` publié existe MAINTENANT, ce
+  // domaine entre dans le calcul EXACTEMENT comme un domaine requis.
+  const requiredDomains = requiredDomainsForSession(session.domain);
+  const commonApplicable = !!(byDomain.common && byDomain.common.has_published_rule_set);
+  const applicableDomainsForGlobalState = commonApplicable ? ['common', ...requiredDomains] : requiredDomains;
+  const globalState = resolveGlobalAnalysisState(applicableDomainsForGlobalState.map((d) => byDomain[d]));
+
+  // Synthèse ACTIVE (GATE LOT 4B §3) : les tuiles/compteurs PRINCIPAUX ne
+  // doivent jamais sommer que les findings actifs d'exécutions COMPLETED à
+  // la révision COURANTE de domaines eux-mêmes courants -- un domaine
+  // `stale` reste consultable dans son propre onglet (`by_domain[d].findings`
+  // n'est jamais vidé), mais ses findings ne sont jamais additionnés dans ce
+  // total-ci (jamais un mélange silencieux de révisions différentes dans un
+  // même chiffre agrégé). Porte sur TOUS les domaines applicables -- pour
+  // les domaines REQUIS, `state === 'up_to_date'` suffit (ils comptent
+  // toujours, publiés ou non n'a pas de sens pour un domaine requis) ; pour
+  // `common` spécifiquement, la même condition d'applicabilité ACTUELLE que
+  // pour `global_state` s'applique en plus (`commonApplicable`, MICRO-GATE
+  // §1) -- un `common` dont le dernier rule_set utilisé a depuis été
+  // archivé (sans republication) ne doit plus jamais alimenter ce total,
+  // même si son `state` affiche encore `up_to_date` au sens strict de la
+  // révision. Distincte de `globalState` ci-dessus, qui, elle, ne regarde
+  // que les domaines requis (+ common si applicable).
+  const synthesis = { active_findings_count: 0, active_conflicts_count: 0, domains_current: [], domains_excluded_stale: [] };
+  for (const domain of domains) {
+    const d = byDomain[domain];
+    const countsTowardSynthesis = d.state === 'up_to_date' && (domain !== 'common' || commonApplicable);
+    if (countsTowardSynthesis) {
+      synthesis.domains_current.push(domain);
+      synthesis.active_findings_count += d.findings.filter((f) => f.status === 'active').length;
+      synthesis.active_conflicts_count += d.findings.filter((f) => f.status === 'active' && f.needs_review).length;
+    } else if (d.findings.length > 0) {
+      synthesis.domains_excluded_stale.push(domain);
+    }
+  }
+
+  const advisor = db.prepare('SELECT name FROM users WHERE id = ?').get(session.advisor_user_id);
+  const primaryClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(household.primary_client_id);
+
+  return {
+    session: {
+      id: session.id,
+      status: session.status,
+      domain: session.domain,
+      title: session.title,
+      revision: session.revision,
+      completed_at: session.completed_at,
+      advisor_name: advisor ? advisor.name : null,
+    },
+    household: {
+      id: household.id,
+      label: household.label,
+      primary_display_name: displayName(primaryClient),
+      status: household.status,
+      members,
+    },
+    by_domain: byDomain,
+    global_state: globalState,
+    synthesis,
+    // Dérivées, jamais une seconde source de vérité (même principe que
+    // `allowedActions` en Lot 3B) : `can_launch_analysis` couvre
+    // `executeApplicableRuleSetsForSession` (préconditions de session
+    // partagées, `assertSessionExecutable`) ; `can_dismiss_findings` couvre
+    // `dismissFinding` (un foyer archivé refuse déjà l'écriture là-bas,
+    // reflété ici pour que le bouton n'apparaisse jamais activé à tort).
+    actions: {
+      can_launch_analysis: session.status === 'completed' && household.status !== 'archive',
+      can_dismiss_findings: household.status !== 'archive',
+    },
+  };
 }
 
 export { EXECUTION_STATUSES, EXECUTION_MODES };

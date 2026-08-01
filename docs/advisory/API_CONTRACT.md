@@ -531,6 +531,33 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
   déduplication (ouverture ponctuelle, pas rechargée automatiquement comme
   le workspace).
 - **Cache** : `Cache-Control: no-store, private`.
+- **Réutilisée telle quelle par la navigation historique par `answer_id`**
+  (GATE LOT 4B §2, `client/src/pages/SessionWorkspace.jsx`) — aucune
+  nouvelle route créée pour ce besoin. « Voir la réponse source » (espace
+  des constats) transmet désormais `{ questionId, memberId, answerId }` via
+  l'état de navigation React Router (jamais dans l'URL). Le workspace
+  appelle CETTE route avec `questionId`/`memberId` (jamais `answerId`, qui
+  ne quitte jamais le navigateur), puis vérifie CÔTÉ CLIENT que l'`answerId`
+  annoncé figure bien parmi les lignes renvoyées. La vérification anti-IDOR
+  complète (l'answer_id appartient à CETTE session, à CETTE question
+  annoncée, à CE membre annoncé) découle directement du filtrage SQL déjà en
+  place (`WHERE session_id = ? AND question_id = ? AND household_member_id
+  = ?`) : si l'`answerId` n'apparaît pas dans le résultat, c'est qu'il
+  n'appartient à aucun des trois — les cas « inexistant » / « autre session
+  (même foyer) » / « autre foyer » / « question incohérente » / « membre
+  incohérent » sont volontairement indiscernables (aucune information n'est
+  utile à distinguer côté appelant), chacun couvert par un test backend/API
+  DISTINCT (MICRO-GATE LOT 4B §2, `test/advisory-rule-executions.test.js`,
+  `test/advisory-sessions-api.test.js` — détail dans
+  `LOT4B_MANUAL_UI_CHECKLIST.md`). Dans ce cas : aucune valeur affichée,
+  message neutre exact *« La réponse historique demandée n'est pas
+  disponible pour cette session. »* (`SessionWorkspace.jsx`), aucune
+  navigation effectuée, aucune requête ni entrée d'audit supplémentaire par
+  rapport à un appel « Historique » ordinaire (même action `consultation
+  historique réponse`, jamais dupliquée pour ce même geste), et contrat
+  HTTP strictement identique (`200`, même forme `{ answers: [...] }`) que
+  la ligne demandée soit ou non présente — jamais un statut distinct qui
+  permettrait de deviner pourquoi elle est absente.
 
 ### `PUT /api/advisory/sessions/:id/answers`
 - **Corps** : `{ answers: [{ question_id, household_member_id?, status, value? }], expected_revision }`
@@ -772,9 +799,180 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
   initialement pas le contexte d'authentification au service, attribuant à
   tort l'audit à un utilisateur générique plutôt qu'au vrai appelant).
 
+### `POST /api/advisory/sessions/:id/analyze`
+> **Implémenté au Lot 4B** (`executeApplicableRuleSetsForSession`,
+> `server/advisoryRuleExecutions.js`) — orchestration au-dessus de
+> `POST .../rule-executions` : lance l'analyse sur **tous les domaines
+> applicables** à la session (jusqu'à trois, `common`/`health`/
+> `life_pension` selon `allowedExecutionDomainsForSession`) en un seul
+> appel conseiller, plutôt que d'exiger un appel manuel par domaine.
+
+- **Corps** : `{ expected_revision }` — jamais de `domain` ni de
+  `rule_set_id` : chaque domaine résout lui-même son rule_set applicable
+  (celui déjà pinné pour ce couple session/domaine, ou le seul publié le
+  cas échéant).
+- **Validation** : les préconditions communes à la SESSION (statut
+  `completed` exclusivement, foyer non archivé, `expected_revision` à jour)
+  sont vérifiées **une seule fois avant toute tentative de domaine** — si
+  la session elle-même n'est pas exécutable, l'appel entier est rejeté
+  (`400`/`409`), jamais un rejet répété domaine par domaine.
+- **Comportement — AUCUNE atomicité globale entre domaines** (décision
+  humaine confirmée, GATE LOT 4B §7) : chaque domaine garde sa propre
+  transaction indépendante, exactement comme des appels manuels répétés à
+  `POST .../rule-executions`. Un échec inattendu sur un domaine
+  n'empêche jamais un autre domaine valide de se terminer normalement.
+  L'absence d'ensemble de règles publié pour un domaine n'est jamais une
+  erreur — c'est un état normal (`skipped_no_published_rule_set`).
+- **Réponse** : `201` `{ results: [{ domain, status, execution_id?, findings_count?, error? }, ...] }`
+  — `status` ∈ `completed`/`failed`/`skipped_no_published_rule_set`. Un
+  `status: 'failed'` porte un `error` **générique** (jamais le détail brut
+  d'une erreur interne inattendue — seules les erreurs métier volontaires,
+  déjà rédigées pour être lues par un humain, sont transmises telles
+  quelles ; le détail réel reste uniquement dans
+  `advisory_rule_executions.error_message`, déjà tracé et audité). **Le
+  frontend ne doit jamais interpréter un `201` générique comme « analyse
+  complète pour tous les domaines » sans lire chaque statut
+  individuellement.**
+- **Audit** : dérivé de `POST .../rule-executions` pour chaque domaine
+  effectivement tenté (`exécution lancée`/`exécution échouée`), aucune
+  ligne d'audit distincte pour ce point d'entrée lui-même.
+
 ---
 
 ## 7. Constats et recommandations
+
+### `GET /api/advisory/sessions/:id/findings-workspace`
+> **Implémenté au Lot 4B** (`getSessionFindingsWorkspace`,
+> `server/advisoryRuleExecutions.js`), pour l'espace conseiller des
+> constats (`client/src/pages/SessionFindings.jsx`) — même principe que
+> `GET .../workspace` (Lot 3B) : projection unique, entièrement résolue
+> côté serveur, prête à afficher. Le frontend ne recalcule jamais l'état
+> d'un domaine, ne re-trie jamais les findings (un filtre est une
+> partition stable de l'ordre déjà fourni, jamais un nouveau tri), et ne
+> résout jamais lui-même un membre concerné par un finding (toujours via
+> `sessionMembersFor`, jamais une lecture directe de `household_members` —
+> risque d'IDOR écarté).
+- **Objectif** : regrouper STRUCTURELLEMENT les résultats par domaine réel
+  (`by_domain: { common?, health?, life_pension? }`, jamais une liste
+  interleaved) — rend structurellement impossible un mélange accidentel de
+  domaines à l'affichage.
+- **Réponse** :
+  ```json
+  {
+    "session": { "id": 1, "status": "completed", "domain": "mixed", "title": "...",
+      "revision": 5, "completed_at": "...", "advisor_name": "..." },
+    "household": { "id": 7, "label": null, "primary_display_name": "Jean Dupont",
+      "status": "actif", "members": [ /* même forme que GET .../workspace */ ] },
+    "by_domain": {
+      "health": {
+        "domain": "health",
+        "state": "up_to_date",
+        "can_launch": true,
+        "has_published_rule_set": true,
+        "last_execution": { "id": 42, "ended_at": "...", "session_revision": 5,
+          "rules_evaluated_count": 6, "findings_count": 3, "rule_set_id": 9,
+          "rule_set_version_number": 2, "content_hash": "...", "engine_version": "4a-1" },
+        "last_attempt_failed": false,
+        "last_attempt_error": null,
+        "findings": [{ "id": 101, "domain": "health", "finding_scope": "member",
+          "household_member_id": 12, "member": { "id": 12, "display_name": "...",
+            "member_role": "principal", "historical": false, "can_answer": true },
+          "finding_type": "detected_need", "priority": "high", "title": "...", "summary": "...",
+          "advisor_explanation": "...", "client_explanation": null, "missing_data": null,
+          "warnings": [], "contraindications": [], "status": "active",
+          "dismiss_reason": null, "dismissed_by_name": null, "dismissed_at": null,
+          "needs_review": false, "conflicts_with": [], "conflicts_detected_at_execution": [],
+          "source": "...", "source_reference": "...", "effective_from": "2020-01-01", "effective_until": null,
+          "used_inputs_ref": [{ "kind": "answer", "stable_key": "...", "question_id": 42,
+            "question_stable_key": "...", "questionnaire_version_id": 3, "section_id": 6,
+            "advisor_text": "...", "household_member_id": 12, "answer_id": 987,
+            "is_current_answer": true,
+            "sensitivity_at_execution": false, "read_at": "..." }] }]
+      }
+    },
+    "global_state": "up_to_date",
+    "synthesis": { "active_findings_count": 4, "active_conflicts_count": 0,
+      "domains_current": ["health", "life_pension"], "domains_excluded_stale": [] },
+    "actions": { "can_launch_analysis": true, "can_dismiss_findings": true }
+  }
+  ```
+- **États de domaine** (`by_domain[domaine].state`, TOUJOURS dérivés à la
+  lecture, jamais stockés) : `no_rule_set_available` (aucune exécution
+  complétée ET aucun ensemble publié — état normal, jamais une erreur) ;
+  `not_yet_run` (un ensemble est publié mais aucune exécution n'a encore
+  eu lieu) ; `up_to_date` (la dernière exécution complétée porte la
+  révision COURANTE de la session) ; `stale` (la session a été amendée
+  depuis — une relance est SUGGÉRÉE, jamais automatique, §7.5 : les
+  findings affichés restent ceux de la dernière exécution réussie).
+  `last_attempt_failed` signale, indépendamment de `state`, qu'un dernier
+  lancement a échoué sans jamais masquer les findings de la dernière
+  exécution réussie s'il y en a une ; `last_attempt_error` porte alors un
+  message MINIMISÉ générique (jamais le contenu brut de
+  `advisory_rule_executions.error_message`, potentiellement technique),
+  identique qu'il soit lu juste après le lancement (`POST .../analyze`) ou
+  relu plus tard sur un rechargement — `null` sinon (GATE LOT 4B §3).
+- **`global_state`** (GATE LOT 4B §3, affiné par deux corrections humaines
+  successives du MICRO-GATE, `resolveGlobalAnalysisState`) : état agrégé
+  calculé sur les domaines REQUIS par le type de session (`health`→`[health]`,
+  `life_pension`→`[life_pension]`, `mixed`→`[health, life_pension]`), PLUS
+  `common` SI ET SEULEMENT SI un ensemble de règles `common` est
+  ACTUELLEMENT publié pour cette session
+  (`by_domain.common.has_published_rule_set === true`, une requête `status
+  = 'published'` évaluée à la lecture — **jamais** « un ensemble a déjà été
+  publié un jour », correction humaine finale explicite : un ensemble
+  `common` seulement ARCHIVÉ ne rend jamais ce domaine applicable, même si
+  une exécution passée via ce même ensemble reste `up_to_date`/`stale` au
+  sens strict de la révision — reproductibilité oblige, une exécution déjà
+  pinnée reste valide après archivage de son rule_set, mais cette validité
+  historique est désormais délibérément DÉCORRÉLÉE de l'applicabilité
+  actuelle). La facultativité de `common` signifie UNIQUEMENT « son absence
+  (ou son indisponibilité actuelle) est acceptable » — jamais « un `common`
+  ACTUELLEMENT publié peut échouer/être obsolète/rester non exécuté sans
+  affecter l'état global » : dès qu'un ensemble `common` publié existe
+  MAINTENANT, il pèse EXACTEMENT comme un domaine requis. Valeurs :
+  `not_analyzed` (aucun domaine applicable jamais complété ni en échec) ;
+  `up_to_date` (tous les domaines applicables à jour, aucune tentative
+  récente en échec) ; `partial` (au moins un domaine applicable exploitable
+  pendant qu'un autre a échoué, n'a jamais été équipé, n'a jamais été lancé,
+  ou reste obsolète alors qu'un autre est à jour — un mélange à jour/obsolète
+  n'est jamais présenté comme uniformément « obsolète ») ; `stale` (tous
+  exploitables, aucun échec, mais AUCUN n'est à jour — tous obsolètes) ;
+  `unavailable` (aucun domaine applicable jamais équipé d'un ensemble de
+  règles) ; `error` (aucun domaine applicable exploitable ET au moins une
+  tentative en échec). Priorité stricte, une seule règle s'applique à la
+  fois — jamais recalculé différemment côté client.
+- **`synthesis`** (GATE LOT 4B §3) : totalise les findings ACTIFS
+  UNIQUEMENT des domaines EUX-MÊMES à jour (`domains_current`) — un domaine
+  obsolète (`domains_excluded_stale`, seulement s'il porte au moins un
+  finding) reste consultable dans son propre onglet (`by_domain[d].findings`
+  n'est jamais vidé) mais n'est jamais additionné dans ce total, pour ne
+  jamais mélanger silencieusement des findings issus de révisions
+  différentes dans un même chiffre. Porte sur TOUS les domaines applicables
+  (`common` inclus s'il est lui-même à jour) — distinct de `global_state`
+  ci-dessus, qui ne regarde que les domaines requis.
+- **Hydratation groupée** (jamais une requête par finding) : `source`/
+  `source_reference`/`effective_from`/`effective_until` (vivent uniquement
+  sur `advisory_rules`, jamais dupliqués sur le finding) ; `dismissed_by_
+  name` ; et pour chaque référence `used_inputs_ref` de type `answer` :
+  `advisor_text` (texte de la question, pour que le panneau de traçabilité
+  affiche un intitulé lisible, jamais seulement un identifiant technique
+  brut) ; `question_stable_key` (alias explicite de `stable_key`) ;
+  `section_id` (retrouver la section sans requête supplémentaire) ;
+  `is_current_answer` (GATE LOT 4B §2 — la ligne `answer_id` désigne-t-elle
+  encore la réponse ACTIVE de `advisory_answers` pour ce couple
+  question/membre ? `null` quand `answer_id` est lui-même absent). Ces
+  quatre champs sont TOUS dérivés à la lecture, jamais dupliqués dans le
+  JSON figé `used_inputs_ref` stocké en base (qui reste la trace immuable
+  écrite à l'exécution). Jamais une valeur de réponse : la seule façon de
+  consulter une valeur reste `GET .../workspace`, déjà audité et déjà
+  respectueux de la classification de sensibilité figée.
+- **Cache** : `Cache-Control: no-store, private`.
+- **Audit** : `consultation espace constats session` (déduplication 15
+  minutes, fenêtre et politique distinctes de `consultation workspace
+  session` — écran différent, jamais la même ligne de traçabilité) ; audit
+  dérivé `consultation findings sensibles` si au moins une référence
+  retournée porte `sensitivity_at_execution = true` (même politique que
+  les 4 routes de lecture du Lot 4A).
 
 ### `GET /api/advisory/sessions/:id/findings`
 - **Implémenté au Lot 4A.** Liste des findings **actifs** (`status =

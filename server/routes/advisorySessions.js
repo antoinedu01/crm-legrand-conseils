@@ -7,8 +7,8 @@ import {
   listActiveAnswers, listAnswerHistory, getSessionWorkspace,
 } from '../advisorySessions.js';
 import {
-  executeRuleSetForSession, listExecutions, getExecutionDetail,
-  listActiveFindings, listFindingsHistory, dismissFinding,
+  executeRuleSetForSession, executeApplicableRuleSetsForSession, listExecutions, getExecutionDetail,
+  listActiveFindings, listFindingsHistory, dismissFinding, getSessionFindingsWorkspace,
 } from '../advisoryRuleExecutions.js';
 
 export const advisorySessionsRouter = Router();
@@ -69,6 +69,15 @@ advisorySessionsRouter.get('/:id/workspace', (req, res) => {
   handle(res, () => res.json(getSessionWorkspace(req.params.id, req)));
 });
 
+// Projection prête à afficher pour l'espace conseiller des findings (Lot
+// 4B) — même convention que /:id/workspace ci-dessus : lecture auditée avec
+// déduplication (voir auditFindingsWorkspaceView dans advisoryRuleExecutions.js),
+// jamais mise en cache (réponses potentiellement médicales/financières).
+advisorySessionsRouter.get('/:id/findings-workspace', (req, res) => {
+  noStore(res);
+  handle(res, () => res.json(getSessionFindingsWorkspace(req.params.id, req)));
+});
+
 advisorySessionsRouter.post('/:id/start', (req, res) => {
   handle(res, () => res.json(startSession(req.params.id, (req.body || {}).expected_revision, req)));
 });
@@ -113,6 +122,20 @@ advisorySessionsRouter.delete('/:id/answers/:questionId', (req, res) => {
 
 advisorySessionsRouter.post('/:id/answers/amend', (req, res) => {
   handle(res, () => res.status(201).json(amendAnswer(req.params.id, req.body || {}, req)));
+});
+
+// Lance l'analyse déterministe sur TOUS les domaines applicables à cette
+// session en un seul geste conseiller (Lot 4B) — même convention de verbe
+// d'action que /:id/start, /:id/complete, etc. ci-dessus. Retourne un
+// résultat STRUCTURÉ par domaine (`completed`/`failed`/
+// `skipped_no_published_rule_set`) ; le front ne doit JAMAIS interpréter un
+// 201 générique comme « analyse complète pour tous les domaines » sans lire
+// chaque statut individuellement (voir executeApplicableRuleSetsForSession,
+// server/advisoryRuleExecutions.js — aucune atomicité globale entre
+// domaines, décision GATE LOT 4B §7).
+advisorySessionsRouter.post('/:id/analyze', (req, res) => {
+  const { expected_revision } = req.body || {};
+  handle(res, () => res.status(201).json({ results: executeApplicableRuleSetsForSession(req.params.id, expected_revision, req) }));
 });
 
 // --- Moteur de règles (Lot 4A) : exécutions et findings, rattachés à la

@@ -197,9 +197,9 @@
 > **Statut : implémenté et testé.** Renommé « Lot 4A » en cours de route,
 > même convention que le découpage Lot 3A/3B : ce lot livre exclusivement le
 > moteur (schéma, service, exécution, API) et un jeu de règles **fictives**
-> de test — un éventuel « Lot 4B » (éditeur de règles complet côté React,
-> écran de findings à l'usage du conseiller) reste explicitement différé,
-> non démarré, comme prévu dès la conception de ce lot. Migration 11,
+> de test — l'espace conseiller de consultation des findings (écran React,
+> orchestration multi-domaines) est livré séparément par le « Lot 4B »
+> ci-dessous, comme prévu dès la conception de ce lot. Migration 11,
 > `server/advisoryRules.js`, `server/advisoryRuleConditions.js`, `server/
 > advisoryRuleExecutions.js`, `server/canonicalJson.js`, `server/routes/
 > advisoryRules.js`, extension de `server/routes/advisorySessions.js`.
@@ -377,6 +377,250 @@
 - **Dépendances** : Lot 3.
 - **Retour arrière** : `DROP TABLE` des 4 tables — aucune règle réelle
   n'existant encore, aucune perte de contenu métier possible.
+
+## Lot 4B — Espace conseiller des findings (implémenté)
+
+> **Statut : implémenté et testé.** Livre exclusivement l'espace conseiller
+> de consultation/écartement des findings déjà produits par le moteur du
+> Lot 4A — jamais un éditeur de règles complet côté React (resté
+> volontairement hors périmètre, lecture seule uniquement si un jour
+> nécessaire), jamais une recommandation automatique, jamais de contenu de
+> règle métier réel. Aucune nouvelle table, aucune nouvelle migration
+> (fonctionne intégralement sur le schéma des 4 tables du Lot 4A). Extension
+> de `server/advisoryRuleExecutions.js`/`server/routes/advisorySessions.js`,
+> nouvelle page `client/src/pages/SessionFindings.jsx`, extension de
+> `client/src/pages/SessionWorkspace.jsx`/`SessionDetail.jsx`/`App.jsx`.
+
+- **Objectif réellement livré** : projection serveur unique et prête à
+  afficher (`getSessionFindingsWorkspace`), orchestration d'un lancement
+  d'analyse multi-domaines en un geste conseiller
+  (`executeApplicableRuleSetsForSession`), et l'écran React qui les
+  consomme — filtrage (jamais un re-tri), traçabilité, navigation
+  contextualisée vers la réponse source, écartement, historique des
+  analyses. Voir `API_CONTRACT.md` §6-7 pour le détail des deux nouvelles
+  routes (`POST .../analyze`, `GET .../findings-workspace`) et
+  `UX_AND_CLIENT_MODE.md` §5 pour l'écran.
+- **Décisions d'architecture actées en cours de lot** :
+  - **Aucune atomicité globale entre domaines** (§7 du brief conseiller) :
+    chaque domaine garde sa propre transaction indépendante au sein de
+    l'orchestration — une atomicité englobante aurait cassé la garantie
+    « toujours tracer, jamais silencieux » de l'exécution `failed` du Lot
+    4A. Voir `RULES_ENGINE.md` (relance après amendement).
+  - **`FINDINGS_ORDER_BY` étendu côté serveur** (`needs_review DESC` en
+    tête, avant la priorité) plutôt qu'un tri frontend — reste 100% source
+    de vérité serveur, un filtre client est une partition stable, jamais
+    un nouveau comparateur.
+  - **Aucune valeur de réponse affichée dans le nouvel écran** : « Voir la
+    réponse source » ouvre l'espace de rendez-vous déjà existant et déjà
+    audité plutôt que de construire un second mécanisme d'affichage de
+    valeur — décision de minimisation volontaire, plus stricte que le
+    strict minimum demandé.
+  - **Navigation contextualisée jamais dans l'URL** : identifiants de
+    question/membre transmis via l'état de navigation React Router
+    (`{questionId, memberId}`), résolus par une recherche linéaire dans la
+    projection déjà chargée du workspace (même famille de motif que
+    `resolveMissingContext`, Lot 3B) — jamais une troisième résolution
+    divergente.
+- **Défauts réels détectés et corrigés pendant la QA formelle** (jamais
+  seulement documentés comme limitation connue, voir
+  `LOT4B_MANUAL_UI_CHECKLIST.md` pour le détail complet) :
+  - **Détection de conflit trop large** (`server/advisoryRuleExecutions.js`) —
+    des findings produits par LA MÊME règle à portée membre (un par membre
+    correspondant, comportement normal du Lot 4A) partagent nécessairement
+    le même `category_hint` et se signalaient à tort comme en conflit
+    ENTRE EUX. Corrigé en excluant les paires de même `rule.id` du
+    regroupement par catégorie ; deux tests dédiés verrouillent le
+    comportement correct.
+  - **Débordement horizontal à 375px** — deux causes CSS distinctes,
+    toutes deux le motif classique « conteneur flex/grille sans
+    `min-width: 0`, refusant de rétrécir sous la largeur intrinsèque d'un
+    descendant » : `.main` (mise en page globale de l'application, partagée
+    par toutes les pages) et `.wksp-rail` (rail de sections du workspace,
+    Lot 3B — jamais modifié par ce lot avant cette découverte, corrigé ici
+    car directement exposé par la nouvelle navigation entrante). Les deux
+    correctifs sont des ajouts `min-width: 0` strictement non-régressifs.
+- **Défauts réels détectés et corrigés pendant les 4 revues finales
+  post-implémentation** (mêmes rôles que les revues préalables, focus
+  différent — code réel plutôt qu'une proposition) :
+  - **Navigation « Répondre → » cassée pour une information manquante à
+    portée membre** (`advisory-architect`) — `structuredDataRef` ne
+    renseignait jamais `household_member_id` ni le `scope` de la question
+    manquante ; le frontend tentait systématiquement une résolution de
+    portée foyer, qui échoue toujours pour une question de portée membre
+    (aucune instance foyer n'existe). Corrigé : `scope` ajouté à la
+    référence structurée, le frontend n'offre plus de lien cassé pour ce
+    cas mais un message explicite (« une ou plusieurs personnes du foyer
+    n'ont pas encore répondu »). Voir `RULES_ENGINE.md` §8.
+  - **Historique des analyses non hydraté** (`advisory-architect`) —
+    `getExecutionDetail` (route Lot 4A réutilisée par la modale
+    d'historique du Lot 4B) n'appliquait pas la même hydratation groupée
+    que `getSessionFindingsWorkspace`, dégradant silencieusement l'auteur
+    d'un écartement et le texte de question affichés dans l'historique.
+    Corrigé en alignant les deux routes sur la même hydratation.
+  - **Incohérence doc/code sur l'ordre partagé des findings**
+    (`rules-engine-auditor`) — `RULES_ENGINE.md` affirmait `FINDINGS_ORDER_BY`
+    partagé par « toutes » les routes, alors que l'historique complet
+    (`GET .../findings/history`) reste délibérément trié par `id DESC`
+    (vue chronologique multi-exécutions, jamais par état actif). Corrigé
+    en documentant explicitement cette exception, jamais un changement de
+    comportement.
+  - **Lacunes de test** (`rules-engine-auditor`) — `last_attempt_failed`
+    et le cas « deux règles différentes ciblant le même membre avec la
+    même catégorie » n'étaient couverts par aucun test ; deux tests ajoutés.
+  - **Ergonomie** (`client-meeting-ux`) — message dupliqué pour un domaine
+    sans exécution (bannière + état vide identiques) ; badge « Conflit
+    actif » sans référence au constat concerné. Corrigés : message unique,
+    et le badge nomme désormais explicitement le(s) titre(s) en conflit.
+  Les deux premiers défauts (navigation cassée, historique non hydraté)
+  sont des régressions fonctionnelles réelles pour un conseiller en
+  rendez-vous — jamais seulement des remarques cosmétiques. Re-vérifiés par
+  un test HTTP/navigateur ciblé après correctif (base de démonstration
+  temporaire dédiée, supprimée après).
+- **Tests** : 813 tests après ce lot (baseline 788 à la fin du Lot 4A +
+  correctif SQL, +25 nouveaux — orchestration, projection, ordre des
+  findings, correctif de détection de conflit, routes API, cas limites
+  identifiés en revue finale). `npm run lint`/`npm test`/`npm run build`
+  exécutés avec succès après chaque correctif.
+- **GATE ciblé (avant tout commit, corrections apportées au rapport initial
+  ci-dessus)** :
+  - **Navigation historique par `answer_id`** (GATE §2) : la navigation
+    « Voir la réponse source » reposait initialement sur
+    `{questionId, memberId}` uniquement — insuffisant pour garantir
+    l'ouverture de la réponse HISTORIQUE exacte utilisée par le finding
+    (une réponse a pu être amendée depuis). `answerId` (la ligne immuable
+    déjà capturée dans `used_inputs_ref` au Lot 4A) devient la source de
+    vérité : transmis en plus via l'état de navigation, vérifié par
+    réutilisation de `GET .../answers/history` (aucune nouvelle route),
+    positionne désormais l'historique exactement sur cette ligne avec un
+    badge dédié et distingue explicitement une réponse encore active d'une
+    réponse depuis remplacée. Voir `API_CONTRACT.md` et `RULES_ENGINE.md`.
+  - **Cohérence multi-domaines** (GATE §3) : ajout d'un état global agrégé
+    (`global_state`) calculé sur les seuls domaines REQUIS par le type de
+    session (jamais `common`, toujours facultatif) et d'une « synthèse
+    active » (`synthesis`) qui exclut du décompte principal tout domaine
+    devenu obsolète — évite qu'un domaine non réanalysé gonfle
+    silencieusement les compteurs affichés au conseiller. Voir
+    `RULES_ENGINE.md` §3quater.
+  - **Orchestration partielle** (GATE §4) : comportement déjà correct
+    (chaque domaine indépendant, aucune atomicité globale), complété par
+    deux tests dédiés manquants (échec sur le second domaine après succès
+    du premier ; une réexécution en échec ne supersède jamais l'exécution
+    complétée antérieure de ce domaine).
+  - **Fenêtre de course dans la garde anti-double-clic** (GATE §7,
+    `client/src/pages/SessionFindings.jsx`) — détectée par un test
+    Playwright de double-clic réel : la garde reposait uniquement sur un
+    état React, insuffisant contre deux clics quasi simultanés survenant
+    avant le premier re-rendu. Corrigée par une garde synchrone (`useRef`)
+    sur `launchAnalysis` et `DismissModal.submit`. Le même motif, non
+    corrigé (hors périmètre de ce GATE), subsiste à trois endroits du Lot
+    3B (`SessionWorkspace.jsx` — transition de session, finalisation,
+    amendement).
+  - **Tests** : 833 après ce GATE (813 + 20 nouveaux — projection `answer_id`/
+    `is_current_answer`, état global agrégé et synthèse active, orchestration,
+    sécurité des routes, audits). `npm run lint`/`npm test`/`npm run build`
+    exécutés avec succès après chaque correctif. Détail complet dans
+    `LOT4B_MANUAL_UI_CHECKLIST.md` (13 scénarios navigateur réel
+    supplémentaires, tous réussis après le correctif de double-clic).
+- **MICRO-GATE final (avant tout commit, deux corrections apportées au GATE
+  ciblé ci-dessus)** :
+  - **Cas `answer_id` invalides insuffisamment testés séparément** (§2) —
+    le rapport du GATE précédent affirmait quatre cas « indiscernables par
+    construction » sans les avoir vérifiés individuellement. Corrigé par
+    cinq tests backend/API distincts (inexistant ; autre session du même
+    foyer ; autre foyer ; question incohérente ; membre incohérent), chacun
+    vérifiant l'absence de la ligne concernée, l'absence de fuite dans
+    l'audit, et un contrat HTTP strictement identique quel que soit le cas.
+    Message frontend aligné sur le texte neutre exact demandé. Voir
+    `API_CONTRACT.md` et `LOT4B_MANUAL_UI_CHECKLIST.md`.
+  - **Sémantique de `common` dans l'état global incomplète** (§3) — la
+    facultativité de `common` (son absence n'empêche jamais `up_to_date`)
+    avait été implémentée en excluant `common` du calcul de `global_state`
+    dans TOUS les cas, y compris quand un ensemble de règles lui avait bien
+    été publié — masquant à tort un `common` en échec, obsolète, ou jamais
+    exécuté. Corrigé : `common` entre désormais dans le calcul dès qu'un
+    ensemble lui a été publié, exactement comme un domaine requis. Neuf
+    tests dédiés ajoutés. Occasion d'affiner aussi la distinction
+    `partial`/`stale` pour tout mélange de domaines à jour/obsolètes
+    (`partial` si mélange, `stale` seulement si AUCUN domaine applicable
+    n'est à jour) — comportement légèrement plus précis que la première
+    version du GATE ciblé, sans régression sur les cas déjà couverts (suite
+    complète toujours verte). Voir `RULES_ENGINE.md` §3quater.
+  - **Revues ciblées finales** (`advisory-architect`,
+    `compliance-privacy-reviewer`) — verdicts « prêt pour commit » et « prêt
+    avec réserves mineures ». Aucun défaut de sécurité/confidentialité
+    trouvé ; un défaut de QUALITÉ DE TEST confirmé (le test annonçant une
+    « réponse structurellement identique » pour les cinq cas invalides
+    n'exerçait en réalité qu'un seul appel légitime avec une assertion
+    trivialement vraie) — corrigé en le remplaçant par une comparaison
+    réelle de forme, et en étendant la preuve HTTP explicite (jusque-là
+    limitée à un seul des cinq cas) aux trois cas restants (autre foyer,
+    question incohérente, membre incohérent). Corrigé au passage un
+    off-by-one mineur dans la fenêtre de lecture d'audit d'un test (aucune
+    conséquence sur le résultat, imprécision de nommage seulement) et une
+    fragilité de test (comparaison par sous-chaîne sur du JSON sérialisé,
+    remplacée par une comparaison d'identifiant précise par ligne).
+  - **Applicabilité de `common` fondée sur le statut historique plutôt
+    qu'actuel** (correction humaine finale, après les revues ci-dessus) —
+    la correction précédente (`common` applicable dès qu'un ensemble lui
+    « a été publié ») utilisait en réalité une condition dérivée de l'ÉTAT
+    D'EXÉCUTION (`state !== 'no_rule_set_available'`), qui reste
+    `up_to_date`/`stale` même après ARCHIVAGE du rule_set utilisé
+    (reproductibilité : une exécution déjà pinnée reste valide après
+    archivage de son rule_set) — un `common` publié puis archivé restait
+    donc à tort « applicable ». Corrigé en dérivant l'applicabilité d'un
+    nouveau champ dédié, `has_published_rule_set` (`resolveDomainAnalysisState`),
+    qui reflète EXCLUSIVEMENT le statut de publication ACTUEL (`status =
+    'published'`, requête évaluée à la lecture) — jamais l'historique
+    d'exécution. Trois tests dédiés ajoutés (health seul avec common
+    archivé ; ancien common archivé puis nouvelle version publiée ; session
+    mixte avec common archivé). Voir `RULES_ENGINE.md` §3quater et
+    `API_CONTRACT.md` §7.
+  - **Tests — comptage exact et vérifié** (baseline LOT 4A au commit
+    `44121310a48a824cd634516dc142cc2db155ac4b` : **788**, revérifiée via
+    `git worktree` + `npm test` sur ce commit précis, jamais une valeur
+    narrative) :
+    - Total actuel (Lot 4B complet, GATE ciblé + micro-GATE + ce
+      correctif) : **855**.
+    - Tests nets Lot 4B (855 − 788) : **67**, répartis sur exactement trois
+      fichiers de test (vérifié par comparaison ligne à ligne avec le
+      commit LOT 4A, aucun autre fichier de test n'a été modifié) :
+      `test/advisory-rule-executions.test.js` +49 (48→97),
+      `test/advisory-rule-executions-api.test.js` +14 (13→27),
+      `test/advisory-sessions-api.test.js` +4 (23→27).
+    - Baseline avant le micro-GATE (fin du GATE ciblé §1-10, valeur
+      directement observée via `npm test` à ce moment, avant toute
+      correction de ce document) : **833**.
+    - Tests nets micro-GATE + correctif final (855 − 833) : **22**, tous
+      dans deux fichiers : `test/advisory-rule-executions.test.js` +18 (9
+      pour la sémantique `common` v1, 6 pour les cas `answer_id` invalides,
+      un test remplacé par un autre de qualité équivalente lors de la revue
+      — solde net nul sur ce remplacement précis —, puis +3 pour la
+      précision finale sur le statut de publication actuel) ;
+      `test/advisory-sessions-api.test.js` +4 (1 initial, +3 lors du
+      renforcement demandé par la revue compliance). Aucun test n'a été
+      supprimé sans remplacement ; un seul a été remplacé (« réponse
+      structurellement identique » → « liste de même forme », voir
+      `LOT4B_MANUAL_UI_CHECKLIST.md`).
+    `npm run lint`/`npm test`/`npm run build` exécutés avec succès après
+    chaque correctif de cette section.
+- **Risques** : aucun nouveau risque de sécurité/confidentialité identifié
+  au-delà de ceux déjà couverts par le Lot 4A (voir `SECURITY_PRIVACY.md`
+  §6 Lot 4B) — ce lot ne fait que LIRE et présenter des données déjà
+  produites, la seule écriture nouvelle (écartement) réutilise le service
+  déjà existant et déjà audité du Lot 4A.
+- **Critères d'acceptation (vérifiés)** : jamais de recommandation
+  automatique, de produit, d'assureur, d'IA ou de MCP introduits par ce
+  lot ; jamais de score commercial/médical (uniquement des compteurs
+  déterministes) ; aucune donnée réelle utilisée, y compris pendant la QA
+  formelle (bases de démonstration entièrement fictives, supprimées après
+  vérification).
+- **Actions interdites (respectées)** : pas de nouvelle table, pas de
+  nouvelle migration, pas d'éditeur de règles complet côté React, pas de
+  démarrage du Lot 5.
+- **Dépendances** : Lot 4A.
+- **Retour arrière** : suppression des deux routes et de la page React —
+  aucune donnée nouvelle en base (aucune nouvelle table), rien à migrer en
+  arrière.
 
 ## Lot 5 — Parcours Assurance Maladie
 

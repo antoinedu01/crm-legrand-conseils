@@ -140,6 +140,55 @@ export const ANSWER_STATUSES = {
   cleared: 'Effacé',
 };
 
+// Legrand Diagnostic 360 — espace conseiller des findings (Lot 4B). Jamais
+// un score, jamais une recommandation : uniquement le vocabulaire des
+// constats produits par le moteur déterministe (Lot 4A).
+export const FINDING_TYPES = {
+  fact: 'Fait constaté',
+  detected_need: 'Besoin détecté',
+  gap: 'Lacune identifiée',
+  warning: 'Avertissement',
+  missing_information: 'Information manquante',
+  solution_category: 'Catégorie générale',
+};
+
+export const PRIORITIES = {
+  critical: 'Critique',
+  high: 'Élevée',
+  medium: 'Moyenne',
+  low: 'Faible',
+};
+
+export const FINDING_SCOPES = {
+  session: 'Transverse au foyer',
+  household: 'Foyer',
+  member: 'Membre',
+};
+
+export const FINDING_STATUSES = {
+  active: 'Actif',
+  dismissed: 'Écarté',
+  superseded: 'Analyse remplacée',
+};
+
+export const EXECUTION_STATUSES = {
+  running: 'En cours',
+  completed: 'Terminée',
+  failed: 'Échouée',
+};
+
+// État global agrégé de l'analyse (Lot 4B, GATE §3) -- ne porte QUE sur les
+// domaines REQUIS par le type de la session (`common` en est toujours
+// exclu, voir server/advisoryRuleExecutions.js, resolveGlobalAnalysisState).
+export const GLOBAL_ANALYSIS_STATES = {
+  not_analyzed: 'Non analysée',
+  up_to_date: 'À jour',
+  partial: 'Partielle',
+  stale: 'Obsolète',
+  unavailable: 'Indisponible',
+  error: 'En erreur',
+};
+
 const chf = new Intl.NumberFormat('fr-CH', {
   style: 'currency',
   currency: 'CHF',

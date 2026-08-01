@@ -78,7 +78,14 @@ h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; color: var(--ink-2); }
 .sidebar a.nav.active { background: var(--wash); color: var(--accent-ink); }
 .sidebar .spacer { flex: 1; }
 .sidebar .user { padding: 8px 10px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
-.main { flex: 1; padding: 24px 28px; max-width: 1200px; }
+/* `min-width: 0` -- sans cela, un enfant flex garde par défaut sa largeur
+   de contenu minimale (`min-width: auto`) : si N'IMPORTE QUEL descendant,
+   même invisible (ex. contenu d'un `<details>` fermé), exerce une pression
+   de largeur intrinsèque, TOUT `.main` refuse de rétrécir sous cette
+   largeur, décalant horizontalement la page entière sous 900px (constat
+   GATE LOT 4B, QA formelle, vérifié par un vrai défilement horizontal --
+   pas seulement une mesure DOM -- à 375px). */
+.main { flex: 1; min-width: 0; padding: 24px 28px; max-width: 1200px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .page-head .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
 
@@ -211,9 +218,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .kcard .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .kcard .score-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .kcard select { font-size: 12px; padding: 3px 6px; width: 100%; margin-top: 8px; }
-.kcard details { margin-top: 6px; font-size: 12px; }
-.kcard details summary { cursor: pointer; color: var(--accent-ink); }
-.kcard details ul { margin: 6px 0 0 16px; padding: 0; color: var(--ink-2); }
+.kcard details, .finding-card details { margin-top: 6px; font-size: 12px; }
+.kcard details summary, .finding-card details summary { cursor: pointer; color: var(--accent-ink); }
+.kcard details ul, .finding-card details ul { margin: 6px 0 0 16px; padding: 0; color: var(--ink-2); }
 
 /* ---------- Workspace de rendez-vous (Lot 3B) ---------- */
 .wksp-modules { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
@@ -229,7 +236,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .wksp-rail { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
 @media (max-width: 900px) {
-  .wksp-rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+  /* `min-width: 0` -- sans cela, un enfant de grille garde par défaut sa
+     largeur de contenu minimale (`min-width: auto`), empêchant la rangée
+     de rétrécir sous la largeur de ses items malgré `overflow-x: auto` ;
+     le débordement se propage alors à toute la page plutôt que de rester
+     contenu dans le défilement horizontal propre au rail (constat GATE
+     LOT 4B, QA formelle, débordement observé à 375px). */
+  .wksp-rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; min-width: 0; }
 }
 .wksp-rail-item {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -266,8 +279,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   .wksp-member-switch { position: static; }
 }
 
-.wksp-question { padding: 16px 0; border-bottom: 1px solid var(--grid); }
+.wksp-question { padding: 16px 0; border-bottom: 1px solid var(--grid); transition: background-color 1.2s ease, outline-color 1.2s ease; }
 .wksp-question:last-child { border-bottom: none; }
+.wksp-question:focus { outline: none; }
+/* Surlignage temporaire d'une question ciblée depuis l'espace des constats
+   (Lot 4B, §16) -- s'efface après quelques secondes (voir jumpToQuestion,
+   SessionWorkspace.jsx), jamais permanent, jamais persisté. */
+.wksp-question.highlighted { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; background: var(--wash); }
 .wksp-question .q-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
 .wksp-question .q-text { font-weight: 600; margin-bottom: 4px; }
 .wksp-question .q-help { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
@@ -306,7 +324,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .missing-list button.link-row {
   display: flex; justify-content: space-between; width: 100%; text-align: left;
   border: none; background: transparent; padding: 8px 0; color: var(--ink); font-weight: 500;
-  min-height: 44px; align-items: center;
+  min-height: 44px; align-items: center; gap: 8px;
+}
+/* Un enfant flex garde `min-width: auto` par défaut -- l'empêche de
+   rétrécir sous la largeur intrinsèque de son texte, donc de jamais
+   passer à la ligne, même avec `white-space` normal (constat GATE LOT 4B,
+   QA formelle : débordement horizontal à 375px avec un texte de question
+   long). Corrige tous les usages de `.link-row`, pas seulement le panneau
+   de traçabilité qui l'a révélé. */
+.missing-list button.link-row > span:first-child {
+  min-width: 0; overflow-wrap: break-word;
 }
 .missing-list button.link-row:hover { color: var(--accent-ink); }
 
@@ -324,11 +351,37 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .history-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); font-size: 13px; }
 .history-list li:last-child { border-bottom: none; }
 .history-list .h-meta { color: var(--muted); font-size: 11.5px; }
+/* Ligne positionnée depuis une navigation « Voir la réponse source » (Lot
+   4B, GATE §2) -- distingue visuellement la réponse RÉELLEMENT utilisée par
+   le finding du badge « Active » ci-dessus (qui, lui, désigne la réponse
+   active aujourd'hui, potentiellement une ligne différente). */
+.history-list li.highlighted { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; background: var(--wash); padding-left: 8px; padding-right: 8px; }
 
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { padding: 10px 0; border-bottom: 1px solid var(--grid); display: flex; gap: 10px; }
 .timeline li:last-child { border-bottom: none; }
 .timeline .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* ---------- Espace conseiller des findings (Lot 4B) ---------- */
+.chip-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+  padding: 5px 12px; border-radius: 999px; border: 1px solid var(--baseline);
+  background: var(--surface); color: var(--ink-2);
+}
+.chip:hover { background: var(--wash); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.finding-card { margin-bottom: 10px; }
+.finding-card.needs-review { border-color: var(--warning); }
+.finding-card.dismissed { opacity: 0.7; }
+.finding-card .f-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.finding-card .f-title { font-weight: 600; flex: 1 1 auto; }
+.finding-card .f-summary { color: var(--ink-2); font-size: 13px; margin-bottom: 6px; }
+.finding-card .f-explanation { font-size: 13px; margin: 6px 0; padding: 8px 10px; background: var(--page); border-radius: 8px; border: 1px solid var(--border); }
+.finding-card .f-explanation.client { background: var(--wash); }
+.finding-card .f-explanation-label { display: block; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+.finding-card .f-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+
 .muted { color: var(--muted); }
 .right { text-align: right; }
 .mt { margin-top: 14px; }

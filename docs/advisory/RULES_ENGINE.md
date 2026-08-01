@@ -216,6 +216,122 @@ existant (son champ `contraindications`, une liste), jamais un type de
 finding séparé — un finding « contre-indication » orpheline, sans
 constat/besoin/lacune sous-jacent qu'elle contredirait, n'aurait pas de sens.
 
+## 3ter. Ordre d'affichage des findings — `FINDINGS_ORDER_BY` (étendu Lot 4B)
+
+Ordre de tri **unique et partagé** par les routes de lecture qui exposent
+l'état ACTIF (`server/advisoryRuleExecutions.js`, `FINDINGS_ORDER_BY` —
+`getExecutionDetail`, `listActiveFindings`, `getSessionFindingsWorkspace`)
+— jamais recalculé différemment selon l'écran qui interroge, jamais
+re-trié côté client (un filtre frontend est une partition stable de ce
+résultat, jamais un nouveau comparateur) :
+
+1. conflits actifs d'abord (`needs_review DESC`, ajouté au Lot 4B, §11 du
+   brief conseiller — un finding qui a besoin d'un arbitrage humain ne doit
+   jamais se perdre en bas d'une longue liste) ;
+2. puis priorité (`critical` > `high` > `medium` > `low`) ;
+3. puis `sort_order` (ordre d'auteur au sein du rule_set) ;
+4. puis `id` (déterminisme total en cas d'égalité stricte des trois
+   critères précédents).
+
+L'empreinte `content_hash` d'un rule_set/d'une exécution (voir
+`DATA_MODEL.md` §5, `SECURITY_PRIVACY.md` §6 Lot 4B) sert exclusivement à
+vérifier la reproductibilité technique — **jamais une preuve juridique**,
+rappel affiché explicitement partout où elle est montrée au conseiller.
+
+> **Exception délibérée — `GET .../findings/history` (constat GATE LOT 4B,
+> revue `rules-engine-auditor`)** : cette route reste triée par `id DESC`
+> (le plus récent d'abord), jamais par `FINDINGS_ORDER_BY`. Ce n'est pas un
+> oubli : elle liste TOUS les statuts à travers TOUTES les exécutions
+> d'une session (actifs, écartés, supersédés confondus) — un ordre
+> « conflits actifs d'abord » y serait peu signifiant (un finding supersédé
+> ou écarté a déjà `needs_review = 0`, voir §4) et casserait la lecture
+> strictement chronologique attendue d'un historique. Les trois routes
+> ci-dessus, elles, exposent toutes le même sous-ensemble (l'état ACTIF
+> courant d'UNE exécution/session) et partagent donc rigoureusement le même
+> tri.
+
+## 3quater. Cohérence multi-domaines — état global et synthèse active (GATE LOT 4B §3)
+
+Distinct de `state` par domaine (§3ter et `resolveDomainAnalysisState`) :
+deux notions AGRÉGÉES, calculées côté serveur, jamais recalculées
+différemment côté client.
+
+**Matrice des domaines REQUIS par type de session**
+(`requiredDomainsForSession`) — `common` n'est JAMAIS requis, quel que soit
+le domaine de la session (constats transverses, facultatifs par nature) :
+
+| Type de session | Domaine(s) requis |
+|---|---|
+| `health` | `health` |
+| `life_pension` | `life_pension` |
+| `mixed` | `health` **et** `life_pension` |
+
+**`common` — facultatif ne signifie pas insensible à son propre état**
+(deux corrections humaines successives, MICRO-GATE LOT 4B §1 et §3) : la
+facultativité de `common` signifie *« son absence (ou son indisponibilité
+actuelle) est acceptable »*, jamais *« un `common` ACTUELLEMENT publié peut
+échouer, devenir obsolète, ou rester non exécuté sans affecter l'état
+global »*. Concrètement (`getSessionFindingsWorkspace`) :
+- applicabilité fondée sur le statut de publication **ACTUEL**, jamais
+  historique (`by_domain.common.has_published_rule_set`, une requête
+  `status = 'published'` évaluée à la lecture) — **jamais** une condition
+  du type « un ensemble a déjà été publié un jour » : un ensemble `common`
+  seulement ARCHIVÉ ne rend jamais ce domaine applicable, même s'il porte
+  encore une exécution passée `up_to_date`/`stale` au sens strict de la
+  révision (une exécution déjà pinnée reste valide après archivage de son
+  rule_set, reproductibilité oblige — mais cette validité historique est
+  délibérément DÉCORRÉLÉE de l'applicabilité actuelle) ;
+- aucun ensemble de règles `common` ACTUELLEMENT publié pour cette session
+  (`has_published_rule_set === false`) → `common` est EXCLU du calcul de
+  `global_state` (seuls les domaines requis y entrent), quelle que soit son
+  histoire (jamais publié, ou publié puis archivé depuis) ;
+- un ensemble `common` est ACTUELLEMENT publié (peu importe qu'il ait déjà
+  été exécuté ou non, réussi ou non) → `common` entre dans le calcul de
+  `global_state` EXACTEMENT comme un domaine requis, sans aucune branche
+  spéciale qui l'exempterait d'un échec ou d'une obsolescence.
+- même condition d'applicabilité ACTUELLE reprise pour la « synthèse
+  active » ci-dessous : un `common` dont le rule_set a depuis été archivé
+  ne doit plus jamais alimenter le total actif, même si son `state` affiche
+  encore `up_to_date`.
+
+**État global agrégé** (`global_state`, `resolveGlobalAnalysisState`) —
+combine les états des domaines APPLICABLES (les domaines requis, plus
+`common` selon la règle ci-dessus), priorité stricte (la première règle qui
+s'applique l'emporte) :
+
+1. `unavailable` — aucun domaine applicable n'a jamais été équipé du moindre
+   ensemble de règles publié.
+2. `not_analyzed` — aucun domaine applicable n'a jamais complété la moindre
+   exécution, et aucune tentative n'a échoué.
+3. `up_to_date` — tous les domaines applicables ont une exécution complétée
+   à la révision COURANTE, aucune tentative plus récente en échec.
+4. `error` — aucun domaine applicable n'a JAMAIS produit de résultat
+   exploitable (ni à jour, ni obsolète) alors qu'au moins une tentative a
+   échoué.
+5. `partial` — au moins un domaine applicable exploitable pendant qu'un
+   AUTRE domaine applicable a échoué, n'a jamais été équipé, ou n'a jamais
+   été lancé (généralise la règle GATE §3 « succès + échec = partiel » aux
+   trois façons dont un domaine applicable peut rester sans résultat).
+6. Sinon, tous les domaines applicables exploitables et aucun échec, mais
+   pas tous à jour (l'étape 3 aurait déjà conclu sinon) — deux cas
+   distingués (MICRO-GATE §3) :
+   - `partial` si AU MOINS UN domaine applicable est à jour pendant qu'un
+     AUTRE reste obsolète (mélange — présenter ce cas comme uniformément
+     « obsolète » donnerait à tort l'impression qu'aucune partie n'est
+     fiable) ;
+   - `stale` si AUCUN domaine applicable n'est à jour (tous obsolètes) —
+     une relance est SUGGÉRÉE, jamais automatique.
+
+**Synthèse active** (`synthesis`) : les tuiles/compteurs PRINCIPAUX de
+l'écran des constats ne totalisent QUE les findings actifs des domaines
+EUX-MÊMES à jour (`state = 'up_to_date'`) — porte sur TOUS les domaines
+applicables (`common` inclus s'il est lui-même à jour), distincte de
+`global_state` qui ne regarde que les domaines requis. Un domaine obsolète
+reste intégralement consultable dans son propre onglet (ses findings n'en
+sont jamais retirés) mais n'est jamais additionné dans ce total — jamais un
+mélange silencieux de findings issus de révisions différentes dans un même
+chiffre agrégé.
+
 ## 3. Les sept étapes — distinction stricte
 
 Le moteur ne doit jamais fusionner ces étapes :
@@ -286,6 +402,20 @@ l'API, voir `API_CONTRACT.md` §7).
 > écarté reste consultable, `status = dismissed`) et ne constitue jamais une
 > recommandation automatique sur le finding restant.
 
+> **Correctif (GATE LOT 4B, QA formelle de l'espace conseiller des
+> findings)** : le contrôle en temps réel ci-dessus regroupait initialement
+> par `category_hint` SANS distinguer la RÈGLE d'origine — une règle à
+> `finding_scope = member` (un finding distinct par membre correspondant,
+> §3 ci-dessous) partage nécessairement le même `category_hint` entre ses
+> propres findings fan-out, qui se signalaient donc à tort comme en conflit
+> ENTRE EUX. Corrigé : deux findings ne sont désormais regroupés comme en
+> conflit que s'ils proviennent de règles DIFFÉRENTES (`rule.id` distinct),
+> jamais de la même règle appliquée à plusieurs membres. Verrouillé par
+> deux tests dédiés (`test/advisory-rule-executions.test.js`) : aucun
+> recoupement entre findings d'une même règle même `category_hint`
+> partagée ; deux règles différentes partageant une catégorie restent bien
+> détectées.
+
 ## 5. Empêcher les doublons
 
 > **Implémenté (Lot 4A).**
@@ -324,7 +454,20 @@ l'API, voir `API_CONTRACT.md` §7).
 > absentes qui produit un finding `finding_type = missing_information`
 > (jamais un résultat par défaut, jamais une hypothèse silencieuse), listant
 > précisément les références manquantes (`missing_data`, résolvables :
-> `question_id`/`stable_key`/`contract_branch`).
+> `question_id`/`stable_key`/`contract_branch`/`scope`).
+>
+> **`scope` (ajouté Lot 4B, constat GATE en revue finale `advisory-architect`)**
+> — une référence de portée `member` est déclarée manquante dès qu'AU MOINS
+> UN membre du foyer n'a pas répondu (`isRequiredDataPresent`, vérification
+> `every` sur tous les membres, jamais résolue à un membre précis parmi
+> plusieurs potentiellement concernés) : `household_member_id` reste donc
+> toujours `null` pour cette référence, y compris pour une question de
+> portée membre. `scope` permet à un écran de lecture de distinguer ce cas
+> (aucune navigation directe vers UNE réponse précise n'a de sens ici) d'une
+> véritable référence de portée foyer, résolvable sans ambiguïté — sans ce
+> champ, `client/src/pages/SessionFindings.jsx` proposait initialement un
+> lien « Répondre → » qui échouait silencieusement pour toute référence de
+> portée membre (corrigé).
 
 - Si `missing_data` n'est pas vide pour une règle, celle-ci produit une
   exécution `outcome = donnees_manquantes` — **pas** un résultat par défaut,
@@ -391,6 +534,33 @@ l'API, voir `API_CONTRACT.md` §7).
 > intégralement annulée en cas d'erreur (`db.transaction`), seule
 > l'exécution `failed` (dans sa propre transaction séparée) est alors
 > écrite.
+
+> **Relance après amendement — orchestration multi-domaines, jamais
+> automatique (Lot 4B, §7.5 du brief conseiller)** : `POST .../analyze`
+> (`executeApplicableRuleSetsForSession`) est désormais le point d'entrée
+> attendu côté conseiller pour relancer l'analyse — il remplace, du point
+> de vue de l'UI, l'appel manuel répété à `POST .../rule-executions` par
+> domaine (qui reste utilisable directement, notamment pour les tests).
+> Amender une réponse ne déclenche **toujours pas** de relance automatique
+> — le conseiller reste seul décisionnaire du moment où relancer, un
+> domaine « périmé » (`stale`, révision de la dernière exécution
+> antérieure à la révision courante de la session) continue d'afficher les
+> findings de sa dernière analyse réussie jusqu'à cette relance explicite.
+>
+> **Aucune atomicité globale entre domaines (décision humaine confirmée,
+> GATE LOT 4B §7)** : contrairement à une hypothèse envisagée avant
+> implémentation, l'orchestration n'enveloppe PAS les jusqu'à trois
+> exécutions de domaine (`common`/`health`/`life_pension`) dans une
+> transaction englobante unique — chacune garde sa propre transaction
+> indépendante, exactement comme des appels manuels successifs. Une
+> atomicité globale aurait cassé la garantie « toujours tracer, jamais
+> silencieux » de l'exécution `failed` ci-dessus (un échec sur UN domaine
+> aurait alors fait disparaître le succès des autres) et aurait fait à tort
+> d'un état parfaitement normal (« aucun rule_set publié pour ce domaine »)
+> un motif d'annulation de tout le reste. Le résultat est donc
+> STRUCTURÉ par domaine (`{domain, status, execution_id?}[]`,
+> `API_CONTRACT.md` §6) — l'appelant ne doit jamais présenter un résultat
+> partiel comme une analyse complète.
 
 ## 11. Exemple fictif de règle — Assurance Maladie
 

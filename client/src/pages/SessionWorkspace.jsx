@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { Modal, Field, Badge, Empty } from '../components/ui.jsx';
 import { SESSION_DOMAINS, SESSION_STATUSES, LINK_DOMAIN_LABELS, MEMBER_ROLES, fmtDateTime } from '../labels.js';
@@ -59,6 +59,54 @@ function answerKey(questionId, memberId) {
   return `${questionId}|${memberId ?? 'household'}`;
 }
 
+// Résout une navigation ENTRANTE depuis l'espace des constats (Lot 4B,
+// SessionFindings.jsx « Voir la réponse source ») -- reçue via l'état de
+// navigation React Router (`location.state = {questionId, memberId, answerId}`),
+// JAMAIS dans l'URL (§16 : aucun identifiant technique de réponse ne doit
+// apparaître dans une URL partageable/journalisable). `used_inputs_ref`
+// contient déjà un `question_id` résolu (identifiant de base immuable) --
+// même principe de résolution que `resolveMissingContext` ci-dessous, mais
+// cherchant à travers TOUS les modules (une provenance inconnue a priori),
+// jamais un seul module présupposé.
+function resolveQuestionAcrossModules(modules, questionId, memberId) {
+  for (let modIdx = 0; modIdx < (modules || []).length; modIdx++) {
+    for (const section of modules[modIdx].sections) {
+      for (const instance of section.instances) {
+        if (instance.household_member_id !== (memberId ?? null)) continue;
+        const question = instance.questions.find((q) => q.id === questionId);
+        if (question) {
+          return {
+            modIdx, sectionKey: section.stable_key, sectionVisible: section.visible,
+            question, instance,
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Vérifie et localise, pour une navigation entrante annonçant un `answerId`
+// précis (GATE LOT 4B §2), la ligne HISTORIQUE exacte réellement utilisée
+// par le finding -- jamais seulement la réponse ACTIVE courante (qui a pu
+// changer depuis). Réutilise TELLE QUELLE la route d'historique existante
+// (GET .../answers/history?question_id=&household_member_id=, déjà scoping
+// session_id + question_id + household_member_id via `listAnswerHistory`,
+// déjà auditée comme « consultation historique réponse ») : aucune nouvelle
+// route, aucun nouvel identifiant technique transmis. La vérification
+// anti-IDOR complète (l'answer_id appartient bien à CETTE session, à CETTE
+// question annoncée, à CE membre annoncé) découle directement de ce
+// filtrage SQL déjà en place -- si `answerId` n'apparaît pas parmi les
+// lignes renvoyées, c'est qu'il n'appartient à aucun des trois, ou qu'il
+// n'existe simplement pas : les trois cas sont volontairement indiscernables
+// pour l'appelant (jamais une réponse qui révélerait LEQUEL des trois
+// c'est).
+async function fetchAnswerHistoryRows(sessionId, questionId, memberId) {
+  const params = memberId != null ? `?question_id=${questionId}&household_member_id=${memberId}` : `?question_id=${questionId}`;
+  const res = await api.get(`/api/advisory/sessions/${sessionId}/answers/history${params}`);
+  return res.answers;
+}
+
 const ACTION_LABELS = {
   start: 'Démarrer', suspend: 'Suspendre', resume: 'Reprendre', cancel: 'Annuler',
 };
@@ -68,6 +116,7 @@ const CONFLICT_MESSAGE = "Cette session a été modifiée ailleurs (un autre ong
 export default function SessionWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data, loading, error, reload } = useWorkspace(id);
   const captureScroll = usePreservedScroll(data);
 
@@ -80,6 +129,14 @@ export default function SessionWorkspace() {
   const [historyFor, setHistoryFor] = useState(null);
   const [globalError, setGlobalError] = useState(null);
   const [transitioning, setTransitioning] = useState(false);
+  // Navigation entrante depuis l'espace des constats (Lot 4B, §16) : bannière
+  // d'information (jamais bloquante) quand la question source n'est plus
+  // disponible ou n'est actuellement pas affichée ; cible du surlignage
+  // temporaire de la question visée. Aucun des deux n'est jamais persisté
+  // (aucun stockage navigateur, §24) -- seulement de l'état React en mémoire.
+  const [navBanner, setNavBanner] = useState(null);
+  const [highlightTarget, setHighlightTarget] = useState(null);
+  const lastHandledNavKeyRef = useRef(null);
 
   // --- Concurrence optimiste (GATE LOT 3B §2) --------------------------------
   // `revisionRef` reflète toujours la dernière révision connue (mise à jour
@@ -298,6 +355,102 @@ export default function SessionWorkspace() {
     }, 50);
   }
 
+  // Variante de jumpTo ciblant une QUESTION précise (jamais seulement sa
+  // section) -- utilisée par la navigation entrante depuis l'espace des
+  // constats (Lot 4B, §16) : défilement, PUIS focus clavier, PUIS
+  // surlignage temporaire (jamais permanent, s'efface après quelques
+  // secondes). Ne modifie jamais la réponse elle-même.
+  function jumpToQuestion(moduleIdx, sectionKey, memberId, questionId) {
+    setShowFinalize(false);
+    setAmendTarget(null);
+    setHistoryFor(null);
+    setActiveModuleIdx(moduleIdx);
+    setActiveSectionKey(sectionKey);
+    if (memberId != null) setActiveMemberByModule((m) => ({ ...m, [moduleIdx]: memberId }));
+    setHighlightTarget({ questionId, memberId: memberId ?? null });
+    setTimeout(() => {
+      const el = document.getElementById(`question-${questionId}-${memberId ?? 'household'}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus?.({ preventScroll: true });
+    }, 50);
+    setTimeout(() => setHighlightTarget((t) => (t && t.questionId === questionId ? null : t)), 4000);
+  }
+
+  // Consomme UNE SEULE FOIS chaque navigation entrante réelle (`location.key`
+  // change à chaque appel de navigate(), même vers le même chemin) --
+  // n'attend le chargement de `data` que si nécessaire, ne se redéclenche
+  // jamais sur un simple rechargement provoqué par une sauvegarde.
+  //
+  // GATE LOT 4B §2 : quand la navigation annonce un `answerId`, celui-ci
+  // devient la source de vérité -- vérifié AVANT tout effet de bord (aucun
+  // changement de module/section/surlignage tant que la vérification n'a
+  // pas abouti). Un `answerId` absent (lien « Répondre » sur une donnée
+  // manquante, ou navigation plus ancienne) retombe exactement sur le
+  // comportement précédent, inchangé.
+  useEffect(() => {
+    if (!data || !location.state?.questionId) return;
+    if (lastHandledNavKeyRef.current === location.key) return;
+    lastHandledNavKeyRef.current = location.key;
+    const { questionId, memberId, answerId } = location.state;
+    let cancelled = false;
+
+    (async () => {
+      const resolved = resolveQuestionAcrossModules(data.modules, questionId, memberId ?? null);
+      if (!resolved) {
+        if (!cancelled) setNavBanner("La question source de ce constat n'est plus disponible dans le questionnaire actuel.");
+        return;
+      }
+
+      let highlightRow = null;
+      let historyRows = null;
+      if (answerId != null) {
+        try {
+          historyRows = await fetchAnswerHistoryRows(id, questionId, memberId ?? null);
+        } catch {
+          if (!cancelled) setNavBanner("La réponse source de ce constat n'a pas pu être vérifiée — aucune navigation n'a été effectuée.");
+          return;
+        }
+        if (cancelled) return;
+        highlightRow = historyRows.find((r) => r.id === answerId) || null;
+        // Ni distingué ni précisé PLUS que ce message générique (§2) : ne
+        // révèle jamais si l'answer_id est totalement inconnu, appartient à
+        // une autre session/un autre foyer, ou correspond à une autre
+        // question/un autre membre -- aucune de ces informations n'a de
+        // valeur légitime pour l'appelant, et aucune valeur de réponse
+        // n'est jamais montrée dans ce cas.
+        if (!highlightRow) {
+          setNavBanner("La réponse historique demandée n'est pas disponible pour cette session.");
+          return;
+        }
+      }
+
+      if (!resolved.sectionVisible || !resolved.question.visible) {
+        setActiveModuleIdx(resolved.modIdx);
+        setNavBanner("La question source de ce constat n'est actuellement pas affichée (condition d'affichage non remplie pour les réponses en cours) — sa réponse reste consultable via son historique.");
+      } else if (resolved.instance.member && resolved.instance.member.can_answer === false) {
+        setNavBanner(`La réponse source provient de ${resolved.instance.member.display_name}, qui n'est plus actif dans ce foyer — elle reste consultable ci-dessous, en lecture seule.`);
+        jumpToQuestion(resolved.modIdx, resolved.sectionKey, memberId ?? null, questionId);
+      } else {
+        setNavBanner(null);
+        jumpToQuestion(resolved.modIdx, resolved.sectionKey, memberId ?? null, questionId);
+      }
+
+      // Ouvre l'historique SUR LA LIGNE answer_id EXACTE (§2, point 7) --
+      // même quand la question source n'est plus affichée actuellement
+      // (l'historique reste une vue en lecture seule, indépendante de la
+      // visibilité live de la question) : jamais bloqué par les branches
+      // ci-dessus, seulement par l'échec de vérification traité plus haut.
+      if (highlightRow) {
+        setHistoryFor({
+          questionId, memberId: memberId ?? null, label: resolved.question.advisor_text,
+          preloadedRows: historyRows, highlightAnswerId: answerId,
+        });
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [data, location.key]);
+
   if (loading && !data) return <p className="muted">Chargement…</p>;
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return null;
@@ -340,6 +493,12 @@ export default function SessionWorkspace() {
       </div>
 
       {globalError && <div className="alert error">{globalError}</div>}
+      {navBanner && (
+        <div className="alert warn">
+          {navBanner}{' '}
+          <button className="ghost small" onClick={() => setNavBanner(null)}>Fermer</button>
+        </div>
+      )}
       {household.status === 'archive' && (
         <div className="alert warn">Ce foyer est archivé : consultation uniquement, aucune nouvelle activité n'est possible sur cette session.</div>
       )}
@@ -455,6 +614,7 @@ export default function SessionWorkspace() {
                       readOnly={instanceReadOnly}
                       canAmend={actions.can_amend}
                       saveState={saveStates.get(answerKey(q.id, activeInstance.household_member_id))}
+                      highlighted={!!highlightTarget && highlightTarget.questionId === q.id && highlightTarget.memberId === (activeInstance.household_member_id ?? null)}
                       onSave={(status, value) => saveAnswer(q.id, activeInstance.household_member_id, status, value)}
                       onClear={() => clearAnswer(q.id, activeInstance.household_member_id)}
                       onHistory={() => setHistoryFor({ questionId: q.id, memberId: activeInstance.household_member_id, label: q.advisor_text })}
@@ -499,9 +659,17 @@ export default function SessionWorkspace() {
 
 // --- Rendu d'une question, par type -----------------------------------------
 
-function QuestionCard({ question: q, readOnly, canAmend, saveState, onSave, onClear, onHistory, onAmend, onRegisterFlush }) {
+function QuestionCard({ question: q, readOnly, canAmend, saveState, highlighted, onSave, onClear, onHistory, onAmend, onRegisterFlush }) {
   const [local, setLocal] = useState(() => (q.answer?.status === 'answered' ? q.answer.value : q.type === 'multiple_choice' ? [] : ''));
   const debounceRef = useRef(null);
+  // Cible du surlignage/focus temporaire depuis l'espace des constats (Lot
+  // 4B, §16) -- `tabIndex={-1}` rend le conteneur focusable par script SANS
+  // l'ajouter à l'ordre de tabulation naturel (même technique que les autres
+  // cibles de défilement programmatique de cette page).
+  const cardRef = useRef(null);
+  useEffect(() => {
+    if (highlighted) cardRef.current?.focus?.({ preventScroll: true });
+  }, [highlighted]);
   // Vrai tant qu'une frappe a été tapée mais pas encore confirmée par un
   // aller-retour serveur complet (au sens large : de l'appel debounced à la
   // fin du rechargement qu'il déclenche). Corrige une race condition réelle
@@ -566,7 +734,12 @@ function QuestionCard({ question: q, readOnly, canAmend, saveState, onSave, onCl
   }[saveState?.status];
 
   return (
-    <div className="wksp-question">
+    <div
+      id={`question-${q.id}-${q.household_member_id ?? 'household'}`}
+      ref={cardRef}
+      tabIndex={-1}
+      className={`wksp-question${highlighted ? ' highlighted' : ''}`}
+    >
       <div className="q-head">
         {q.required && <Badge value="critical" label="Obligatoire" />}
         {q.sensitive && <Badge value="serious" label="Donnée sensible" />}
@@ -950,13 +1123,29 @@ function formatHistoryValue(r) {
   return String(r.value ?? '');
 }
 
+// `target.preloadedRows`/`target.highlightAnswerId` (GATE LOT 4B §2) :
+// renseignés uniquement quand cette modale est ouverte depuis une navigation
+// entrante ayant déjà vérifié l'`answer_id` annoncé (voir l'effet de
+// navigation entrante ci-dessus) -- réutilise directement ces lignes déjà
+// chargées et déjà auditées pour CE geste, jamais une seconde requête (donc
+// jamais une seconde entrée d'audit) pour la même consultation. L'ouverture
+// « Historique » ordinaire depuis une QuestionCard (aucun answer_id annoncé)
+// charge comme avant.
 function HistoryModal({ sessionId, target, advisorName, onClose }) {
-  const [rows, setRows] = useState(null);
+  const [rows, setRows] = useState(target.preloadedRows || null);
   const [error, setError] = useState(null);
   useEffect(() => {
+    if (target.preloadedRows) return;
     const params = target.memberId ? `?question_id=${target.questionId}&household_member_id=${target.memberId}` : `?question_id=${target.questionId}`;
     api.get(`/api/advisory/sessions/${sessionId}/answers/history${params}`).then((r) => setRows(r.answers)).catch((err) => setError(err.message));
   }, [sessionId, target]);
+
+  const highlightRef = useRef(null);
+  useEffect(() => {
+    if (target.highlightAnswerId != null && rows) {
+      highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [rows, target.highlightAnswerId]);
 
   return (
     <Modal title={`Historique — ${target.label}`} onClose={onClose}>
@@ -969,12 +1158,23 @@ function HistoryModal({ sessionId, target, advisorName, onClose }) {
         <ul className="history-list">
           {rows.map((r) => {
             const value = formatHistoryValue(r);
+            // Jamais une substitution silencieuse de la réponse active
+            // courante (§2, point 10) : la ligne mise en avant reste
+            // TOUJOURS celle de `highlightAnswerId` lui-même, distincte du
+            // badge « Active » (qui, lui, désigne la ligne réellement
+            // active aujourd'hui — potentiellement une ligne différente si
+            // amendée depuis).
+            const isHighlighted = target.highlightAnswerId != null && r.id === target.highlightAnswerId;
             return (
-              <li key={r.id}>
+              <li key={r.id} ref={isHighlighted ? highlightRef : null} className={isHighlighted ? 'highlighted' : undefined}>
                 <div>
                   <Badge value={r.status} /> {r.is_amendment ? <Badge value="serious" label="Amendement" /> : null}
                   {r.superseded_by_answer_id == null && <Badge value="good" label="Active" />}
+                  {isHighlighted && <Badge value="source_answer" label="Réponse utilisée lors de cette analyse" />}
                 </div>
+                {isHighlighted && r.superseded_by_answer_id != null && (
+                  <div className="muted" style={{ fontSize: 12 }}>Cette réponse a été remplacée depuis par une correction plus récente.</div>
+                )}
                 {value != null && <div>{value}</div>}
                 <div className="h-meta">
                   {fmtDateTime(r.created_at)} — {advisorName || 'Conseiller'}

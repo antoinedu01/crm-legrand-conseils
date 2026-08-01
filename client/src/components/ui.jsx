@@ -36,6 +36,16 @@ const TONES = {
   exact_match: 'critical', probable_match: 'serious', possible_similarity: 'warn', no_match: '',
   draft: 'info', in_progress: 'warn', suspended: 'serious', completed: 'good', cancelled: 'critical',
   answered: 'good', unknown: 'warn', not_applicable: '', cleared: 'serious',
+  // Espace conseiller des findings (Lot 4B).
+  critical: 'critical', high: 'warn', medium: 'info', low: '',
+  active: 'good', dismissed: 'serious', superseded: '',
+  running: 'warn', failed: 'critical',
+  no_rule_set_available: '', not_yet_run: 'info', up_to_date: 'good', stale: 'warn',
+  // Navigation historique par answer_id (Lot 4B, GATE §2).
+  source_answer: 'info',
+  // État global agrégé multi-domaines (Lot 4B, GATE §3) -- `up_to_date` et
+  // `stale` réutilisent déjà les tons ci-dessus (mêmes valeurs, même sens).
+  not_analyzed: '', partial: 'warn', unavailable: '', error: 'critical',
 };
 
 export function Badge({ value, label }) {

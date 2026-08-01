@@ -79,6 +79,11 @@ export default function SessionDetail() {
               <button onClick={complete}>Finaliser</button>
             </>
           )}
+          {data.status === 'completed' && (
+            <button onClick={() => navigate(`/diagnostic-360/sessions/${id}/findings`)}>
+              Ouvrir les constats
+            </button>
+          )}
           <button className="primary" onClick={() => navigate(`/diagnostic-360/sessions/${id}/workspace`)}>
             Ouvrir l'espace de rendez-vous
           </button>

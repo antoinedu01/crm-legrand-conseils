@@ -313,6 +313,101 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
   sortant, aucun `eval`/`new Function`, aucune dépendance à un modèle
   statistique ou génératif — évaluation purement synchrone, déterministe,
   en mémoire, sur les données déjà en base.
+- **Lot 4B — espace conseiller des findings** :
+  - **Nouvelle action d'audit distincte** `consultation espace constats
+    session` (`getSessionFindingsWorkspace`, déduplication 15 minutes,
+    fenêtre et politique séparées de `consultation workspace session` —
+    deux écrans différents, jamais confondus dans la traçabilité) ; l'audit
+    dérivé `consultation findings sensibles` s'applique à cette nouvelle
+    route selon exactement le même critère dérivé que les quatre routes de
+    lecture du Lot 4A (§6 ci-dessus).
+  - **`content_hash` d'un ensemble de règles/d'une exécution — même
+    précision de nature que pour la version de questionnaire (Lot 3A,
+    ci-dessus)** : cette empreinte SHA-256 sert exclusivement à vérifier la
+    reproductibilité technique, **jamais une signature cryptographique ni
+    une preuve juridique**. Affichée dans le panneau d'historique des
+    analyses (`client/src/pages/SessionFindings.jsx`) accompagnée
+    explicitement de ce rappel, jamais présentée seule.
+  - **Résolution du membre concerné par un finding — jamais une lecture
+    directe de `household_members`** : `getSessionFindingsWorkspace`
+    résout systématiquement le membre via `sessionMembersFor` (Lot 3B,
+    déjà auditée pour l'IDOR), la même fonction que le workspace de
+    réponses — jamais une requête indépendante par identifiant de membre,
+    qui aurait pu exposer un membre d'un AUTRE foyer si un
+    `household_member_id` invalide ou étranger avait été présent dans un
+    `used_inputs_ref` historique.
+  - **Aucune valeur de réponse dans le nouvel écran** : la traçabilité
+    d'un finding (panneau « Sources et traçabilité ») n'affiche que des
+    références déjà minimisées au Lot 4A (texte de question, indicateur de
+    sensibilité) — jamais la valeur elle-même. « Voir la réponse source »
+    ouvre l'espace de rendez-vous existant (`GET .../workspace`, déjà
+    audité, déjà respectueux de la classification figée) plutôt que de
+    construire un second mécanisme d'affichage de valeur avec sa propre
+    surface d'audit — décision volontaire pour ne jamais dupliquer ce
+    risque.
+  - **Navigation vers la réponse source jamais dans l'URL** : l'identifiant
+    de question et de membre transitent exclusivement via l'état de
+    navigation React Router (`navigate(path, { state })`), jamais en
+    paramètre d'URL — non journalisable par un serveur mandataire, non
+    partageable par copie de lien, disparaît à la fermeture de l'onglet.
+  - **Aucun stockage navigateur** (`localStorage`/`sessionStorage`) sur
+    l'écran des constats ni sur l'extension de navigation du workspace —
+    vérifié par QA formelle (`LOT4B_MANUAL_UI_CHECKLIST.md`).
+  - **Aucun appel IA, aucun MCP** dans `executeApplicableRuleSetsForSession`
+    ni dans la projection `getSessionFindingsWorkspace` — mêmes garanties
+    que le moteur d'exécution du Lot 4A, jamais étendues à ce nouveau code.
+  - **Navigation historique par `answer_id` (GATE LOT 4B §2, ajouté après le
+    premier commit)** : `answerId` (en plus de `questionId`/`memberId`)
+    transite lui aussi exclusivement via l'état de navigation, jamais dans
+    l'URL — mêmes garanties que ci-dessus. Aucune nouvelle route créée :
+    réutilise `GET .../answers/history`, déjà auditée
+    (`consultation historique réponse`, Lot 3B), sans déduplication. La
+    vérification anti-IDOR (l'`answer_id` annoncé appartient bien à cette
+    session, cette question et ce membre) découle directement du filtrage
+    SQL déjà en place sur cette route — aucun nouvel identifiant technique
+    transmis, aucune nouvelle entrée d'audit distincte pour ce geste. Un
+    `answer_id` inexistant, appartenant à une autre session du même foyer, à
+    une session d'un autre foyer, rattaché à une autre question, ou à un
+    autre membre que ceux annoncés produit EXACTEMENT la même réponse
+    (aucune valeur affichée, message neutre exact *« La réponse historique
+    demandée n'est pas disponible pour cette session. »*, aucune
+    navigation) : les cinq cas sont volontairement indiscernables, aucun ne
+    révèle à l'appelant lequel s'applique — chacun vérifié par un test
+    backend/API DISTINCT (MICRO-GATE LOT 4B §2, corrige un rapport
+    antérieur qui n'en avait vérifié qu'un seul représentatif), avec
+    confirmation explicite qu'aucun n'introduit de fuite dans
+    `audit_log.details` ni de différence de statut HTTP permettant de les
+    distinguer.
+    La projection `getSessionFindingsWorkspace`/`getExecutionDetail` expose
+    en complément un indicateur dérivé `is_current_answer` par référence de
+    réponse — jamais une valeur, seulement un booléen calculé à la lecture
+    contre `advisory_answers.superseded_by_answer_id`.
+  - **Sémantique de `common` corrigée dans l'état global (MICRO-GATE LOT 4B
+    §1 et §3)** : un ensemble `common` ACTUELLEMENT publié (`status =
+    'published'` au moment de la lecture, jamais « déjà publié un jour »)
+    pèse désormais dans `global_state` exactement comme un domaine requis
+    (son échec/obsolescence/non-exécution n'est plus masqué) — un ensemble
+    seulement ARCHIVÉ, même s'il porte encore une exécution passée
+    `up_to_date`/`stale`, ne rend jamais ce domaine applicable. Aucune
+    incidence sur la confidentialité (aucune nouvelle donnée exposée, seule
+    la LOGIQUE d'agrégation d'états déjà publics change), mais corrige un
+    risque d'information trompeuse pour le conseiller (un badge « à jour »
+    alors qu'un domaine réellement en échec restait invisible, ou
+    inversement un domaine archivé et révolu affectant à tort l'état
+    global).
+  - **État global agrégé et synthèse active (GATE LOT 4B §3)** : `global_state`
+    et `synthesis` (`getSessionFindingsWorkspace`) sont tous deux
+    entièrement DÉRIVÉS à la lecture à partir des mêmes données déjà
+    exposées par domaine — aucune nouvelle donnée personnelle/sensible
+    introduite, aucun nouveau champ de configuration stocké.
+  - **Garde anti-double-clic renforcée (GATE LOT 4B §7)** : `launchAnalysis`
+    et `DismissModal.submit` (`client/src/pages/SessionFindings.jsx`)
+    utilisent désormais une garde synchrone (`useRef`) en complément de
+    l'état React existant, après détection d'une fenêtre de course réelle
+    en QA (deux clics quasi simultanés pouvaient déclencher deux requêtes
+    d'écriture identiques) — sans incidence sur la confidentialité, mais
+    réduit un risque de double écriture involontaire (deux findings
+    écartés en double, ou une analyse relancée deux fois inutilement).
 
 ## 7. Verrouillage de session
 

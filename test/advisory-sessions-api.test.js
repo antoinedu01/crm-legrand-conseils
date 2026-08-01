@@ -281,6 +281,137 @@ test('DELETE .../answers/:questionId — efface logiquement, conserve l’histor
   assert.equal(history.body.answers[1].status, 'cleared');
 });
 
+// MICRO-GATE LOT 4B §2 : la navigation par answer_id (SessionWorkspace.jsx)
+// ne transmet JAMAIS answer_id au serveur -- elle réutilise cette même
+// route, scopée session+question+membre, et vérifie CÔTÉ CLIENT que
+// l'identifiant annoncé figure parmi les lignes renvoyées. Le contrat HTTP
+// de cette route doit donc rester IDENTIQUE (statut 200, même forme de
+// payload) que la session/question interrogées contiennent ou non la ligne
+// qu'un appelant aurait en tête -- jamais un statut ou une forme de réponse
+// distincte qui permettrait de deviner qu'un identifiant précis existe
+// ailleurs (autre session, autre foyer) ou n'existe pas du tout.
+test('GET .../answers/history — contrat HTTP identique (200, même forme) que la session interrogée porte ou non la réponse d\'une AUTRE session du même foyer', async () => {
+  const { householdId, versionId, questionId } = await buildHouseholdAndPublishedVersion('health');
+  const sessionA = await auth(request(app).post('/api/advisory/sessions')).send({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: versionId, domain: 'health', module_role: 'domain', display_order: 1 }],
+  });
+  await auth(request(app).put(`/api/advisory/sessions/${sessionA.body.id}/answers`)).send({
+    answers: [{ question_id: questionId, status: 'answered', value: true }], expected_revision: await rev(sessionA.body.id),
+  });
+  const answerIdA = (await auth(request(app).get(`/api/advisory/sessions/${sessionA.body.id}/answers/history?question_id=${questionId}`))).body.answers[0].id;
+
+  // Même FOYER, même question technique, session B DISTINCTE.
+  const sessionB = await auth(request(app).post('/api/advisory/sessions')).send({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: versionId, domain: 'health', module_role: 'domain', display_order: 1 }],
+  });
+  const historyB = await auth(request(app).get(`/api/advisory/sessions/${sessionB.body.id}/answers/history?question_id=${questionId}`));
+
+  // Contrat identique dans les deux cas : 200, `{ answers: [...] }`, jamais
+  // un 404/403 distinct pour signaler qu'« une réponse existe ailleurs ».
+  assert.equal(historyB.status, 200);
+  assert.ok(Array.isArray(historyB.body.answers));
+  assert.equal(historyB.body.answers.length, 0, 'session B n\'a elle-même aucune réponse pour cette question');
+  assert.ok(!historyB.body.answers.some((a) => a.id === answerIdA), 'l\'identifiant de la réponse de la session A ne doit jamais apparaître dans la réponse de la session B');
+});
+
+// Constat compliance-privacy-reviewer (MICRO-GATE §4) : le test ci-dessus ne
+// couvrait, au niveau HTTP, que le cas « autre session du même foyer » --
+// les trois autres cas (autre foyer, question incohérente, membre
+// incohérent) n'étaient vérifiés qu'au niveau service. Complété ici avec la
+// même rigueur (200, forme identique, identifiant étranger absent du corps
+// JSON) pour ces trois cas.
+test('GET .../answers/history — contrat HTTP identique (200, même forme) pour une réponse d\'un AUTRE foyer', async () => {
+  const houseA = await buildHouseholdAndPublishedVersion('health');
+  const sessionA = await auth(request(app).post('/api/advisory/sessions')).send({
+    household_id: houseA.householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: houseA.versionId, domain: 'health', module_role: 'domain', display_order: 1 }],
+  });
+  await auth(request(app).put(`/api/advisory/sessions/${sessionA.body.id}/answers`)).send({
+    answers: [{ question_id: houseA.questionId, status: 'answered', value: true }], expected_revision: await rev(sessionA.body.id),
+  });
+  const answerIdA = (await auth(request(app).get(`/api/advisory/sessions/${sessionA.body.id}/answers/history?question_id=${houseA.questionId}`))).body.answers[0].id;
+
+  // FOYER DISTINCT, question technique DIFFÉRENTE (chaque foyer publie sa
+  // propre version de questionnaire) -- aucun answer_id du foyer A ne peut
+  // structurellement se retrouver dans l'historique du foyer B.
+  const houseB = await buildHouseholdAndPublishedVersion('health');
+  const sessionB = await auth(request(app).post('/api/advisory/sessions')).send({
+    household_id: houseB.householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: houseB.versionId, domain: 'health', module_role: 'domain', display_order: 1 }],
+  });
+  const historyB = await auth(request(app).get(`/api/advisory/sessions/${sessionB.body.id}/answers/history?question_id=${houseB.questionId}`));
+
+  assert.equal(historyB.status, 200);
+  assert.ok(Array.isArray(historyB.body.answers));
+  assert.equal(historyB.body.answers.length, 0);
+  assert.ok(!historyB.body.answers.some((a) => a.id === answerIdA));
+});
+
+test('GET .../answers/history — contrat HTTP identique (200, même forme) quand la question interrogée est INCOHÉRENTE avec l\'answer_id recherché par l\'appelant', async () => {
+  // Questionnaire construit avec DEUX questions foyer AVANT publication
+  // (jamais d'ajout après coup -- un questionnaire publié est immuable).
+  const q = await auth(request(app).post('/api/advisory/questionnaires')).send({ stable_key: `two-quest-${Date.now()}`, domain: 'health', name: 'Deux questions' });
+  const v = await auth(request(app).post(`/api/advisory/questionnaires/${q.body.id}/versions`)).send({});
+  const sec = await auth(request(app).post(`/api/advisory/questionnaires/versions/${v.body.id}/sections`)).send({ stable_key: 's1', title: 'S', sort_order: 1 });
+  const questionA = await auth(request(app).post(`/api/advisory/questionnaires/sections/${sec.body.id}/questions`)).send({ stable_key: `qa-${Date.now()}`, advisor_text: 'X ?', type: 'boolean', sort_order: 1 });
+  const questionB = await auth(request(app).post(`/api/advisory/questionnaires/sections/${sec.body.id}/questions`)).send({ stable_key: `qb-${Date.now()}`, advisor_text: 'Y ?', type: 'boolean', sort_order: 2 });
+  await auth(request(app).post(`/api/advisory/questionnaires/versions/${v.body.id}/publish`)).send({});
+
+  const clientId = insertClient({ first_name: `TwoQ${Date.now()}`, last_name: 'Test' });
+  const house = await auth(request(app).post('/api/advisory/households')).send({ primary_client_id: clientId });
+  const session = await auth(request(app).post('/api/advisory/sessions')).send({
+    household_id: house.body.id, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: v.body.id, domain: 'health', module_role: 'domain', display_order: 1 }],
+  });
+  await auth(request(app).put(`/api/advisory/sessions/${session.body.id}/answers`)).send({
+    answers: [
+      { question_id: questionA.body.id, status: 'answered', value: true },
+      { question_id: questionB.body.id, status: 'answered', value: true },
+    ], expected_revision: await rev(session.body.id),
+  });
+  const answerIdB = (await auth(request(app).get(`/api/advisory/sessions/${session.body.id}/answers/history?question_id=${questionB.body.id}`))).body.answers[0].id;
+
+  // Interroge la question A alors que l'answer_id recherché appartient à B.
+  const history = await auth(request(app).get(`/api/advisory/sessions/${session.body.id}/answers/history?question_id=${questionA.body.id}`));
+  assert.equal(history.status, 200);
+  assert.ok(Array.isArray(history.body.answers));
+  assert.ok(!history.body.answers.some((a) => a.id === answerIdB));
+});
+
+test('GET .../answers/history — contrat HTTP identique (200, même forme) quand le MEMBRE interrogé est incohérent avec l\'answer_id recherché', async () => {
+  const q = await auth(request(app).post('/api/advisory/questionnaires')).send({ stable_key: `member-quest-${Date.now()}`, domain: 'health', name: 'Membre' });
+  const v = await auth(request(app).post(`/api/advisory/questionnaires/${q.body.id}/versions`)).send({});
+  const sec = await auth(request(app).post(`/api/advisory/questionnaires/versions/${v.body.id}/sections`)).send({ stable_key: 's1', title: 'S', sort_order: 1, applies_to: 'member' });
+  const question = await auth(request(app).post(`/api/advisory/questionnaires/sections/${sec.body.id}/questions`)).send({ stable_key: `mq-${Date.now()}`, advisor_text: 'Z ?', type: 'boolean', scope: 'member', sort_order: 1 });
+  await auth(request(app).post(`/api/advisory/questionnaires/versions/${v.body.id}/publish`)).send({});
+
+  const clientId = insertClient({ first_name: `Membre${Date.now()}`, last_name: 'Test' });
+  const house = await auth(request(app).post('/api/advisory/households')).send({ primary_client_id: clientId });
+  const childClientId = insertClient({ first_name: `Enfant${Date.now()}`, last_name: 'Test' });
+  const child = await auth(request(app).post(`/api/advisory/households/${house.body.id}/members`)).send({ member_role: 'enfant', client_id: childClientId });
+  const principal = (await auth(request(app).get(`/api/advisory/households/${house.body.id}`))).body.members.find((m) => m.member_role === 'principal');
+
+  const session = await auth(request(app).post('/api/advisory/sessions')).send({
+    household_id: house.body.id, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: v.body.id, domain: 'health', module_role: 'domain', display_order: 1 }],
+  });
+  await auth(request(app).put(`/api/advisory/sessions/${session.body.id}/answers`)).send({
+    answers: [{ question_id: question.body.id, household_member_id: principal.id, status: 'answered', value: true }],
+    expected_revision: await rev(session.body.id),
+  });
+  const principalAnswerId = (await auth(request(app).get(`/api/advisory/sessions/${session.body.id}/answers/history?question_id=${question.body.id}&household_member_id=${principal.id}`))).body.answers[0].id;
+
+  // Interroge le membre ENFANT (aucune réponse) alors que l'answer_id
+  // recherché appartient au PRINCIPAL.
+  const history = await auth(request(app).get(`/api/advisory/sessions/${session.body.id}/answers/history?question_id=${question.body.id}&household_member_id=${child.body.id}`));
+  assert.equal(history.status, 200);
+  assert.ok(Array.isArray(history.body.answers));
+  assert.equal(history.body.answers.length, 0);
+  assert.ok(!history.body.answers.some((a) => a.id === principalAnswerId));
+});
+
 test('POST .../complete puis PUT .../answers refusé (409), puis POST .../answers/amend réussit avec motif', async () => {
   const { sessionId, questionId } = await createSimpleSession();
   await auth(request(app).post(`/api/advisory/sessions/${sessionId}/start`)).send({ expected_revision: await rev(sessionId) });
