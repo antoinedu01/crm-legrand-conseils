@@ -162,6 +162,62 @@ existantes (contrats). Il produit des `advisory_rule_executions` (traces) et
 des `advisory_findings` (constats). Il ne produit **jamais** directement une
 `advisory_recommendation` à l'état `validee_conseiller`.
 
+> **Point confirmé (Lot 4A, implémenté)** : le moteur vit dans deux modules
+> serveur distincts — `server/advisoryRules.js` (cycle de vie des règles :
+> création, brouillon, validation de publication, publication, clonage,
+> archivage) et `server/advisoryRuleExecutions.js` (exécution sur une
+> session et lecture des findings) — même séparation de responsabilité que
+> `advisoryQuestionnaires.js`/`advisorySessions.js` au Lot 3A. Le module de
+> conditions du DSL (`server/advisoryRuleConditions.js`) est volontairement
+> **séparé** du moteur de conditions d'affichage de questionnaire
+> (`server/advisoryConditions.js`, Lot 3A) : l'univers référençable diffère
+> réellement (contrats, résultat d'une autre règle), une réutilisation
+> directe aurait été incorrecte. Les routes vivent sous
+> `/api/advisory/rule-sets` (règles) et sous `/api/advisory/sessions/:id/
+> rule-executions`+`.../findings` (exécutions/findings, rattachées à la
+> session comme n'importe quel autre sous-ensemble de ses données, même
+> convention que `.../answers`) — pas de route `/sessions/:id/run-
+> diagnostic` distincte comme envisagé au schéma du §5 ci-dessous.
+>
+> **GATE LOT 4A — corrections d'architecture confirmées** :
+> - **Domaine `common`, troisième domaine de `rule_set` à part entière**
+>   (décision humaine confirmée) : facultatif, pour les constats transverses
+>   au foyer. Une session `mixed` reste toujours exécutée séparément par
+>   domaine réel (jusqu'à trois `advisory_rule_executions` distinctes,
+>   `common`/`health`/`life_pension`) — jamais fusionnée dans une exécution
+>   opaque, propriété d'architecture déjà énoncée ci-dessus et désormais
+>   vérifiée pour les trois domaines.
+> - **Attribution membre déplacée dans le moteur, pas repoussée à
+>   l'interface** : `finding_scope` (`session`/`household`/`member`) est une
+>   propriété de la RÈGLE, évaluée par le moteur d'exécution
+>   (`resolveQuantifierMembers`), jamais déduite après coup par le futur
+>   Lot 4B — cohérent avec le principe déjà énoncé que le moteur ne délègue
+>   aucun raisonnement à l'interface.
+> - **Reproductibilité vérifiée empiriquement** (archivage du rule_set,
+>   publication d'une nouvelle version, amendement de session, départ d'un
+>   membre, contrat vivant modifié, sensibilité consultée plus tard) : une
+>   exécution historique reste identique dans tous ces cas, seule une
+>   NOUVELLE exécution capture le changement (`RULES_ENGINE.md` §10,
+>   `API_CONTRACT.md` §6).
+> - **Exécution finale réservée à une session `completed`** (et non plus
+>   `in_progress` ou `completed`) : décision humaine confirmée pendant ce
+>   GATE, reconnue en contradiction avec l'implémentation initiale du Lot
+>   4A et corrigée.
+> - **Concurrence — garantie SQLite, pas seulement applicative (correctif
+>   ciblé, second GATE avant commit, décision humaine confirmée)** : la
+>   politique « un seul rule_set publié par domaine » reposait initialement
+>   sur la seule vérification applicative
+>   (`assertNoOtherPublishedFamilyForDomain`), suffisante tant qu'un seul
+>   processus écrit dans le fichier SQLite mais pas au-delà. Un index UNIQUE
+>   PARTIEL (`idx_advisory_rule_sets_one_published_per_domain`, migration
+>   11) rend désormais cette garantie vraie au niveau du fichier lui-même,
+>   quel que soit le nombre de processus applicatifs — architecture décidée
+>   pour ne jamais dépendre d'une hypothèse de déploiement non vérifiable
+>   par le schéma. Vérifié avec deux vraies connexions `better-sqlite3`
+>   concurrentes sur le même fichier (verrouillage WAL observé, puis
+>   violation d'unicité) et un rollback forcé (échec après l'archivage,
+>   avant la fin de la transaction — aucun état intermédiaire persistant).
+
 ## 8. Mode conseiller
 
 Vue complète (réponses, notes internes, règles déclenchées, raisonnement,

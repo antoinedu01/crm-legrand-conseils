@@ -234,12 +234,22 @@ export function updateSessionMetadata(id, data = {}, req) {
 
 // --- Transitions -----------------------------------------------------------
 
+// Ordre explicite et déterministe (constat GATE LOT 4A §12, revue
+// rules-engine-auditor) : sans `ORDER BY`, l'ordre renvoyé par SQLite pour
+// cette requête n'est garanti par aucun contrat — il se trouve coïncider
+// aujourd'hui avec l'ordre d'insertion, mais rien ne l'impose. Comme ce
+// snapshot est ensuite relu tel quel par `sessionMembersFor` pour fournir
+// `context.members` au moteur de règles (`server/advisoryRuleExecutions.js`),
+// et que l'ordre des findings `finding_scope = member` doit être
+// déterministe (§3.6), l'ordre est désormais imposé explicitement — même
+// convention que `activeMembersFor` ci-dessous (principal en tête, puis id).
 function buildHouseholdSnapshot(householdId) {
   const household = getHousehold(householdId);
   const members = db
     .prepare(
       `SELECT hm.id, hm.client_id, hm.member_role, hm.relationship_detail, hm.status
-       FROM household_members hm WHERE hm.household_id = ?`
+       FROM household_members hm WHERE hm.household_id = ?
+       ORDER BY (hm.member_role = 'principal') DESC, hm.id`
     )
     .all(householdId);
   return JSON.stringify({ household_id: householdId, label: household.label, members });
@@ -327,7 +337,13 @@ function buildAnswerIndex(sessionId) {
   return index;
 }
 
-function answerValueFor(row) {
+// Exportée (Lot 4A) : réutilisée telle quelle par `server/
+// advisoryRuleExecutions.js` pour résoudre la valeur d'une réponse au
+// moment de construire le contexte d'exécution du moteur de règles — jamais
+// réimplémentée séparément, pour ne pas risquer de diverger sur la
+// résolution des colonnes value_text/value_number/value_boolean/value_date/
+// value_json.
+export function answerValueFor(row) {
   if (!row) return undefined;
   if (row.value_text != null) return row.value_text;
   if (row.value_number != null) return row.value_number;
@@ -450,7 +466,13 @@ function activeMembersFor(householdId) {
 // - la validation de finalisation (`validateSessionForCompletion`) utilise
 //   la MÊME liste, pour que ce qu'affiche le workspace corresponde toujours
 //   exactement à ce que la finalisation validera réellement.
-function sessionMembersFor(session) {
+// Exportée (Lot 4A) : réutilisée telle quelle par `server/
+// advisoryRuleExecutions.js` pour bâtir la liste de membres du contexte
+// d'exécution (quantificateurs `all`/`any` du DSL de règles) — mêmes
+// membres de référence, historisés inclus, que ceux affichés par le
+// workspace et validés par `validateSessionForCompletion`, jamais une
+// troisième résolution divergente des membres d'une session.
+export function sessionMembersFor(session) {
   if (session.status === 'draft' || !session.household_snapshot) {
     return activeMembersFor(session.household_id).map((m) => ({
       ...m, historical: false, no_longer_active: false, current_status: 'actif', can_answer: true,

@@ -391,8 +391,19 @@ d'un client via l'API `clients` existante.
 >   `QUESTIONNAIRE_ENGINE.md` §8.1).
 > - **Champs non implémentés dans ce lot** (hors périmètre du socle
 >   générique, à réintroduire quand pertinent) : `meeting_mode`,
->   `internal_notes`, `rule_set_version_id` (n'a de sens qu'à partir du
->   Lot 4, moteur de règles).
+>   `internal_notes`.
+> - **`rule_set_version_id` définitivement abandonné (Lot 4A, décision
+>   d'architecture, plus seulement différé)** : une colonne unique de
+>   figeage sur `advisory_sessions` ne peut porter qu'**un seul** rule_set,
+>   incompatible avec une session `mixed` qui a besoin d'en figer **deux**
+>   simultanément (un par domaine réel) — l'aurait exigé une 5ᵉ table
+>   d'association (comme `advisory_session_questionnaires` pour les
+>   questionnaires), hors périmètre plafonné à 4 tables pour ce lot. Le
+>   rule_set utilisé pour un couple (session, domaine) est désormais
+>   **dérivé de l'historique des exécutions lui-même**
+>   (`advisory_rule_executions`) : la première exécution de ce couple en
+>   devient la référence permanente, jamais mise à niveau silencieusement
+>   vers une version plus récemment publiée — voir §5 ci-dessous.
 > - **Champ ajouté, non listé explicitement mais invariant déjà documenté** :
 >   `household_snapshot` (JSON, figé au démarrage) — voir `MIGRATIONS.md`
 >   Version 10. Capturé dès le Lot 3A mais resté dormant (jamais lu) jusqu'au
@@ -732,6 +743,121 @@ individuellement, seulement dans le cadre d'une anonymisation complète.
 ---
 
 ## 5. Moteur de règles
+
+> **Statut d'implémentation (Lot 4A, GATE)** : les tables §5.1-§5.4 sont
+> implémentées et testées (`server/advisoryRules.js`,
+> `server/advisoryRuleExecutions.js`, migration 11), avec des divergences
+> plus substantielles que celles du Lot 3A par rapport à la proposition
+> ci-dessous — chacune documentée en commentaire dans le code :
+> - **`advisory_rule_sets` gagne `stable_key`/`name`/`description`/
+>   `content_hash`** : la proposition ci-dessous ne versionnait que par
+>   `(domain, version_number)`, ce qui n'aurait permis qu'**une seule**
+>   famille de rule_set par domaine à la fois. `stable_key` identifie la
+>   famille (comme `advisory_questionnaires.stable_key`), permettant
+>   plusieurs familles par domaine si un besoin réel se présente. Statuts en
+>   anglais `draft`/`published`/`archived`.
+> - **`advisory_rules.result_finding_type` est élargi à 6 valeurs** — `fact`
+>   / `detected_need` / `gap` / `warning` / `missing_information` /
+>   `solution_category` — reprenant les étapes 2 à 5 des « sept étapes »
+>   de `RULES_ENGINE.md` §3 comme types de finding à part entière (pas
+>   seulement les 3 retenues initialement ici). `contre_indication` n'est
+>   **pas** repris comme type distinct : une contre-indication reste une
+>   propriété d'un finding existant (son champ `contraindications`), jamais
+>   un type de finding séparé. `status` reprend `active`/`archived` (comme
+>   `advisory_questions`) plutôt qu'un cycle `brouillon`/`valide`/`archive`
+>   propre à la règle — voir note ci-dessous.
+> - **La « validation humaine » d'une règle n'est pas une action séparée** :
+>   contrairement à `created_by`/`validated_by`/`validated_at` proposés ici
+>   comme des champs librement renseignables, ils sont désormais **stampés
+>   automatiquement côté serveur** au moment où le `rule_set` qui contient la
+>   règle est publié (`publishRuleSet`) — jamais saisis directement par
+>   l'appelant. `required_data` est restreint à des références structurées
+>   (`{ answer: stable_key }` / `{ contract_branch: branche }`), pas une
+>   liste de chaînes libres.
+> - **`advisory_rule_executions` : une ligne par (session, domaine), jamais
+>   par règle** — divergence majeure par rapport à la structure proposée
+>   ci-dessous (qui prévoyait `rule_id` directement sur l'exécution). Le
+>   lien vers la règle précise qui a produit un résultat vit désormais sur
+>   `advisory_findings.rule_id`. `outcome` (`declenchee`/`non_declenchee`/
+>   `donnees_manquantes`) n'existe plus au niveau de l'exécution : une règle
+>   non déclenchée ne produit simplement aucun finding, une règle aux
+>   données manquantes produit un finding `finding_type = missing_
+>   information` (voir §5.4), le statut de l'EXÉCUTION dans son ensemble
+>   n'est que `completed`/`failed` (échec interne inattendu, jamais un état
+>   métier normal).
+> - **`inputs_snapshot` restructuré pour la minimisation** : la structure
+>   proposée ci-dessous (point 3.6 du GATE LOT 1) dupliquait la valeur
+>   observée (`value_observed`) directement dans l'instantané. L'implémentation
+>   retenue ne stocke que des **références résolvables** — `question_id`/
+>   `stable_key`/`household_member_id`/`answer_id` (l'identifiant exact de
+>   la ligne `advisory_answers` utilisée, pour une reproductibilité exacte)
+>   — jamais la valeur elle-même, qui reste exclusivement dans
+>   `advisory_answers` et n'est consultée qu'au moment voulu, sous les
+>   mêmes contrôles d'accès. Décision documentée : la valeur dupliquée
+>   aurait multiplié les emplacements où une donnée potentiellement
+>   sensible est stockée, sans bénéfice réel (la ligne source reste
+>   toujours résolvable via la référence).
+> - **`advisory_findings` gagne `rule_id` directement** (traçabilité
+>   immédiate sans repasser par l'exécution), `used_inputs_ref` (mêmes
+>   références résolvables que `inputs_snapshot`, utilisées entre autres
+>   pour dériver l'obligation d'audit « consultation de findings
+>   sensibles » — voir `SECURITY_PRIVACY.md`), `needs_review`/
+>   `conflicts_with` (recoupement de catégorie, §5.4), et un troisième
+>   statut `superseded` — **dérivé** de la supersession de l'exécution
+>   parente, jamais basculé indépendamment (seul `dismissed`, motif
+>   obligatoire, est une action humaine distincte).
+> - **Domaine `common` (GATE LOT 4A §2, décision humaine confirmée)** :
+>   `advisory_rule_sets.domain`/`advisory_rule_executions.domain`/
+>   `advisory_findings.domain` acceptent désormais trois valeurs — `common`
+>   \| `health` \| `life_pension`, jamais `mixed` (qui ne qualifie qu'une
+>   *session*). `common` est facultatif ; une session `mixed` produit
+>   jusqu'à trois `advisory_rule_executions` distinctes (une par domaine
+>   réel), jamais fusionnées. Politique retenue : une AUTRE famille déjà
+>   publiée pour le même domaine bloque une publication (409, archivage
+>   explicite requis) ; une AUTRE VERSION de la MÊME famille déjà publiée
+>   est archivée automatiquement (toujours avant sa republication, même
+>   transaction) à la publication d'une nouvelle version. **Garantie
+>   renforcée au niveau SQLite (correctif ciblé, second GATE avant commit)** :
+>   `advisory_rule_sets` porte désormais un index UNIQUE PARTIEL
+>   (`idx_advisory_rule_sets_one_published_per_domain ON advisory_rule_sets
+>   (domain) WHERE status = 'published'`, ajouté directement dans la
+>   migration 11) qui rend « un seul rule_set publié par domaine » vrai au
+>   niveau du fichier SQLite lui-même — indépendamment du nombre de
+>   processus applicatifs qui y écrivent, vérifié avec deux vraies
+>   connexions `better-sqlite3` concurrentes. Un rollback en cours de
+>   publication (échec après l'archivage, avant la fin de la transaction)
+>   annule intégralement les deux écritures, sans état intermédiaire ni
+>   audit de succès. Voir `docs/MIGRATIONS.md` (version 11) pour le détail
+>   complet ; une évolution future autorisant plusieurs rule_sets publiés
+>   par domaine exigerait de réviser explicitement cet index dans une
+>   migration ultérieure.
+> - **`finding_scope` sur `advisory_rules` et `advisory_findings` (GATE LOT
+>   4A §3)** : comble la lacune initiale où `household_member_id` existait
+>   sans jamais être renseigné. Valeurs `session`/`household` (agrégat,
+>   `household_member_id = NULL`) ou `member` (un finding distinct par
+>   membre réellement concerné, `household_member_id` obligatoire — voir
+>   §5.4 mis à jour). Pour `member`, la condition racine de la règle doit
+>   être un quantificateur `all`/`any` (validé à la publication) ;
+>   `resolveQuantifierMembers` identifie les membres correspondants de
+>   façon déterministe (voir `RULES_ENGINE.md`).
+> - **Classification de sensibilité FIGÉE dans `used_inputs_ref`/
+>   `inputs_snapshot` (GATE LOT 4A §4)** : chaque référence conservée porte
+>   désormais `sensitivity_at_execution` (booléen figé, jamais réévalué à
+>   la lecture), `questionnaire_version_id`, `read_at`, et pour une réponse
+>   l'id IMMUABLE `advisory_answers` réellement utilisé ; pour un contrat,
+>   `status_at_execution` (seul champ minimal réellement utilisé, jamais le
+>   contrat complet). L'audit « consultation findings sensibles » se fonde
+>   exclusivement sur ce drapeau figé (voir `SECURITY_PRIVACY.md`).
+> - **`advisory_findings.conflicts_detected_at_execution` (GATE LOT 4A
+>   §5)** : nouvelle colonne, JSON, HISTORIQUE et IMMUABLE — le recoupement
+>   constaté au moment même de la production de l'exécution, jamais réécrit
+>   ensuite. Distincte de `conflicts_with`/`needs_review`, qui restent
+>   l'état ACTIF courant, recalculés uniquement parmi les findings encore
+>   `active` lors d'un écartement (`dismissFinding`).
+> - **Exécution finale réservée à `advisory_sessions.status = completed`
+>   (GATE LOT 4A §9, décision humaine confirmée)** : contrairement à une
+>   hypothèse initiale du Lot 4A qui acceptait aussi `in_progress`, seule une
+>   session déjà finalisée peut porter une exécution finale et persistante.
 
 ### 5.1 `advisory_rule_sets`
 

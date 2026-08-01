@@ -612,42 +612,210 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
 
 ---
 
-## 6. Exécution du diagnostic
+## 6. Ensembles de règles et exécution du diagnostic
 
-### `POST /api/advisory/sessions/:id/run-diagnostic`
-- **Corps** : aucun (utilise les réponses déjà enregistrées).
-- **Comportement** : exécute le moteur de règles déterministe contre le
-  `rule_set` **publié** le plus récent au moment du **premier** appel pour
-  cette session (figé ensuite dans `rule_set_version_id`, relectures
-  suivantes utilisant la même version) ; produit des
-  `advisory_rule_executions` et des `advisory_findings`. Peut être rappelée
-  plusieurs fois tant que la session n'est pas `termine` (les réponses
-  peuvent évoluer pendant le rendez-vous) — chaque appel ajoute de nouvelles
-  exécutions, n'efface pas les précédentes (traçabilité complète du
-  raisonnement au fil du rendez-vous).
-- **Réponse** : `{ findings: [...], missing_data: [...], warnings: [...] }`.
-- **Erreurs** : `409` si la session est `termine` ou `annule`.
-- **Idempotence** : non — chaque appel est une nouvelle exécution tracée,
-  intentionnellement (l'historique des recalculs fait partie de
-  l'explicabilité).
-- **Audit** : `exécution diagnostic` (avec le nombre de findings produits).
-- **Interdiction explicite** : cette route ne produit **jamais** de
-  `advisory_recommendation` à l'état `validee_conseiller` — uniquement des
-  `findings` et des recommandations à l'état `envisagee`, proposées au
-  conseiller pour arbitrage (voir §7).
+> **Implémenté au Lot 4A** (`server/routes/advisoryRules.js`, extension de
+> `server/routes/advisorySessions.js`, `server/advisoryRules.js`,
+> `server/advisoryRuleExecutions.js`). Diverge substantiellement de la
+> proposition LOT 1 ci-dessous (route unique `POST .../run-diagnostic`) :
+> pas de figeage via une colonne `rule_set_version_id` sur la session (voir
+> `DATA_MODEL.md` §3), gestion complète du cycle de vie des règles
+> (inexistante dans la proposition initiale, qui ne décrivait que
+> l'exécution), et exécution scindée par domaine (`common`, `health` ou
+> `life_pension`, jamais `mixed` — une session mixte appelle la route
+> jusqu'à trois fois, une par domaine réel).
+>
+> **GATE LOT 4A, corrections** : domaine `common` désormais accepté partout
+> ci-dessous (§2) ; `finding_scope` ajouté au corps de `POST .../rules`
+> (§3) ; une exécution finale n'est possible que sur une session déjà
+> `completed` — `in_progress` désormais refusé (§9) ; `used_inputs_ref`/
+> `inputs_snapshot` portent désormais une classification de sensibilité
+> FIGÉE, jamais réévaluée à la lecture (§4) ; `conflicts_detected_at_
+> execution` (historique, immuable) distinct de `conflicts_with`/
+> `needs_review` (état actif, recalculé à l'écartement, §5).
+
+### `GET /api/advisory/rule-sets`
+- **Paramètres** : `domain?`, `status?`, `stable_key?`.
+- **Réponse** : liste des ensembles de règles (toutes versions confondues).
+- **Audit** : aucun (lecture de liste).
+
+### `POST /api/advisory/rule-sets`
+- **Corps** : `{ stable_key, domain, name, description? }`.
+- **Validation** : `domain` ∈ `{common, health, life_pension}` — **jamais**
+  `mixed` (`400` sinon) ; `stable_key` déjà utilisé (`409`).
+- **Réponse** : `201` `{ id, version_number: 1 }`.
+- **Audit** : `rule_set créé`.
+
+### `GET /api/advisory/rule-sets/:id`
+- **Réponse** : détail de l'ensemble, règles incluses (`conditions`/
+  `required_data`/`result_payload`/`warnings`/`contraindications` désérialisés).
+- **Erreurs** : `404` si introuvable.
+
+### `POST /api/advisory/rule-sets/:id/versions`
+- **Corps** : `{ name?, description?, changelog? }`.
+- **Comportement** : nouvelle version brouillon **vide** de la même famille
+  (même `stable_key`/`domain`), `version_number` strictement croissant.
+  Voir `.../clone` pour repartir du contenu d'une version existante.
+- **Réponse** : `201` `{ id, version_number }`.
+- **Audit** : `rule_set version créée`.
+
+### `POST /api/advisory/rule-sets/:id/clone`
+- **Comportement** : nouvelle version brouillon de la même famille, copiant
+  toutes les règles de la version source (clés stables préservées,
+  validation réinitialisée — un clone est un nouveau brouillon, jamais déjà
+  validé).
+- **Réponse** : `201` `{ id }`.
+- **Audit** : `rule_set cloné`.
+
+### `POST /api/advisory/rule-sets/:id/archive`
+- **Réponse** : `{ ok: true }`. Idempotent.
+- **Audit** : `rule_set archivé`.
+
+### `GET /api/advisory/rule-sets/:id/validate`
+- **Réponse** : `{ valid, errors: [...], warnings: [...] }` — fonction pure,
+  ne modifie rien. `errors` bloque la publication ; `warnings` (doublons de
+  conditions strictement identiques, recoupement de catégorie simulé,
+  `RULES_ENGINE.md` §4-5) n'empêche jamais la publication, signale
+  seulement un point à examiner humainement.
+- **Cache** : `Cache-Control: no-store, private`.
+
+### `POST /api/advisory/rule-sets/:id/publish`
+- **Validation** : `409` si le rule_set n'est pas `draft` ; `409` avec
+  `{ error, errors: [...] }` si `validateRuleSetForPublish` échoue (aucune
+  règle active, source/référence/date d'effet/explication manquante sur une
+  règle active, dépendance vers une question à texte libre, référence
+  inconnue ou circulaire entre règles, profondeur de dépendance excessive,
+  clé de `result_payload` hors liste blanche ou évoquant un
+  assureur/produit).
+- **Comportement** : calcule `content_hash` (empreinte canonique,
+  indépendante de l'ordre d'insertion et des identifiants techniques) et
+  **stampe** `validated_by_user_id`/`validated_at` sur le rule_set **et**
+  sur chaque règle active qu'il contient — c'est l'acte même de validation
+  humaine d'une règle (voir `DATA_MODEL.md` §5).
+- **Réponse** : `{ ok: true, content_hash, warnings: [...] }`.
+- **Audit** : `rule_set publié`.
+
+### `POST /api/advisory/rule-sets/:id/rules`, `PUT .../rules/:ruleId`
+- **Corps** : `{ stable_key, title, description?, conditions, required_data,
+  result_finding_type, finding_scope?, result_payload?, priority?,
+  advisor_explanation, client_explanation?, warnings?, contraindications?,
+  source?, source_reference?, effective_from?, effective_until?,
+  sort_order, status? }` — `domain` n'est jamais accepté en entrée, toujours
+  dérivé du rule_set parent.
+- **Validation** : uniquement si le rule_set est `draft` (`409` sinon —
+  aucune modification en place d'une règle publiée) ; `conditions` validées
+  par `server/advisoryRuleConditions.js` (16 opérateurs, 7 natures de
+  référence, aucun `eval`/`new Function`) ; `result_finding_type` ∈ `fact`/
+  `detected_need`/`gap`/`warning`/`missing_information`/`solution_category` ;
+  `finding_scope` ∈ `session`/`household` (défaut)/`member` (GATE LOT 4A
+  §3) — pour `member`, `conditions.op` racine doit être exactement `all` ou
+  `any` (rejeté à la publication sinon, jamais à l'enregistrement de la
+  règle elle-même) ; `result_payload` restreint à la seule clé
+  `category_hint`, filtrée contre une liste noire de termes évoquant un
+  assureur/produit précis ; `stable_key` déjà utilisé dans ce rule_set
+  (`409`).
+- **Réponse** : `201`/`200` `{ id }`.
+- **Audit** : `règle créée` / `règle modifiée`.
+
+### `POST /api/advisory/sessions/:id/rule-executions`
+- **Corps** : `{ domain, expected_revision, rule_set_id? }` — `domain` ∈
+  `{common, health, life_pension}` (jamais `mixed`, même pour une session
+  mixte : jusqu'à trois appels distincts, un par domaine réel ; `common`
+  accepté sur n'importe quel domaine de session, `health`/`life_pension`
+  uniquement sur une session du même domaine réel ou `mixed`).
+- **Validation** : domaine compatible avec celui de la session (`409`
+  sinon) ; statut de session `completed` **exclusivement** (`409` sinon —
+  GATE LOT 4A §9, décision humaine confirmée : `in_progress` — même
+  activement suivie — est désormais refusé exactement comme un brouillon,
+  une session suspendue ou annulée ; une exécution finale et persistante
+  n'a de sens qu'une fois les réponses finalisées) ; foyer non archivé
+  (`409` — une NOUVELLE exécution est refusée, mais l'historique déjà
+  produit reste pleinement lisible, aucune route de lecture ne vérifiant le
+  statut du foyer) ; `expected_revision` obligatoire, doit correspondre à la
+  révision réelle (`409` sinon, garde-fou de fraîcheur — n'écrit jamais
+  `advisory_sessions.revision`, l'exécution du moteur ne modifie pas la
+  session elle-même) ; `rule_set_id` **obligatoire** à la toute première
+  exécution de ce couple (session, domaine) (`400` sinon), **ignoré**
+  ensuite (le premier rule_set utilisé devient la référence permanente,
+  `409` si un `rule_set_id` différent est explicitement fourni par la
+  suite — inchangé même si une nouvelle version du même rule_set est
+  publiée depuis, GATE LOT 4A §8) ; le rule_set doit être `published`
+  (première exécution) ou `published`/`archived` (ré-exécution).
+- **Comportement** : évalue chaque règle active et effective à la date du
+  jour, dans l'ordre de leurs dépendances (`rule_result`) ; une règle dont
+  une donnée requise est absente produit un finding `missing_information`
+  (jamais un résultat par défaut) ; supersède l'exécution précédente du même
+  couple (session, domaine) et bascule tous ses findings à `superseded` ;
+  toute erreur interne inattendue (jamais une erreur métier normale) est
+  enregistrée comme une exécution `failed` distincte plutôt que silencieuse.
+- **Réponse** : `201` `{ execution_id, rules_evaluated_count, findings_count, findings: [id, ...] }`.
+- **Audit** : `exécution lancée` (succès) ou `exécution échouée` (erreur
+  interne inattendue).
+
+### `GET /api/advisory/sessions/:id/rule-executions`, `GET .../rule-executions/:executionId`
+- **Réponse** : liste (la plus récente en premier) ou détail (exécution +
+  `inputs_snapshot` — références résolvables uniquement, jamais une valeur
+  de réponse dupliquée — + findings produits). Chaque référence porte
+  désormais une classification de sensibilité FIGÉE au moment de
+  l'exécution (`sensitivity_at_execution`, `questionnaire_version_id`,
+  `read_at`, et pour une réponse l'id immuable `advisory_answers`
+  réellement utilisé — GATE LOT 4A §4) : jamais réévaluée à cette lecture,
+  quelle que soit la classification actuelle de la question.
+- **Erreurs** : `404` si l'exécution n'appartient pas à cette session (même
+  protection que `getQuestionForSession`, Lot 3A).
+- **Cache** : `Cache-Control: no-store, private`.
+- **Audit dérivé** : `consultation findings sensibles` si au moins une
+  référence de la réponse porte `sensitivity_at_execution = true`
+  (déduplication 15 minutes) — fondé exclusivement sur ce drapeau figé,
+  jamais sur une requête en direct de la sensibilité actuelle de la
+  question (correction GATE LOT 4A §7 : cette route ne transmettait
+  initialement pas le contexte d'authentification au service, attribuant à
+  tort l'audit à un utilisateur générique plutôt qu'au vrai appelant).
 
 ---
 
 ## 7. Constats et recommandations
 
 ### `GET /api/advisory/sessions/:id/findings`
-- Liste des constats actifs (et écartés, avec motif) de la session.
+- **Implémenté au Lot 4A.** Liste des findings **actifs** (`status =
+  'active'`) de la dernière exécution non supersédée, triés par priorité
+  puis ordre d'auteur. `domain?` en paramètre optionnel. Chaque finding
+  porte `finding_scope` (`session`/`household`/`member`, GATE LOT 4A §3) et
+  `household_member_id` (obligatoire seulement si `finding_scope =
+  member` — un finding distinct par membre réellement concerné, jamais une
+  attribution arbitraire ; toujours `NULL` sinon), ainsi que
+  `conflicts_with`/`needs_review` (état ACTIF courant, recalculé à chaque
+  écartement d'un finding en conflit, GATE LOT 4A §5) et
+  `conflicts_detected_at_execution` (constat HISTORIQUE et immuable du
+  recoupement à la production de l'exécution, jamais réécrit ensuite).
+- **Cache** : `Cache-Control: no-store, private`.
+- **Audit dérivé** : si au moins une réponse effectivement utilisée par un
+  finding retourné porte `sensitivity_at_execution = true` (classification
+  FIGÉE à l'exécution, jamais réévaluée ici, GATE LOT 4A §4), journalise
+  `consultation findings sensibles` (déduplication 15 minutes, même
+  politique que `consultation workspace session`, GATE LOT 3B §6).
 
-### `PUT /api/advisory/findings/:id`
-- **Corps** : `{ status: 'ecarte_par_conseiller', discard_reason }`.
-- **Validation** : `discard_reason` obligatoire pour écarter un constat —
-  jamais d'écartement silencieux.
-- **Audit** : `écartement constat`.
+### `GET /api/advisory/sessions/:id/findings/history`
+- **Implémenté au Lot 4A.** Historique complet (tous statuts, toutes
+  exécutions) — toujours journalisé (`consultation historique findings`,
+  sans déduplication).
+
+### `POST /api/advisory/sessions/:id/findings/:findingId/dismiss`
+- **Implémenté au Lot 4A** (remplace la proposition initiale `PUT
+  /api/advisory/findings/:id`). **Corps** : `{ dismiss_reason, expected_revision }`.
+- **Validation** : `dismiss_reason` obligatoire et non vide (`400` sinon) ;
+  seul un finding `status = 'active'` peut être écarté (`409` sinon —
+  jamais un finding déjà écarté ou déjà supersédé) ; `404` si le finding
+  n'appartient pas à cette session.
+- **Comportement (GATE LOT 4A §5)** : le finding passe à `status =
+  'dismissed'` (jamais supprimé, reste consultable en historique) ; les
+  `conflicts_with`/`needs_review` des AUTRES findings encore actifs de la
+  même exécution sont recalculés pour ne plus référencer que des findings
+  encore actifs — un finding restant ne garde `needs_review = true` que
+  s'il conflicte encore avec un autre finding actif. `conflicts_detected_
+  at_execution` (constat historique du recoupement initial) n'est, lui,
+  jamais modifié.
+- **Audit** : `finding écarté`.
 
 ### `GET /api/advisory/sessions/:id/recommendations`
 

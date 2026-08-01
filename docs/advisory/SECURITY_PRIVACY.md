@@ -229,6 +229,90 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
   repose sur cet invariant plutôt que sur une vérification explicite au
   moment de la lecture, point à garder en tête si un chemin d'écriture
   alternatif (import, migration) était introduit plus tard.
+- **Lot 4A — moteur de règles : 12 nouvelles actions d'audit**
+  (`rule_set créé`/`version créée`/`cloné`/`archivé`/`publié`, `règle
+  créée`/`modifiée`, `exécution lancée`/`échouée`, `finding écarté`,
+  `consultation historique findings`, `consultation findings sensibles`),
+  toutes vérifiées par un test dédié qui insère un marqueur distinctif dans
+  chaque champ de texte libre (titre de règle, description, explications,
+  motif d'écartement) et confirme son absence de `audit_log.details` pour
+  les 12 actions — jamais une valeur de réponse, un contenu de condition ou
+  de contrat, uniquement des identifiants, clés stables et compteurs
+  (constat GATE LOT 4A, revue compliance-privacy-reviewer : la version
+  précédente de cette phrase affirmait une couverture de test qui n'existait
+  pas encore, corrigé).
+  - **`consultation findings sensibles` — critère DÉRIVÉ, pas une propriété
+    du finding lui-même** (revue `compliance-privacy-reviewer`, GATE LOT
+    4A) : un finding n'est jamais marqué sensible en base ; la lecture
+    (`GET .../findings`, `GET .../rule-executions/:id`, `GET .../rule-
+    executions`, `GET .../findings/history`) journalise cette action
+    distincte uniquement si au moins une référence conservée porte
+    `sensitivity_at_execution = true`. Même fenêtre de déduplication que
+    `consultation workspace session` (15 minutes,
+    `SENSITIVE_DATA_VIEW_DEDUP_MINUTES`, `server/
+    advisoryRuleExecutions.js`) et **même réserve** : politique à
+    reconfirmer explicitement par le responsable protection des données
+    avant toute mise en production avec du contenu métier réel.
+  - **Classification FIGÉE au moment de l'exécution, jamais réévaluée à la
+    lecture (GATE LOT 4A §4, correction d'un défaut identifié pendant le
+    GATE)** : la version initiale de ce lot ré-interrogeait en direct
+    `advisory_questions.sensitive` à chaque lecture — une reclassification
+    ultérieure de la question (sensible devenue non-sensible, ou
+    l'inverse) changeait alors rétroactivement la décision d'audit d'une
+    exécution pourtant déjà produite, rendant le comportement d'audit
+    dépendant de l'état courant plutôt que de l'exécution historique.
+    Corrigé : `sensitivity_at_execution` est désormais capturé une fois,
+    au moment même de l'exécution, et stocké dans `used_inputs_ref`/
+    `inputs_snapshot.answers_used` ; `auditSensitiveDataAccessIfNeeded` ne
+    lit plus jamais `advisory_questions` en direct, uniquement ce drapeau
+    figé. Testé : sensibilité modifiée après coup (dans un sens comme dans
+    l'autre) sans effet sur la décision d'audit d'une exécution déjà
+    produite ; seule une NOUVELLE exécution capture la classification
+    alors en vigueur.
+  - **Correction d'une attribution d'audit incorrecte (GATE LOT 4A §7)** :
+    la route `GET /api/advisory/sessions/:id/rule-executions` ne
+    transmettait pas le contexte de requête (`req`) au service
+    `listExecutions`, si bien que la journalisation dérivée
+    `consultation findings sensibles` déclenchée depuis cette route
+    précise s'attribuait systématiquement à un utilisateur générique
+    (`système`) plutôt qu'au conseiller réellement authentifié. Corrigé,
+    avec un test API dédié vérifiant l'attribution au vrai utilisateur.
+  - **`exécution échouée` — distincte d'une simple absence de donnée.** Une
+    règle dont les données requises sont absentes produit un finding
+    `missing_information` normal (pas un échec) ; `exécution échouée` ne
+    journalise qu'une erreur interne réellement inattendue (bug, état
+    corrompu), enregistrée dans une ligne d'exécution séparée `status =
+    'failed'` — jamais confondue avec l'issue normale « données
+    manquantes ».
+- **Minimisation de `inputs_snapshot`/`used_inputs_ref` (décision
+  d'architecture, GATE LOT 4A, §4)** : ces deux structures JSON ne
+  contiennent jamais la valeur d'une réponse, uniquement des références
+  résolvables — `question_id`/`stable_key`/`household_member_id`/
+  `answer_id` (la ligne EXACTE et IMMUABLE de `advisory_answers`
+  effectivement utilisée, jamais relue ni recopiée ensuite),
+  `questionnaire_version_id`, `sensitivity_at_execution` (classification
+  figée, voir §6 ci-dessus) et `read_at` (horodatage unique de lecture,
+  figé pour toute l'exécution). Pour une référence de contrat (donnée
+  vivante/mutable), seul le champ minimal réellement utilisé est figé
+  (`status_at_execution`), jamais le contrat complet. La valeur de réponse
+  elle-même reste exclusivement dans `advisory_answers`, consultée
+  séparément sous les mêmes contrôles d'accès existants — dupliquer la
+  valeur dans l'historique d'exécution aurait multiplié les emplacements
+  où une donnée potentiellement sensible est stockée, sans bénéfice réel.
+- **Protection IDOR sur les exécutions et findings (GATE LOT 4A)** :
+  `getExecutionDetail`/`dismissFinding` exigent explicitement l'identifiant
+  de session en paramètre et vérifient que l'exécution/le finding demandé
+  lui appartient réellement (`404` sinon) — même principe que
+  `getQuestionForSession` (Lot 3A) : jamais un identifiant technique
+  consultable indépendamment de son rattachement réel à la session
+  courante, même si la ressource existe bel et bien en base sous un autre
+  identifiant de session.
+- **Aucun appel IA, aucun MCP dans le moteur de règles (confirmé, Lot 4A)** :
+  `server/advisoryRuleConditions.js`/`server/advisoryRules.js`/`server/
+  advisoryRuleExecutions.js` ne contiennent aucun `fetch`/appel réseau
+  sortant, aucun `eval`/`new Function`, aucune dépendance à un modèle
+  statistique ou génératif — évaluation purement synchrone, déterministe,
+  en mémoire, sur les données déjà en base.
 
 ## 7. Verrouillage de session
 

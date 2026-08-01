@@ -176,6 +176,33 @@ function buildLegacyV6Database(dataDir) {
   return db;
 }
 
+// Base héritée fidèle à v10 (juste avant le moteur de règles du LOT 4A) —
+// construite en faisant tourner la VRAIE chaîne de migrations jusqu'à la
+// version courante, puis en retirant uniquement l'apport de la migration
+// 11 (les 4 tables du moteur de règles, dans l'ordre inverse de création
+// documenté dans docs/MIGRATIONS.md) et en refixant `user_version = 10`.
+// Fidélité garantie (contrairement à `buildLegacyV6Database`, qui rejoue le
+// DDL v1-v6 à la main) : aucune divergence possible avec le schéma v10 réel
+// puisqu'il est produit par le code de migration lui-même.
+async function buildLegacyV10Database(dataDir) {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-migration-v10-scratch-'));
+  const scratchDb = await importFreshDb(scratchDir);
+  const scratchFile = path.join(scratchDir, 'crm.sqlite');
+  scratchDb.close();
+
+  const file = path.join(dataDir, 'crm.sqlite');
+  fs.copyFileSync(scratchFile, file);
+  const db = new Database(file);
+  db.exec(`
+    DROP TABLE advisory_findings;
+    DROP TABLE advisory_rule_executions;
+    DROP TABLE advisory_rules;
+    DROP TABLE advisory_rule_sets;
+  `);
+  db.pragma('user_version = 10');
+  db.close();
+}
+
 function insertFixtureContract(db, branch = 'lamal') {
   const company = db.prepare('INSERT INTO companies (name) VALUES (?)').run('Compagnie de test');
   const client = db
@@ -488,6 +515,14 @@ const ADVISORY_V10_TABLES = [
   'advisory_session_questionnaires', 'advisory_answers',
 ];
 
+// LOT 4A — moteur de règles et findings. Volontairement PAS de
+// advisory_recommendations/catalogue produit/advisory_consents/
+// advisory_reports à ce stade (périmètre strictement limité, décision
+// humaine du GATE LOT 4A).
+const ADVISORY_V11_TABLES = [
+  'advisory_rule_sets', 'advisory_rules', 'advisory_rule_executions', 'advisory_findings',
+];
+
 test('migration v10 — une base neuve atteint au moins user_version = 10', async () => {
   const db = await importFreshDb(tempDir());
   assert.ok(db.pragma('user_version', { simple: true }) >= 10);
@@ -514,11 +549,273 @@ test("migration v10 — idempotence : un second import de la même base n'échou
   assert.ok(db.pragma('user_version', { simple: true }) >= 10);
 });
 
-test('migration v10 — les 8 tables attendues existent, et aucune table hors périmètre (rule_sets/findings/etc.)', async () => {
+test('migration v10 — les 8 tables historiques existent (sous-ensemble, la base courante dépasse maintenant v10)', async () => {
   const db = await importFreshDb(tempDir());
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'advisory_%'").all().map((t) => t.name);
   for (const t of ADVISORY_V10_TABLES) assert.ok(tables.includes(t), `table manquante : ${t}`);
-  assert.equal(tables.length, ADVISORY_V10_TABLES.length, `tables inattendues : ${tables.filter((t) => !ADVISORY_V10_TABLES.includes(t))}`);
+});
+
+test('migration v11 — les 4 tables du moteur de règles existent, et aucune table hors périmètre (recommendations/consents/reports/catalogue produit)', async () => {
+  const db = await importFreshDb(tempDir());
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'advisory_%'").all().map((t) => t.name);
+  const expected = [...ADVISORY_V10_TABLES, ...ADVISORY_V11_TABLES];
+  for (const t of ADVISORY_V11_TABLES) assert.ok(tables.includes(t), `table manquante : ${t}`);
+  assert.equal(tables.length, expected.length, `tables inattendues : ${tables.filter((t) => !expected.includes(t))}`);
+  assert.ok(!tables.includes('advisory_recommendations'), 'advisory_recommendations ne doit pas exister au LOT 4A');
+  assert.ok(!tables.includes('advisory_consents'), 'advisory_consents ne doit pas exister au LOT 4A');
+  assert.ok(!tables.includes('advisory_reports'), 'advisory_reports ne doit pas exister au LOT 4A');
+});
+
+test('migration v11 — une base neuve atteint user_version = 11', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 11);
+});
+
+test('migration v11 — idempotence : un second import de la même base n’échoue pas et reste en v11', async () => {
+  const dir = tempDir();
+  await importFreshDb(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 11);
+});
+
+// Constat GATE LOT 4A §12 (revue advisory-architect) : les colonnes ajoutées
+// PENDANT le GATE (finding_scope sur advisory_rules/advisory_findings,
+// conflicts_detected_at_execution sur advisory_findings) n'étaient vérifiées
+// nulle part au niveau du schéma lui-même, contrairement à allows_not_
+// applicable (v10, ci-dessus) qui a un test dédié.
+test('migration v11 — finding_scope existe sur advisory_rules ET advisory_findings, TEXT NOT NULL, défaut household', async () => {
+  const db = await importFreshDb(tempDir());
+  for (const table of ['advisory_rules', 'advisory_findings']) {
+    const col = db.prepare(`PRAGMA table_info(${table})`).all().find((c) => c.name === 'finding_scope');
+    assert.ok(col, `colonne finding_scope manquante sur ${table}`);
+    assert.equal(col.notnull, 1, `${table}.finding_scope doit être NOT NULL`);
+    assert.equal(col.dflt_value, "'household'", `${table}.finding_scope doit défauter à household`);
+    assert.equal(col.type, 'TEXT');
+  }
+});
+
+test('migration v11 — conflicts_detected_at_execution existe sur advisory_findings, TEXT nullable (JSON, historique et immuable)', async () => {
+  const db = await importFreshDb(tempDir());
+  const col = db.prepare('PRAGMA table_info(advisory_findings)').all().find((c) => c.name === 'conflicts_detected_at_execution');
+  assert.ok(col, 'colonne conflicts_detected_at_execution manquante');
+  assert.equal(col.notnull, 0);
+  assert.equal(col.type, 'TEXT');
+});
+
+// GATE LOT 4A (correctif ciblé avant commit, décision humaine confirmée) :
+// la politique « un seul advisory_rule_set publié par domaine » ne doit pas
+// reposer uniquement sur l'hypothèse mono-processus de la couche applicative
+// (server/advisoryRules.js assertNoOtherPublishedFamilyForDomain) — elle
+// doit être garantie au niveau SQLite lui-même, INDÉPENDAMMENT de tout code
+// applicatif (y compris un futur script, une migration de données, ou un
+// bug contournant le service). Tous les tests ci-dessous écrivent en SQL
+// BRUT, sans jamais passer par server/advisoryRules.js, pour prouver que la
+// garantie tient même hors de ce chemin de code précis. Matrice complète
+// exigée par le second GATE (correctif SQL, avant tout commit).
+
+function insertRuleSet(db, { stable_key, domain, version_number = 1, status, name }) {
+  return db
+    .prepare('INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name) VALUES (?, ?, ?, ?, ?)')
+    .run(stable_key, domain, version_number, status, name);
+}
+
+test('migration v11 — index unique partiel : deux BROUILLONS (draft) health sont autorisés simultanément', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-draft-a', domain: 'health', status: 'draft', name: 'A' }));
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-draft-b', domain: 'health', status: 'draft', name: 'B' }));
+});
+
+test('migration v11 — index unique partiel : plusieurs rule_sets ARCHIVÉS (archived) health sont autorisés simultanément', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-arch-a', domain: 'health', status: 'archived', name: 'A' }));
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-arch-b', domain: 'health', status: 'archived', name: 'B' }));
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-arch-c', domain: 'health', status: 'archived', name: 'C' }));
+});
+
+test('migration v11 — index unique partiel : un premier rule_set PUBLIÉ health est autorisé', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-pub-health-a', domain: 'health', status: 'published', name: 'A' }));
+});
+
+test('migration v11 — index unique partiel : un second rule_set PUBLIÉ health est rejeté directement par SQLite', async () => {
+  const db = await importFreshDb(tempDir());
+  insertRuleSet(db, { stable_key: 'rs-pub-health-a', domain: 'health', status: 'published', name: 'A' });
+  assert.throws(
+    () => insertRuleSet(db, { stable_key: 'rs-pub-health-b', domain: 'health', status: 'published', name: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v11 — index unique partiel : un second rule_set PUBLIÉ common est rejeté directement par SQLite', async () => {
+  const db = await importFreshDb(tempDir());
+  insertRuleSet(db, { stable_key: 'rs-pub-common-a', domain: 'common', status: 'published', name: 'A' });
+  assert.throws(
+    () => insertRuleSet(db, { stable_key: 'rs-pub-common-b', domain: 'common', status: 'published', name: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v11 — index unique partiel : un second rule_set PUBLIÉ life_pension est rejeté directement par SQLite', async () => {
+  const db = await importFreshDb(tempDir());
+  insertRuleSet(db, { stable_key: 'rs-pub-life-a', domain: 'life_pension', status: 'published', name: 'A' });
+  assert.throws(
+    () => insertRuleSet(db, { stable_key: 'rs-pub-life-b', domain: 'life_pension', status: 'published', name: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v11 — index unique partiel : un common, un health ET un life_pension publiés SIMULTANÉMENT sont autorisés (domaines indépendants)', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-simul-common', domain: 'common', status: 'published', name: 'C' }));
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-simul-health', domain: 'health', status: 'published', name: 'H' }));
+  assert.doesNotThrow(() => insertRuleSet(db, { stable_key: 'rs-simul-life', domain: 'life_pension', status: 'published', name: 'L' }));
+  const published = db.prepare("SELECT domain FROM advisory_rule_sets WHERE status = 'published' ORDER BY domain").all().map((r) => r.domain);
+  assert.deepEqual(published, ['common', 'health', 'life_pension']);
+});
+
+test('migration v11 — l\'index idx_advisory_rule_sets_one_published_per_domain EXISTE', async () => {
+  const db = await importFreshDb(tempDir());
+  const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get();
+  assert.ok(idx, 'index manquant');
+});
+
+test('migration v11 — l\'index idx_advisory_rule_sets_one_published_per_domain est bien UNIQUE', async () => {
+  const db = await importFreshDb(tempDir());
+  const info = db.prepare('PRAGMA index_list(advisory_rule_sets)').all().find((i) => i.name === 'idx_advisory_rule_sets_one_published_per_domain');
+  assert.ok(info, 'index manquant dans PRAGMA index_list');
+  assert.equal(info.unique, 1, 'l\'index doit être unique');
+});
+
+test('migration v11 — l\'index idx_advisory_rule_sets_one_published_per_domain est bien PARTIEL', async () => {
+  const db = await importFreshDb(tempDir());
+  const info = db.prepare('PRAGMA index_list(advisory_rule_sets)').all().find((i) => i.name === 'idx_advisory_rule_sets_one_published_per_domain');
+  assert.ok(info, 'index manquant dans PRAGMA index_list');
+  assert.equal(info.partial, 1, 'l\'index doit être partiel (avec clause WHERE)');
+});
+
+test('migration v11 — le SQL de l\'index contient bien WHERE status = \'published\'', async () => {
+  const db = await importFreshDb(tempDir());
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get();
+  assert.ok(row && row.sql, 'SQL de l\'index introuvable');
+  assert.match(row.sql, /WHERE\s+status\s*=\s*'published'/i);
+});
+
+test('migration v11 — index unique partiel : présent après une migration RÉELLE depuis une base héritée en v10', async () => {
+  const dir = tempDir();
+  await buildLegacyV10Database(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 11);
+  const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get();
+  assert.ok(idx, 'l\'index doit être créé par la migration 11 en repartant d\'une base v10 réelle');
+  // La contrainte fonctionne bien sur cette base issue d'une VRAIE migration.
+  insertRuleSet(db, { stable_key: 'rs-legacy-a', domain: 'health', status: 'published', name: 'A' });
+  assert.throws(
+    () => insertRuleSet(db, { stable_key: 'rs-legacy-b', domain: 'health', status: 'published', name: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v11 — index unique partiel : redémarrages répétés (3x) restent idempotents, index stable et toujours unique', async () => {
+  const dir = tempDir();
+  for (let i = 0; i < 3; i += 1) {
+    const db = await importFreshDb(dir);
+    assert.equal(db.pragma('user_version', { simple: true }), 11);
+    const info = db.prepare('PRAGMA index_list(advisory_rule_sets)').all().filter((idx) => idx.name === 'idx_advisory_rule_sets_one_published_per_domain');
+    assert.equal(info.length, 1, 'l\'index ne doit jamais être dupliqué par un redémarrage répété');
+    assert.equal(info[0].unique, 1);
+  }
+});
+
+test('migration v11 — absence de migration 12 : la dernière version de schéma reste 11, aucun bloc de migration ultérieur', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 11, 'la base neuve doit culminer exactement à la version 11, pas au-delà');
+  const dbJsSource = fs.readFileSync(dbModulePath, 'utf8');
+  assert.ok(!/version\s*<\s*12/.test(dbJsSource), 'aucun bloc "if (version < 12)" ne doit exister : le correctif est intégré à la migration 11 elle-même, jamais une migration 12 séparée');
+  assert.ok(!/user_version\s*=\s*12/.test(dbJsSource), 'aucun "user_version = 12" ne doit exister dans server/db.js');
+});
+
+// Correctif SQL ciblé (second GATE, avant commit) : garantie SQLite
+// éprouvée avec DEUX VRAIES connexions better-sqlite3 sur le même fichier
+// (jamais une simulation de système distribué -- juste le comportement réel
+// de SQLite en mode WAL avec deux connexions concurrentes, exactement ce
+// que produirait un second processus applicatif). La connexion A imite le
+// service (`server/advisoryRules.js`, qui exécute lui aussi ses écritures
+// dans une transaction) ; la connexion B imite un second processus tentant
+// une écriture concurrente contradictoire.
+test('migration v11 — deux connexions SQLite réelles sur le même fichier : verrouillage WAL puis violation d\'unicité, jamais deux published simultanés', async () => {
+  const dir = tempDir();
+  const dbA = await importFreshDb(dir);
+  const file = path.join(dir, 'crm.sqlite');
+  const dbB = new Database(file);
+  dbB.pragma('journal_mode = WAL');
+  dbB.pragma('foreign_keys = ON');
+  // Délai d'attente court et déterministe (au lieu du défaut de
+  // better-sqlite3, plusieurs secondes) : le comportement observé (SQLITE_
+  // BUSY tant que A n'a pas validé) reste réel et inchangé, seul le temps
+  // d'attente avant l'abandon est raccourci pour un test rapide.
+  dbB.pragma('busy_timeout = 200');
+
+  try {
+    // Connexion A ouvre une transaction d'ÉCRITURE explicite (BEGIN
+    // IMMEDIATE acquiert le verrou d'écriture immédiatement, exactement
+    // comme le ferait `db.transaction()` de better-sqlite3 utilisé par
+    // server/advisoryRules.js) et publie un rule_set health, SANS commit.
+    dbA.prepare('BEGIN IMMEDIATE').run();
+    dbA.prepare(
+      "INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name) VALUES ('rs-race-a', 'health', 1, 'published', 'A')"
+    ).run();
+
+    // Connexion B tente une insertion brute contradictoire PENDANT que A
+    // détient encore le verrou d'écriture (transaction non validée) :
+    // comportement RÉEL de SQLite observé ici, jamais présumé -- verrouillage
+    // (SQLITE_BUSY), le second writer devant attendre son tour.
+    assert.throws(
+      () => dbB.prepare(
+        "INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name) VALUES ('rs-race-b', 'health', 1, 'published', 'B')"
+      ).run(),
+      (e) => e.code === 'SQLITE_BUSY',
+      'la connexion B doit être bloquée par le verrou d\'écriture WAL tant que A n\'a pas validé sa transaction'
+    );
+
+    // A valide sa transaction : le verrou est relâché.
+    dbA.prepare('COMMIT').run();
+
+    // B retente désormais la MÊME écriture contradictoire -- cette fois le
+    // verrou n'est plus en cause, c'est l'index UNIQUE PARTIEL lui-même qui
+    // bloque la duplication, observé via une VRAIE seconde connexion.
+    assert.throws(
+      () => dbB.prepare(
+        "INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name) VALUES ('rs-race-b', 'health', 1, 'published', 'B')"
+      ).run(),
+      (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE',
+      'après résolution du verrou, la violation d\'unicité doit être détectée par SQLite, pas seulement par le service applicatif'
+    );
+
+    // État final : EXACTEMENT un rule_set publié pour le domaine health,
+    // celui de la connexion A.
+    const publishedHealth = dbB.prepare("SELECT stable_key FROM advisory_rule_sets WHERE domain = 'health' AND status = 'published'").all();
+    assert.deepEqual(publishedHealth.map((r) => r.stable_key), ['rs-race-a']);
+
+    // Les TROIS domaines restent indépendants même avec deux connexions
+    // actives : publier common/life_pension via B pendant que A reste ouvert
+    // (sans transaction active cette fois) ne rencontre aucun conflit.
+    assert.doesNotThrow(() => dbB.prepare(
+      "INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name) VALUES ('rs-race-common', 'common', 1, 'published', 'C')"
+    ).run());
+    assert.doesNotThrow(() => dbB.prepare(
+      "INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name) VALUES ('rs-race-life', 'life_pension', 1, 'published', 'L')"
+    ).run());
+    const allPublished = dbB.prepare("SELECT domain FROM advisory_rule_sets WHERE status = 'published' ORDER BY domain").all().map((r) => r.domain);
+    assert.deepEqual(allPublished, ['common', 'health', 'life_pension']);
+
+    // Aucune corruption : intégrité du fichier confirmée après la séquence
+    // complète de verrouillage/résolution/écritures concurrentes.
+    const integrity = dbB.pragma('integrity_check');
+    assert.deepEqual(integrity, [{ integrity_check: 'ok' }]);
+  } finally {
+    dbB.close();
+    dbA.close();
+  }
 });
 
 test('migration v10 — colonnes attendues sur advisory_sessions et advisory_answers', async () => {

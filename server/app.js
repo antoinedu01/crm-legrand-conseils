@@ -24,6 +24,7 @@ import { publicRouter } from './routes/public.js';
 import { advisoryHouseholdsRouter } from './routes/advisoryHouseholds.js';
 import { advisoryQuestionnairesRouter } from './routes/advisoryQuestionnaires.js';
 import { advisorySessionsRouter } from './routes/advisorySessions.js';
+import { advisoryRulesRouter } from './routes/advisoryRules.js';
 import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -142,6 +143,7 @@ app.use('/api/today', requireAuth, todayRouter);
 app.use('/api/advisory/households', requireAuth, advisoryHouseholdsRouter);
 app.use('/api/advisory/questionnaires', requireAuth, advisoryQuestionnairesRouter);
 app.use('/api/advisory/sessions', requireAuth, advisorySessionsRouter);
+app.use('/api/advisory/rule-sets', requireAuth, advisoryRulesRouter);
 
 // Sauvegarde complète de la base (copie cohérente via l'API backup de SQLite)
 app.get('/api/backup', requireAuth, async (req, res) => {

@@ -192,29 +192,188 @@
   30 scénarios).
 - **Dépendances** : Lot 3A.
 
-## Lot 4 — Moteur de règles
+## Lot 4A — Moteur de règles (implémenté)
 
-- **Objectif** : `advisory_rule_sets`/`advisory_rules`/
+> **Statut : implémenté et testé.** Renommé « Lot 4A » en cours de route,
+> même convention que le découpage Lot 3A/3B : ce lot livre exclusivement le
+> moteur (schéma, service, exécution, API) et un jeu de règles **fictives**
+> de test — un éventuel « Lot 4B » (éditeur de règles complet côté React,
+> écran de findings à l'usage du conseiller) reste explicitement différé,
+> non démarré, comme prévu dès la conception de ce lot. Migration 11,
+> `server/advisoryRules.js`, `server/advisoryRuleConditions.js`, `server/
+> advisoryRuleExecutions.js`, `server/canonicalJson.js`, `server/routes/
+> advisoryRules.js`, extension de `server/routes/advisorySessions.js`.
+
+- **Objectif réellement livré** : `advisory_rule_sets`/`advisory_rules`/
   `advisory_rule_executions`/`advisory_findings`, moteur d'exécution
-  déterministe, sans contenu de règles métier réel (règles fictives de test
-  pour valider le moteur, comme les fixtures de `test/migrations.test.js`).
-- **Tables** : les quatre citées ci-dessus.
-- **Routes** : `API_CONTRACT.md` §6-7 (findings uniquement, pas encore
-  `advisory_recommendations`).
-- **Tests** : conditions simples/combinées, `missing_data` correctement
-  détecté, non-régression après rejet, absence de contradiction non
-  détectée sur un jeu de règles de test, refus de publication d'une règle
-  sans source.
+  déterministe, sans contenu de règles métier réel — uniquement des règles
+  fictives de test, chacune portant la mention « Exemple technique fictif —
+  ne constitue pas un conseil d'assurance. » dans son champ `source`.
+- **Tables (4, conformes au plafond fixé)** : les quatre citées ci-dessus.
+  Aucune `advisory_recommendations`, aucun catalogue produit/assureur,
+  aucune `advisory_consents`/`advisory_reports` — vérifié explicitement par
+  test de migration (`test/migrations.test.js`).
+- **Routes** : `advisory_rule_sets`/`advisory_rules` sous
+  `/api/advisory/rule-sets` (nouveau routeur dédié, même convention que
+  `/api/advisory/questionnaires`) ; exécutions et findings sous
+  `/api/advisory/sessions/:id/rule-executions` et `.../findings`
+  (rattachés au routeur de sessions existant, comme `.../answers` — ce sont
+  des sous-ressources d'une session, pas une ressource indépendante).
+  Voir `API_CONTRACT.md` §6-7 pour le détail. Pas encore
+  `advisory_recommendations` (Lot 7).
+- **Décisions d'architecture actées en cours de lot** (toutes documentées en
+  commentaire dans le code et dans `RULES_ENGINE.md`/`DATA_MODEL.md`) :
+  - Une ligne d'exécution par **(session, domaine)**, jamais par règle
+    individuelle — divergence par rapport à la proposition initiale de
+    `DATA_MODEL.md` v1 §5, resserrée après revue.
+  - Le rule_set utilisé pour un couple (session, domaine) est **dérivé de
+    l'historique des exécutions** (première exécution = référence
+    permanente), jamais d'une colonne de figeage sur `advisory_sessions`
+    (qui aurait été incompatible avec une session `mixed`, laquelle a besoin
+    de deux rule_sets figés simultanément).
+  - Cycle de vie d'une règle individuelle calqué sur
+    `advisory_questions.status` (`active`/`archived`) plutôt qu'un second
+    cycle `brouillon`/`valide` propre à la règle — la publication du
+    rule_set qui la contient EST l'acte de validation humaine.
+  - `server/advisoryRuleConditions.js` reste un module **séparé** de
+    `server/advisoryConditions.js` (Lot 3A) — univers référençable
+    réellement différent (contrats, résultat d'une autre règle), seuls les
+    principes génériques (détection de cycle) sont repris à l'identique.
+  - Double contrôle anti-contradiction (`RULES_ENGINE.md` §4) : simulation
+    bornée à la publication (recoupement de catégories sur des profils de
+    réponses synthétiques) **et** comparaison en temps réel à l'exécution
+    (`needs_review`/`conflicts_with`) — les deux, ni l'un à la place de
+    l'autre, confirmé par la revue `rules-engine-auditor`.
+- **Tests — chiffres reconciliés (GATE LOT 4A §6)** : le rapport initial
+  annonçait « baseline 589, nouveaux 139, total 731 », une addition
+  manuelle incorrecte (589 + 139 = 728, écart de 3 non expliqué). Baseline
+  RÉELLE vérifiée empiriquement dans un worktree isolé au commit
+  `1bc3e15b96b9bc330be0783f5df258286232812f` : **589** (confirmé, inchangée).
+  L'écart de 3 provient de `test/migrations.test.js` (fichier PRÉEXISTANT,
+  35 → 38 tests : un test renommé/resserré en place — les 8 tables `v10`
+  ne sont plus décrites comme exhaustives puisque `v11` en ajoute 4 — et 3
+  tests `v11` réellement nouveaux ajoutés dans ce même fichier), omis du
+  calcul initial qui ne comptait que les 5 nouveaux FICHIERS de test
+  (166 tests : `advisory-rule-conditions` 61, `advisory-rule-executions`
+  43, `advisory-rules` 39, `advisory-rule-executions-api` 9,
+  `advisory-rules-api` 14). Net réellement ajouté à ce stade : 169 (166 + 3),
+  total 758 — puis encore augmenté par les corrections du GATE lui-même
+  (§2-§9, voir rapport final du GATE pour le total exact au moment de la
+  validation). Aucun test supprimé, un seul renommé (voir ci-dessus).
+- **Tests (contenu, inchangé dans son intention)** : les 16 opérateurs et 7 natures de référence du DSL
+  (typage strict, sans coercition implicite contrairement au moteur de
+  conditions de questionnaire), sémantique `all`/`any` avec vacuité
+  correcte, détection de cycle/profondeur excessive entre règles,
+  validation de publication (source/référence/date d'effet/explication
+  obligatoires, dépendance vers une question à texte libre refusée, référence
+  directe hors quantificateur à une question de portée membre refusée,
+  recoupement de catégorie signalé sans bloquer), empreinte de contenu
+  indépendante de l'ordre d'insertion, exécution complète (donnée
+  manquante → finding `missing_information` jamais un résultat par défaut
+  y compris pour une question de portée membre partiellement répondue,
+  quantificateur sur les membres, résolution de branche de contrat contre
+  le snapshot figé de la session (jamais la composition vivante du foyer),
+  dépendance entre règles via `rule_result`, supersession après
+  ré-exécution, reproductibilité bit à bit, enregistrement d'une exécution
+  échouée en cas d'erreur interne inattendue jamais silencieuse — sans
+  jamais figer le rule_set sur une tentative échouée —, ré-exécution
+  possible même après archivage du rule_set déjà figé), protection IDOR sur
+  les identifiants d'exécution/de finding, journalisation dédiée et
+  dédupliquée de la consultation de findings tracés jusqu'à une question
+  sensible sur les 4 routes de lecture concernées, absence de fuite de
+  contenu métier dans les 12 actions d'audit (vérifiée par un test dédié à
+  marqueur distinctif, pas seulement par comptage).
+- **Revues post-implémentation (4 rôles) et corrections apportées avant
+  GATE** : `rules-engine-auditor` a signalé un défaut bloquant (une
+  référence directe, hors quantificateur `all`/`any`, à une question de
+  portée membre résolvait silencieusement à « absente », rendant
+  `not_exists` toujours vrai à tort) — corrigé par un refus explicite à la
+  publication (`collectDirectAnswerKeys`) et par une vérification de
+  présence de `required_data` désormais consciente de la portée membre
+  (conservatrice : exige que tous les membres du foyer figé aient répondu).
+  `advisory-architect` a signalé trois points : le figeage du rule_set
+  comptait à tort une exécution `failed` comme référence — corrigé (seules
+  les exécutions `completed` comptent) ; un rule_set déjà figé devenait
+  inexécutable après son archivage — corrigé (une ré-exécution reste
+  possible sur un rule_set publié **ou** archivé une fois déjà figé,
+  jamais brouillon) ; la résolution de `contract_branch` utilisait la
+  composition vivante du foyer plutôt que le snapshot figé de la session —
+  corrigé pour la reproductibilité. `compliance-privacy-reviewer` a signalé
+  que la lecture de la liste des exécutions (`GET .../rule-executions`)
+  n'était auditée nulle part — corrigé, et harmonisé avec l'historique des
+  findings, qui ne déclenchait pas non plus la vérification dérivée
+  « consultation findings sensibles ». `client-meeting-ux` a signalé une
+  incohérence de tri par priorité entre les routes de lecture de
+  findings — corrigée (ordre `critical`/`high`/`medium`/`low` harmonisé) ;
+  ses autres constats (attribution d'un finding à un membre précis,
+  résolution de `client_explanation` absente en mode présentation,
+  acquittement de `needs_review` après écartement d'un des deux côtés d'un
+  conflit) restent des points ouverts, explicitement déférés au Lot 4B —
+  voir rapport final du GATE.
+- **Corrections apportées PENDANT le GATE de validation** (avant tout
+  commit, sur demande humaine explicite — non détectées par les 4 revues
+  post-implémentation ci-dessus, qui portaient sur la version pré-GATE) :
+  - **Domaine `common` ajouté** (§2) : troisième domaine de `rule_set`,
+    facultatif, pour les constats transverses au foyer ; politique « un
+    seul rule_set publié par domaine » implémentée (nouvelle famille
+    bloquée si une autre est déjà publiée, nouvelle version de la même
+    famille auto-archive l'ancienne).
+  - **`finding_scope` et attribution membre** (§3) : `household_member_id`
+    existait sans jamais être renseignée — comblé par un champ
+    `finding_scope` (`session`/`household`/`member`) déclaré par règle,
+    un nouveau primitif DSL `resolveQuantifierMembers` pour une
+    attribution déterministe (jamais arbitraire) aux membres réellement
+    concernés, et une validation de publication exigeant une condition
+    racine `all`/`any` pour toute règle `member`.
+  - **Classification de sensibilité FIGÉE** (§4) : l'audit `consultation
+    findings sensibles` s'appuyait sur une requête en direct de
+    `advisory_questions.sensitive`, rendant son verdict dépendant de
+    l'état courant plutôt que de l'exécution historique — corrigé par un
+    drapeau `sensitivity_at_execution` figé une fois pour toutes à
+    l'exécution.
+  - **Conflits : historique vs actif** (§5) : `needs_review` restait figé
+    même après l'écartement du finding contradictoire qui le justifiait —
+    corrigé par un recalcul (`recomputeActiveConflicts`) à chaque
+    écartement, tout en conservant séparément
+    (`conflicts_detected_at_execution`) le constat historique immuable.
+  - **Exécution finale réservée à `completed`** (§9) : la version pré-GATE
+    acceptait aussi une session `in_progress` — reconnu en contradiction
+    avec la décision humaine attendue et corrigé (`in_progress` refusé
+    exactement comme un brouillon/suspendu/annulé).
+  - **Bug d'attribution d'audit corrigé** (§7) : `GET .../rule-executions`
+    ne transmettait pas le contexte d'authentification au service,
+    attribuant à tort la journalisation « consultation findings
+    sensibles » à un utilisateur générique plutôt qu'au vrai conseiller.
+- **Correctif ciblé, SECOND GATE, avant tout commit** (décision humaine
+  explicite : l'hypothèse mono-processus jugée insuffisante pour garantir
+  « un seul rule_set publié par domaine ») : ajout d'un index UNIQUE
+  PARTIEL SQLite (`idx_advisory_rule_sets_one_published_per_domain`,
+  intégré directement dans la migration 11, jamais une migration 12 —
+  celle-ci n'étant encore ni committée ni déployée). Réordonnancement de
+  `publishRuleSet` (archivage de l'ancienne version toujours avant
+  publication de la nouvelle, dans la même transaction — l'index étant
+  vérifié statement par statement, jamais différé en SQLite) et traduction
+  de toute violation de contrainte résiduelle en `409` propre, sans fuite
+  de détail SQL. Vérifié par une matrice de tests SQL bruts (les trois
+  domaines, chaque combinaison de statuts, existence/unicité/caractère
+  partiel de l'index, migration réelle depuis une base v10, redémarrages
+  répétés), un rollback forcé par déclencheur SQL temporaire (technique
+  locale au test, aucun mécanisme dangereux ajouté au code de production),
+  et deux VRAIES connexions `better-sqlite3` concurrentes sur le même
+  fichier (verrouillage WAL réel puis violation d'unicité). Documentation
+  mise à jour dans `MIGRATIONS.md`/`DATA_MODEL.md`/`RULES_ENGINE.md`/
+  `ARCHITECTURE.md` : la garantie ne dépend plus d'aucune hypothèse sur le
+  nombre de processus applicatifs.
 - **Risques** : format des `conditions` à figer avant d'écrire des règles
   réelles (Lot 5/6 en dépendent directement) — tout changement de format
   après coup impliquerait de réévaluer les règles déjà écrites.
-- **Critères d'acceptation** : le moteur ne produit jamais
+- **Critères d'acceptation (vérifiés)** : le moteur ne produit jamais
   `advisory_recommendations` directement (cette table n'existe même pas
   encore à ce stade — elle arrive en Lot 7) ; chaque exécution est tracée et
-  explicable.
-- **Actions interdites** : aucun contenu de règle réel spécifique maladie ou
-  vie dans ce lot — uniquement le moteur et des règles de démonstration
-  fictives.
+  explicable ; aucune modification en place d'une règle publiée.
+- **Actions interdites (respectées)** : aucun contenu de règle réel
+  spécifique maladie ou vie dans ce lot — uniquement le moteur et des
+  règles de démonstration fictives ; aucun appel IA, aucun MCP.
 - **Dépendances** : Lot 3.
 - **Retour arrière** : `DROP TABLE` des 4 tables — aucune règle réelle
   n'existant encore, aucune perte de contenu métier possible.

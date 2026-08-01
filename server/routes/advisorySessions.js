@@ -6,6 +6,10 @@ import {
   validateSessionForCompletion, recordAnswers, clearAnswer, amendAnswer,
   listActiveAnswers, listAnswerHistory, getSessionWorkspace,
 } from '../advisorySessions.js';
+import {
+  executeRuleSetForSession, listExecutions, getExecutionDetail,
+  listActiveFindings, listFindingsHistory, dismissFinding,
+} from '../advisoryRuleExecutions.js';
 
 export const advisorySessionsRouter = Router();
 
@@ -109,4 +113,41 @@ advisorySessionsRouter.delete('/:id/answers/:questionId', (req, res) => {
 
 advisorySessionsRouter.post('/:id/answers/amend', (req, res) => {
   handle(res, () => res.status(201).json(amendAnswer(req.params.id, req.body || {}, req)));
+});
+
+// --- Moteur de règles (Lot 4A) : exécutions et findings, rattachés à la
+// session comme tout autre sous-ensemble de données de session (même
+// convention que /:id/answers ci-dessus).
+
+advisorySessionsRouter.post('/:id/rule-executions', (req, res) => {
+  const { domain, expected_revision, rule_set_id } = req.body || {};
+  handle(res, () => res.status(201).json(executeRuleSetForSession(req.params.id, domain, expected_revision, req, { rule_set_id })));
+});
+
+advisorySessionsRouter.get('/:id/rule-executions', (req, res) => {
+  noStore(res);
+  handle(res, () => res.json({ executions: listExecutions(req.params.id, { domain: req.query.domain }, req) }));
+});
+
+advisorySessionsRouter.get('/:id/rule-executions/:executionId', (req, res) => {
+  noStore(res);
+  handle(res, () => {
+    const detail = getExecutionDetail(req.params.id, req.params.executionId, req);
+    if (!detail) return res.status(404).json({ error: 'Exécution introuvable pour cette session.' });
+    res.json(detail);
+  });
+});
+
+advisorySessionsRouter.get('/:id/findings', (req, res) => {
+  noStore(res);
+  handle(res, () => res.json({ findings: listActiveFindings(req.params.id, { domain: req.query.domain }, req) }));
+});
+
+advisorySessionsRouter.get('/:id/findings/history', (req, res) => {
+  noStore(res);
+  handle(res, () => res.json({ findings: listFindingsHistory(req.params.id, { domain: req.query.domain }, req) }));
+});
+
+advisorySessionsRouter.post('/:id/findings/:findingId/dismiss', (req, res) => {
+  handle(res, () => res.json(dismissFinding(req.params.id, req.params.findingId, req.body || {}, req)));
 });

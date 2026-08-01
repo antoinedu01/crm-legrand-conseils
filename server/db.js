@@ -783,6 +783,196 @@ if (version < 10) {
   migrate();
 }
 
+// LOT 4A — Legrand Diagnostic 360 : moteur déterministe de règles et
+// findings. Vérifié avant écriture (rapport du GATE LOT 4A) : aucune branche
+// distante ne dépasse la version 10 ; migration purement additive, aucune
+// table existante modifiée. Périmètre strictement limité à 4 tables (décision
+// humaine explicite) : PAS de advisory_recommendations, PAS de catalogue
+// produit/assureur, PAS de advisory_consents/advisory_reports à ce stade.
+if (version < 11) {
+  const migrate = db.transaction(() => {
+    db.exec(`
+      -- Un rule set = une version cohérente de règles pour UN domaine
+      -- (jamais 'mixed' — une session mixte exécute séparément les rule sets
+      -- common/health/life_pension applicables, exactement comme pour les
+      -- questionnaires). Fusionne « famille » et « version » en une seule
+      -- table (contrairement à advisory_questionnaires/_versions) : un rule
+      -- set n'a pas de sous-structure interne qui bénéficierait d'être
+      -- décorrélée d'une famille distincte — décision documentée, revue
+      -- advisory-architect, GATE LOT 4A.
+      CREATE TABLE IF NOT EXISTS advisory_rule_sets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stable_key TEXT NOT NULL,                 -- identité de la famille à travers ses versions
+        domain TEXT NOT NULL,                     -- common | health | life_pension -- JAMAIS mixed (une règle n'appartient qu'à un domaine réel ; common = constats transverses au foyer, facultatif mais pleinement pris en charge)
+        version_number INTEGER NOT NULL,          -- strictement croissant par stable_key (garanti par le service)
+        status TEXT NOT NULL DEFAULT 'draft',     -- draft | published | archived
+        name TEXT NOT NULL,
+        description TEXT,
+        changelog TEXT,                           -- notes de version
+        content_hash TEXT,                        -- empreinte SHA-256, calculée à la publication (server/canonicalJson.js)
+        effective_from TEXT,                      -- réservées, jamais renseignées par server/advisoryRules.js à ce lot (l'effectivité temporelle est vérifiée par RÈGLE, isEffectiveToday, pas par rule_set entier)
+        effective_until TEXT,
+        created_by_user_id INTEGER REFERENCES users(id),
+        validated_by_user_id INTEGER REFERENCES users(id), -- validation humaine du RULE SET (distincte de la validation par règle, ci-dessous)
+        validated_at TEXT,
+        published_at TEXT,
+        archived_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(stable_key, version_number)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_rule_sets_stable_key ON advisory_rule_sets(stable_key);
+      CREATE INDEX IF NOT EXISTS idx_advisory_rule_sets_domain ON advisory_rule_sets(domain);
+      CREATE INDEX IF NOT EXISTS idx_advisory_rule_sets_status ON advisory_rule_sets(status);
+      -- Politique « un seul rule_set publié par domaine » (GATE LOT 4A §2,
+      -- décision humaine confirmée) : garantie désormais au niveau SQLite
+      -- lui-même, jamais seulement applicative (server/advisoryRules.js
+      -- assertNoOtherPublishedFamilyForDomain n'aurait pas résisté à deux
+      -- publications concurrentes sous plusieurs processus partageant le
+      -- même fichier — constat GATE, correctif ciblé avant commit). Index
+      -- UNIQUE PARTIEL (portant uniquement sur les lignes status='published')
+      -- : plusieurs lignes 'draft'/'archived' du même domaine restent
+      -- possibles, seule la coexistence de DEUX lignes 'published' du même
+      -- domaine est rendue impossible, y compris pour deux VERSIONS de la
+      -- MÊME famille (l'archivage de l'ancienne version doit donc précéder
+      -- la publication de la nouvelle dans la même transaction, jamais
+      -- l'inverse -- voir publishRuleSet).
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_rule_sets_one_published_per_domain
+        ON advisory_rule_sets(domain) WHERE status = 'published';
+
+      -- Une règle, rattachée à un rule_set précis. stable_key trace « cette
+      -- règle logique » à travers les rule sets successifs (même principe
+      -- que advisory_questions.stable_key à travers les versions de
+      -- questionnaire). Pas de cycle de statut brouillon/valide séparé du
+      -- rule_set parent (contrairement à une première lecture possible de
+      -- RULES_ENGINE.md §2) : une règle est status=active|archived, comme
+      -- advisory_questions — toute l'exigence « source/validateur/date
+      -- d'effet/explication obligatoires avant publication » est vérifiée en
+      -- une seule fois, au moment de PUBLIER le rule_set entier (voir
+      -- validateRuleSetForPublish), jamais via une transition indépendante
+      -- par règle. Décision documentée, alignée sur le pattern déjà
+      -- implémenté et testé pour les questions de questionnaire plutôt que
+      -- d'inventer une seconde machine d'état sans précédent dans ce dépôt.
+      CREATE TABLE IF NOT EXISTS advisory_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_set_id INTEGER NOT NULL REFERENCES advisory_rule_sets(id),
+        stable_key TEXT NOT NULL,
+        domain TEXT NOT NULL,                     -- dupliqué depuis rule_set (jamais divergent, contrainte applicative)
+        title TEXT NOT NULL,
+        description TEXT,
+        conditions TEXT NOT NULL,                 -- JSON déclaratif (server/advisoryRuleConditions.js), jamais de code exécutable
+        required_data TEXT NOT NULL,               -- JSON (liste de références nécessaires à l'évaluation)
+        result_finding_type TEXT NOT NULL,        -- fact | detected_need | gap | warning | missing_information | solution_category -- JAMAIS recommendation|product|insurer|contract|sale
+        result_payload TEXT,                      -- JSON structuré, clés strictement limitées (jamais de produit/assureur nommé, contrôlé en applicatif)
+        priority TEXT NOT NULL DEFAULT 'medium',  -- low | medium | high | critical
+        finding_scope TEXT NOT NULL DEFAULT 'household', -- session | household | member -- portée déclarée du finding produit (jamais déduite après coup) ; member exige household_member_id sur chaque finding produit (server/advisoryRules.js §validateRuleSetForPublish, server/advisoryRuleExecutions.js)
+        advisor_explanation TEXT NOT NULL,
+        client_explanation TEXT,
+        warnings TEXT,                             -- JSON (liste)
+        contraindications TEXT,                    -- JSON (liste)
+        source TEXT,                                -- obligatoire pour toute règle active dans un rule_set publié (vérifié à la publication, pas ici)
+        source_reference TEXT,
+        effective_from TEXT,
+        effective_until TEXT,
+        validated_by_user_id INTEGER REFERENCES users(id), -- revue individuelle de CETTE règle (distincte de la validation du rule_set entier)
+        validated_at TEXT,
+        sort_order INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',    -- active | archived
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(rule_set_id, stable_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_rules_rule_set ON advisory_rules(rule_set_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_rules_domain ON advisory_rules(domain);
+
+      -- Trace d'exécution : une ligne par (session, domaine) à chaque lancement
+      -- du moteur — jamais une ligne par règle individuelle (divergence
+      -- assumée par rapport à la proposition LOT 1, DATA_MODEL.md §5.3, qui
+      -- envisageait rule_id ; ce lot retient un résultat de LOT agrégé par
+      -- rule_set avec un compteur de règles évaluées, décision humaine
+      -- explicite du GATE LOT 4A). session_revision fige la révision de
+      -- session au moment de l'exécution (garde de fraîcheur, pas un verrou
+      -- d'écriture au sens du LOT 3B puisque l'exécution ne modifie jamais
+      -- advisory_sessions elle-même). Le rule_set utilisé pour un (session,
+      -- domain) donné, une fois choisi par la PREMIÈRE exécution, est
+      -- réutilisé pour toujours pour cette session (reproductibilité
+      -- historique) — jamais de colonne de pin séparée sur advisory_sessions
+      -- (éviterait une 5e table hors périmètre ; le pin est dérivé de cette
+      -- table elle-même, décision revue advisory-architect).
+      CREATE TABLE IF NOT EXISTS advisory_rule_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES advisory_sessions(id),
+        session_revision INTEGER NOT NULL,
+        domain TEXT NOT NULL,                      -- common | health | life_pension -- jamais mixed (une session mixte exécute jusqu'à trois fois, une par domaine réel)
+        rule_set_id INTEGER NOT NULL REFERENCES advisory_rule_sets(id),
+        rule_set_version_number INTEGER NOT NULL,  -- dupliqué pour lisibilité historique, jamais divergent
+        content_hash TEXT NOT NULL,                -- dupliqué depuis le rule_set au moment de l'exécution
+        status TEXT NOT NULL DEFAULT 'completed',  -- running | completed | failed | superseded
+        mode TEXT NOT NULL DEFAULT 'final',        -- final | preview (preview jamais persisté comme finding actif durable, voir server/advisoryRules.js)
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        ended_at TEXT,
+        executed_by_user_id INTEGER REFERENCES users(id),
+        rules_evaluated_count INTEGER NOT NULL DEFAULT 0,
+        findings_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,                        -- minimisé, jamais de détail sensible ni de trace technique complète
+        inputs_snapshot TEXT,                      -- JSON, instantané minimal des entrées effectivement utilisées par les règles évaluées
+        engine_version TEXT NOT NULL,               -- version du CODE du moteur, distincte de la version des règles
+        superseded_by_execution_id INTEGER REFERENCES advisory_rule_executions(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_rule_executions_session ON advisory_rule_executions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_rule_executions_rule_set ON advisory_rule_executions(rule_set_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_rule_executions_session_domain ON advisory_rule_executions(session_id, domain);
+
+      -- Un constat produit par une règle déclenchée. Jamais une
+      -- recommandation : aucun champ produit, aucun champ assureur. status
+      -- superseded est une dénormalisation dérivée de l'exécution parente
+      -- (jamais togglée indépendamment) ; dismissed est la seule action
+      -- autonome du conseiller (motif obligatoire, comme pour
+      -- advisory_sessions/answers). needs_review/conflicts_with : extension
+      -- au-delà du champ minimal listé par le commanditaire, justifiée par
+      -- l'exigence explicite (§18 du brief GATE LOT 4A) de signaler les
+      -- findings contradictoires sans les masquer.
+      CREATE TABLE IF NOT EXISTS advisory_findings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_execution_id INTEGER NOT NULL REFERENCES advisory_rule_executions(id),
+        session_id INTEGER NOT NULL REFERENCES advisory_sessions(id), -- dupliqué pour requêtes directes, jamais divergent
+        rule_id INTEGER NOT NULL REFERENCES advisory_rules(id),
+        stable_key TEXT NOT NULL,                  -- dupliqué depuis la règle, traçabilité même si la règle évolue dans une future version
+        domain TEXT NOT NULL,                      -- common | health | life_pension -- dupliqué depuis la règle qui a produit ce finding
+        finding_scope TEXT NOT NULL DEFAULT 'household', -- session | household | member -- dupliqué depuis la règle, pour affichage sans jointure supplémentaire
+        household_member_id INTEGER REFERENCES household_members(id), -- NOT NULL seulement si finding_scope = member (un finding par membre correspondant réellement à la condition, jamais une attribution arbitraire) ; toujours NULL pour session/household
+        finding_type TEXT NOT NULL,                -- fact | detected_need | gap | warning | missing_information | solution_category
+        priority TEXT NOT NULL,                    -- low | medium | high | critical
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        advisor_explanation TEXT NOT NULL,
+        client_explanation TEXT,
+        missing_data TEXT,                         -- JSON (liste de références), pour finding_type = missing_information notamment
+        warnings TEXT,
+        contraindications TEXT,
+        used_inputs_ref TEXT,                      -- JSON, références structurées (jamais les valeurs) vers les entrées utilisées, avec sensibilité FIGÉE au moment de l'exécution (sensitivity_at_execution, answer_id immuable, questionnaire_version_id, read_at -- jamais réévaluée à la lecture, GATE LOT 4A §4)
+        status TEXT NOT NULL DEFAULT 'active',     -- active | superseded | dismissed
+        dismiss_reason TEXT,
+        dismissed_by_user_id INTEGER REFERENCES users(id),
+        dismissed_at TEXT,
+        needs_review INTEGER NOT NULL DEFAULT 0,   -- ÉTAT ACTIF courant : recalculé quand un finding en conflit est écarté (server/advisoryRuleExecutions.js, dismissFinding) -- jamais un historique figé, voir conflicts_detected_at_execution
+        conflicts_with TEXT,                       -- JSON (liste d'ids d'autres findings ACTIFS actuellement en conflit) -- recalculé à chaque écartement, jamais figé
+        conflicts_detected_at_execution TEXT,      -- JSON (liste d'ids d'autres findings), HISTORIQUE et IMMUABLE : le recoupement constaté au moment même de cette exécution, jamais réécrit ensuite même si conflicts_with change par la suite (constat GATE LOT 4A §5, distinction historique/actif)
+        sort_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_findings_execution ON advisory_findings(rule_execution_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_findings_session ON advisory_findings(session_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_findings_rule ON advisory_findings(rule_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_findings_status ON advisory_findings(status);
+    `);
+
+    db.pragma('user_version = 11');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
