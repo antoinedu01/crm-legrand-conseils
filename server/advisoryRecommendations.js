@@ -14,11 +14,25 @@ import db from './db.js';
 import { assert, inEnum } from './validate.js';
 import { audit } from './audit.js';
 import { AdvisoryError } from './advisoryHouseholds.js';
-import { sessionMembersFor } from './advisorySessions.js';
+import { sessionMembersFor, isSessionWritable } from './advisorySessions.js';
 
 export const RECOMMENDATION_DOMAINS = ['common', 'health', 'life_pension'];
 export const RECOMMENDATION_SCOPES = ['session', 'household', 'member'];
 export const RECOMMENDATION_STATUSES = ['draft', 'validated', 'dismissed', 'superseded', 'withdrawn'];
+
+// Codes machine STABLES (GATE LOT 7B ciblé §3) : la distinction entre
+// différents conflits ne doit jamais dépendre du texte français de
+// `error` (susceptible d'évoluer/d'être reformulé). Un code par SITUATION
+// distincte, jamais plusieurs codes pour la même situation — chaque valeur
+// n'est posée qu'à l'endroit précis où cette situation est réellement
+// détectée ci-dessous, jamais ailleurs.
+export const ERROR_CODES = Object.freeze({
+  RECOMMENDATION_REVISION_CONFLICT: 'RECOMMENDATION_REVISION_CONFLICT',
+  SESSION_REVISION_CONFLICT: 'SESSION_REVISION_CONFLICT',
+  RECOMMENDATION_STATE_CONFLICT: 'RECOMMENDATION_STATE_CONFLICT',
+  SESSION_NOT_WRITABLE: 'SESSION_NOT_WRITABLE',
+  HOUSEHOLD_ARCHIVED: 'HOUSEHOLD_ARCHIVED',
+});
 
 // Machine d'état stricte, une seule direction par action — même convention
 // que TRANSITIONS dans server/advisorySessions.js. `superseded` n'a
@@ -101,16 +115,21 @@ function currentUserId(req) {
 // jamais menée à terme — la même garantie structurelle que celle qui
 // s'applique déjà aux findings (`ELIGIBLE_SESSION_STATUSES`, Lot 4A) : un
 // finding ne peut, par construction, exister que sur une session `completed`.
+// La décision d'accepter/refuser (`isSessionWritable`, importé de
+// `advisorySessions.js`) est UNE SEULE fonction partagée avec la capacité
+// additive `recommendation_capabilities.create` exposée par
+// `getSessionDetail` (GATE LOT 7B ciblé §2B) -- les deux `if` ci-dessous ne
+// servent plus qu'à produire le message d'erreur précis, jamais à
+// redéfinir la règle elle-même.
 function assertSessionWritable(session, household) {
+  if (isSessionWritable(session, household)) return;
   if (session.status !== 'completed') {
     throw new AdvisoryError(
       `Aucune recommandation ne peut être créée ou modifiée sur une session « ${session.status} » (seule une session finalisée le permet).`,
-      409
+      409, ERROR_CODES.SESSION_NOT_WRITABLE
     );
   }
-  if (household && household.status === 'archive') {
-    throw new AdvisoryError('Ce foyer est archivé : aucune nouvelle activité n’est possible sur ses sessions.', 409);
-  }
+  throw new AdvisoryError('Ce foyer est archivé : aucune nouvelle activité n’est possible sur ses sessions.', 409, ERROR_CODES.HOUSEHOLD_ARCHIVED);
 }
 
 // Verrou de concurrence optimiste PROPRE à la ligne recommandation (grain
@@ -122,7 +141,7 @@ function assertExpectedRecommendationRevision(recommendation, expectedRevision) 
   if (expectedRevision !== recommendation.revision) {
     throw new AdvisoryError(
       `Cette recommandation a été modifiée ailleurs depuis votre dernière lecture (révision attendue ${expectedRevision}, révision réelle ${recommendation.revision}). Rechargez avant de réessayer.`,
-      409
+      409, ERROR_CODES.RECOMMENDATION_REVISION_CONFLICT
     );
   }
 }
@@ -132,7 +151,7 @@ function assertExpectedSessionRevision(session, expectedRevision) {
   if (expectedRevision !== session.revision) {
     throw new AdvisoryError(
       `Cette session a été modifiée ailleurs depuis votre dernière lecture (révision attendue ${expectedRevision}, révision réelle ${session.revision}). Rechargez avant de réessayer.`,
-      409
+      409, ERROR_CODES.SESSION_REVISION_CONFLICT
     );
   }
 }
@@ -140,7 +159,7 @@ function assertExpectedSessionRevision(session, expectedRevision) {
 function assertAction(recommendation, action) {
   const next = (TRANSITIONS[recommendation.status] || {})[action];
   if (!next) {
-    throw new AdvisoryError(`Action « ${action} » impossible depuis le statut « ${recommendation.status} ».`, 409);
+    throw new AdvisoryError(`Action « ${action} » impossible depuis le statut « ${recommendation.status} ».`, 409, ERROR_CODES.RECOMMENDATION_STATE_CONFLICT);
   }
   return next;
 }
@@ -152,7 +171,7 @@ function assertAction(recommendation, action) {
 // révision (jamais au contenu narratif).
 function assertDraftMutable(recommendation) {
   if (recommendation.status !== 'draft') {
-    throw new AdvisoryError(`Cette recommandation n'est plus modifiable (statut « ${recommendation.status} »).`, 409);
+    throw new AdvisoryError(`Cette recommandation n'est plus modifiable (statut « ${recommendation.status} »).`, 409, ERROR_CODES.RECOMMENDATION_STATE_CONFLICT);
   }
 }
 
@@ -314,7 +333,64 @@ function computeStaleness(recommendation, session) {
   return false;
 }
 
-function toDetail(recommendation, session) {
+// Actions autorisées, calculées EXCLUSIVEMENT côté serveur (GATE LOT 7B
+// ciblé : le frontend ne doit jamais reconstruire ces transitions à partir
+// de `status`/`household.status`/`session.status`). Reflète très exactement
+// les gardes déjà imposés par chaque fonction d'écriture ci-dessous --
+// jamais une redéfinition divergente : `writable` réutilise `isSessionWritable`
+// (même prédicat que `assertSessionWritable` et que la capacité
+// `recommendation_capabilities.create`, `advisorySessions.js`),
+// `isDraft`/`isValidated` reproduisent `assertDraftMutable`/`assertAction`
+// via `TRANSITIONS`. Volontairement additif et minimal (booléens seulement,
+// jamais un pré-calcul des raisons de refus ni une prédiction de succès pour
+// un corps de requête donné -- chaque route revalide intégralement, ceci
+// reste un simple reflet d'éligibilité par statut).
+// Requête PARTAGÉE (jamais dupliquée textuellement, correctif GATE LOT 7B
+// correction round suite à la revue finale `advisory-architect`) entre le
+// contrôle bloquant de `createReplacement` et `allowed_actions.replace` :
+// un remplacement `dismissed` ne compte jamais comme actif, tout autre
+// statut (draft/validated/...) si. Retourne la ligne (jamais seulement un
+// booléen) pour que `createReplacement` puisse citer l'id du remplacement
+// actif dans son message d'erreur.
+function activeSuccessorOf(recId) {
+  return db
+    .prepare("SELECT id FROM advisory_recommendations WHERE supersedes_recommendation_id = ? AND status <> 'dismissed'")
+    .get(recId);
+}
+
+function computeAllowedActions(rec, session, household) {
+  const writable = isSessionWritable(session, household);
+  const isDraft = writable && rec.status === 'draft';
+  const isValidated = writable && rec.status === 'validated';
+  return {
+    edit: isDraft,
+    validate: isDraft,
+    dismiss: isDraft,
+    withdraw: isValidated,
+    // Correctif GATE LOT 7B (correction round, détecté en écrivant les
+    // tests de capacités exigés par §5) : reflétait `isValidated` seul,
+    // sans jamais vérifier l'absence d'un remplacement déjà actif -- le
+    // bouton « Créer une nouvelle version » restait donc affiché même
+    // quand `createReplacement` aurait rejeté la tentative en 409
+    // (« a déjà un remplacement actif en cours »). Reproduit maintenant
+    // EXACTEMENT le même prédicat que ce contrôle bloquant.
+    replace: isValidated && !activeSuccessorOf(rec.id),
+    link_finding: isDraft,
+    unlink_finding: isDraft,
+    // Exige en plus `scope === 'member'` (GATE LOT 7B ciblé §11, revue
+    // advisory-architect) : reflète exactement les gardes serveur réelles
+    // de `linkMember`/`unlinkMember` (`assert(rec.scope === 'member', ...)`)
+    // -- sans effet fonctionnel aujourd'hui (le frontend n'expose encore
+    // aucune action de liaison/déliaison de membre sur une recommandation),
+    // mais `allowed_actions` reste la source unique de vérité des capacités
+    // ; une valeur `true` qu'un appel réel rejetterait ensuite romprait
+    // cette garantie dès qu'un futur écran l'utiliserait.
+    link_member: isDraft && rec.scope === 'member',
+    unlink_member: isDraft && rec.scope === 'member',
+  };
+}
+
+function toDetail(recommendation, session, household) {
   return {
     ...recommendation,
     no_alternatives_identified: !!recommendation.no_alternatives_identified,
@@ -323,7 +399,35 @@ function toDetail(recommendation, session) {
     finding_ids: currentLinkedFindingRows(recommendation.id).map((f) => f.id),
     member_ids: currentLinkedMemberIds(recommendation.id),
     potentially_stale: computeStaleness(recommendation, session),
+    allowed_actions: computeAllowedActions(recommendation, session, household),
   };
+}
+
+// Résolution du nom d'auteur (LOT 7B, revue préalable advisory-architect) --
+// même pattern que `hydrateFindingRows` (server/advisoryRuleExecutions.js) :
+// une seule requête batch, jamais un nom en remplacement des ids déjà
+// présents (`*_user_id` restent intacts, `*_name` s'y ajoute). Accepte un
+// détail unique ou un tableau ; mute et retourne tel quel pour un appel en
+// une expression sur chaque site de retour.
+const RECOMMENDATION_NAME_ID_FIELDS = ['created_by_user_id', 'validated_by_user_id', 'dismissed_by_user_id', 'withdrawn_by_user_id'];
+
+function hydrateRecommendationNames(details) {
+  const list = Array.isArray(details) ? details : [details];
+  const ids = [...new Set(list.flatMap((d) => RECOMMENDATION_NAME_ID_FIELDS.map((f) => d[f]).filter(Boolean)))];
+  const nameById = new Map();
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => '?').join(',');
+    for (const row of db.prepare(`SELECT id, name FROM users WHERE id IN (${placeholders})`).all(...ids)) {
+      nameById.set(row.id, row.name);
+    }
+  }
+  for (const d of list) {
+    d.created_by_name = d.created_by_user_id ? nameById.get(d.created_by_user_id) || null : null;
+    d.validated_by_name = d.validated_by_user_id ? nameById.get(d.validated_by_user_id) || null : null;
+    d.dismissed_by_name = d.dismissed_by_user_id ? nameById.get(d.dismissed_by_user_id) || null : null;
+    d.withdrawn_by_name = d.withdrawn_by_user_id ? nameById.get(d.withdrawn_by_user_id) || null : null;
+  }
+  return details;
 }
 
 // --- Création ---------------------------------------------------------
@@ -377,7 +481,7 @@ export function createRecommendation(sessionId, data = {}, req) {
   })();
 
   audit(req, 'recommandation créée', 'advisory_session', sessionId, `domain=${domain} scope=${scope}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 // --- Lecture ------------------------------------------------------------
@@ -395,6 +499,7 @@ function assertValidDomainFilter(domain) {
 
 export function getSessionRecommendationsList(sessionId, { domain, status } = {}, req) {
   const session = requireSession(sessionId);
+  const household = getHousehold(session.household_id);
   assertValidDomainFilter(domain);
   let sql = 'SELECT * FROM advisory_recommendations WHERE session_id = ?';
   const params = [sessionId];
@@ -402,7 +507,7 @@ export function getSessionRecommendationsList(sessionId, { domain, status } = {}
   if (status) { sql += ' AND status = ?'; params.push(status); }
   sql += ' ORDER BY id DESC';
   const rows = db.prepare(sql).all(...params);
-  const details = rows.map((r) => toDetail(r, session));
+  const details = hydrateRecommendationNames(rows.map((r) => toDetail(r, session, household)));
   auditRecommendationsViewIfNeeded(req, sessionId);
   auditSensitiveRecommendationsViewIfNeeded(req, sessionId, rows.some((r) => recommendationHasSensitiveFinding(r.id)));
   return details;
@@ -410,6 +515,7 @@ export function getSessionRecommendationsList(sessionId, { domain, status } = {}
 
 export function getSessionRecommendationsHistory(sessionId, { domain } = {}, req) {
   const session = requireSession(sessionId);
+  const household = getHousehold(session.household_id);
   assertValidDomainFilter(domain);
   let sql = 'SELECT * FROM advisory_recommendations WHERE session_id = ?';
   const params = [sessionId];
@@ -420,15 +526,16 @@ export function getSessionRecommendationsHistory(sessionId, { domain } = {}, req
   // GET .../findings/history (Lot 4A). `domain` est déjà validé ci-dessus :
   // seule une valeur de l'énumération, ou '', atteint jamais `details`.
   audit(req, 'consultation historique recommandations', 'advisory_session', sessionId, domain || '');
-  return rows.map((r) => toDetail(r, session));
+  return hydrateRecommendationNames(rows.map((r) => toDetail(r, session, household)));
 }
 
 export function getRecommendationDetail(sessionId, recId, req) {
   const session = requireSession(sessionId);
+  const household = getHousehold(session.household_id);
   const rec = requireRecommendationForSession(sessionId, recId);
   auditRecommendationsViewIfNeeded(req, sessionId);
   auditSensitiveRecommendationsViewIfNeeded(req, sessionId, recommendationHasSensitiveFinding(recId));
-  return toDetail(rec, session);
+  return hydrateRecommendationNames(toDetail(rec, session, household));
 }
 
 // --- Modification du brouillon (narratif + portée/membres + domaine,
@@ -494,7 +601,7 @@ export function updateRecommendationDraft(sessionId, recId, data = {}, req) {
   })();
 
   audit(req, 'recommandation modifiée', 'advisory_session', sessionId, `#${recId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 // --- Liens findings / membres unitaires -----------------------------------
@@ -519,7 +626,7 @@ export function linkFinding(sessionId, recId, findingId, expectedRevision, req) 
     db.prepare("UPDATE advisory_recommendations SET revision = revision + 1, updated_at = datetime('now') WHERE id = ?").run(recId);
   })();
   audit(req, 'finding lié', 'advisory_session', sessionId, `recommandation #${recId} <- finding #${findingId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 export function unlinkFinding(sessionId, recId, findingId, expectedRevision, req) {
@@ -535,7 +642,7 @@ export function unlinkFinding(sessionId, recId, findingId, expectedRevision, req
     db.prepare("UPDATE advisory_recommendations SET revision = revision + 1, updated_at = datetime('now') WHERE id = ?").run(recId);
   })();
   audit(req, 'finding délié', 'advisory_session', sessionId, `recommandation #${recId} -> finding #${findingId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 export function linkMember(sessionId, recId, memberId, expectedRevision, req) {
@@ -556,7 +663,7 @@ export function linkMember(sessionId, recId, memberId, expectedRevision, req) {
     db.prepare("UPDATE advisory_recommendations SET revision = revision + 1, updated_at = datetime('now') WHERE id = ?").run(recId);
   })();
   audit(req, 'membre lié', 'advisory_session', sessionId, `recommandation #${recId} <- membre #${memberId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 export function unlinkMember(sessionId, recId, memberId, expectedRevision, req) {
@@ -577,7 +684,7 @@ export function unlinkMember(sessionId, recId, memberId, expectedRevision, req) 
     db.prepare("UPDATE advisory_recommendations SET revision = revision + 1, updated_at = datetime('now') WHERE id = ?").run(recId);
   })();
   audit(req, 'membre délié', 'advisory_session', sessionId, `recommandation #${recId} -> membre #${memberId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 // --- Écartement / retrait --------------------------------------------------
@@ -598,7 +705,7 @@ export function dismissRecommendation(sessionId, recId, { dismiss_reason, expect
      dismissed_at = datetime('now'), revision = revision + 1, updated_at = datetime('now') WHERE id = ?`
   ).run(dismiss_reason.trim(), userId, recId);
   audit(req, 'recommandation écartée', 'advisory_session', sessionId, `#${recId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 export function withdrawRecommendation(sessionId, recId, { withdraw_reason, expected_recommendation_revision } = {}, req) {
@@ -617,7 +724,7 @@ export function withdrawRecommendation(sessionId, recId, { withdraw_reason, expe
      withdrawn_at = datetime('now'), revision = revision + 1, updated_at = datetime('now') WHERE id = ?`
   ).run(withdraw_reason.trim(), userId, recId);
   audit(req, 'recommandation retirée', 'advisory_session', sessionId, `#${recId}`);
-  return toDetail(getRecommendation(recId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household));
 }
 
 // --- Validation --------------------------------------------------------
@@ -685,8 +792,8 @@ export function validateRecommendation(sessionId, recId, { expected_recommendati
   audit(req, 'recommandation validée', 'advisory_session', sessionId, `#${recId}`);
   if (source) audit(req, 'recommandation remplacée', 'advisory_session', sessionId, `#${source.id} -> #${recId}`);
   return {
-    recommendation: toDetail(getRecommendation(recId), session),
-    supersedes: source ? toDetail(getRecommendation(source.id), session) : null,
+    recommendation: hydrateRecommendationNames(toDetail(getRecommendation(recId), session, household)),
+    supersedes: source ? hydrateRecommendationNames(toDetail(getRecommendation(source.id), session, household)) : null,
   };
 }
 
@@ -695,23 +802,31 @@ export function validateRecommendation(sessionId, recId, { expected_recommendati
 export function createReplacement(sessionId, sourceRecId, data = {}, req) {
   const session = requireSession(sessionId);
   const household = getHousehold(session.household_id);
-  assertSessionWritable(session, household);
+  // Anti-IDOR AVANT la vérification d'inscriptibilité (correctif GATE LOT
+  // 7B, correction round, uniformité relevée par la revue finale
+  // `advisory-architect`) : même ordre que les 9 autres fonctions
+  // d'écriture de ce fichier -- sans conséquence pratique via la route HTTP
+  // réelle (`sessionId` toujours dérivé de `sourceRecId`), mais évite toute
+  // divergence si ce service était un jour appelé directement.
   const source = requireRecommendationForSession(sessionId, sourceRecId);
+  assertSessionWritable(session, household);
   assert(source.status === 'validated', 'Seule une recommandation validated peut être remplacée.');
   assertExpectedRecommendationRevision(source, data.expected_source_recommendation_revision);
 
-  const existingSuccessor = db
-    .prepare("SELECT id FROM advisory_recommendations WHERE supersedes_recommendation_id = ? AND status <> 'dismissed'")
-    .get(sourceRecId);
+  const existingSuccessor = activeSuccessorOf(sourceRecId);
   if (existingSuccessor) {
     throw new AdvisoryError(`Cette recommandation a déjà un remplacement actif en cours (#${existingSuccessor.id}).`, 409);
   }
 
-  const { title, advisor_rationale, scope, member_ids } = data;
+  const { title, advisor_rationale, scope, member_ids, finding_ids } = data;
   assert(nonEmpty(title), 'title est obligatoire.');
   assert(nonEmpty(advisor_rationale), 'advisor_rationale est obligatoire.');
   const memberIds = assertValidScopeAndMembers(scope, member_ids);
   if (memberIds.length) assertMembersInSnapshot(session, memberIds);
+
+  const findingIds = Array.isArray(finding_ids) ? [...new Set(finding_ids.map(Number))] : [];
+  const findingRows = findingIds.map((id) => requireFindingForRecommendation(sessionId, source.domain, id));
+  assertFindingMemberCoherence(scope, memberIds, findingRows);
 
   const optional = extractOptionalNarrativeFields(data);
   delete optional.title;
@@ -730,6 +845,9 @@ export function createReplacement(sessionId, sourceRecId, data = {}, req) {
       for (const mId of memberIds) {
         db.prepare('INSERT INTO advisory_recommendation_members (recommendation_id, household_member_id, created_by_user_id) VALUES (?, ?, ?)').run(recId, mId, userId);
       }
+      for (const fId of findingIds) {
+        db.prepare('INSERT INTO advisory_recommendation_findings (recommendation_id, finding_id, created_by_user_id) VALUES (?, ?, ?)').run(recId, fId, userId);
+      }
       return recId;
     })();
   } catch (err) {
@@ -744,5 +862,5 @@ export function createReplacement(sessionId, sourceRecId, data = {}, req) {
   }
 
   audit(req, 'recommandation créée', 'advisory_session', sessionId, `remplacement de #${sourceRecId}`);
-  return toDetail(getRecommendation(newId), session);
+  return hydrateRecommendationNames(toDetail(getRecommendation(newId), session, household));
 }

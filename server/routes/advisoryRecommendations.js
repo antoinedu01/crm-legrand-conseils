@@ -33,6 +33,12 @@ function handle(res, fn) {
     if (err instanceof AdvisoryError) {
       const body = { error: err.message };
       if (err.missing) body.missing = err.missing;
+      // `code` (GATE LOT 7B ciblé §3) : identifiant machine stable,
+      // optionnel — absent (`undefined`, jamais une valeur inventée) tant
+      // que l'erreur d'origine n'en porte pas un. Le frontend doit
+      // distinguer les conflits sur CE champ, jamais sur `error` (texte
+      // français, non contractuel).
+      if (err.code) body.code = err.code;
       return res.status(err.status).json(body);
     }
     throw err;

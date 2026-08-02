@@ -65,6 +65,14 @@ export default function SessionFindings() {
   const [historyDomain, setHistoryDomain] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [globalError, setGlobalError] = useState(null);
+  // Sélection multiple pour la création groupée d'une recommandation (Lot
+  // 7B, §10) -- limitée à un SEUL domaine à la fois : les cases ne sont
+  // rendues que sur l'onglet de domaine actif (voir DomainPanel), donc
+  // seule la tentative de CHANGER d'onglet avec une sélection non vide doit
+  // être gérée explicitement ci-dessous (jamais un mélange silencieux de
+  // `common`/`health`/`life_pension`).
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [selectedFindingIds, setSelectedFindingIds] = useState(new Set());
   // Garde SYNCHRONE (constat GATE LOT 4B §7, QA de concurrence) : `analyzing`
   // (état React) ne protège le double-clic qu'APRÈS le rendu qui le reflète
   // dans le DOM (`disabled={analyzing}`) -- deux clics quasi simultanés
@@ -136,12 +144,48 @@ export default function SessionFindings() {
     navigate(`/diagnostic-360/sessions/${id}/workspace`, { state: { questionId, memberId: memberId ?? null, answerId: answerId ?? null } });
   }
 
+  // Refuse clairement le changement d'onglet tant qu'une sélection non vide
+  // existe (§10) -- jamais un mélange silencieux de domaines dans une même
+  // recommandation groupée.
+  function switchDomain(domain) {
+    if (selectedFindingIds.size > 0 && domain !== activeDomain) return;
+    setActiveDomain(domain);
+  }
+
+  function toggleSelected(findingId) {
+    setSelectedFindingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(findingId)) next.delete(findingId);
+      else next.add(findingId);
+      return next;
+    });
+  }
+
+  function clearSelection() { setSelectedFindingIds(new Set()); }
+
+  function createFromFindings(findingIds) {
+    navigate(`/diagnostic-360/sessions/${id}/recommendations`, { state: { findingIds, domain: activeDomain } });
+  }
+
   if (loading && !data) return <p className="muted">Chargement…</p>;
-  if (error) return <div className="alert error">{error}</div>;
+  if (error) return <div className="alert error" role="alert" aria-live="assertive">{error}</div>;
   if (!data) return null;
 
   const { session, household, by_domain, actions, global_state: globalState, synthesis } = data;
   const domainData = activeDomain ? by_domain[activeDomain] : null;
+  // Défense symétrique de `canDismiss` (même source serveur, `actions.
+  // can_create_recommendation`) -- corrige un garde manquant sur les deux
+  // points d'entrée vers la création d'une recommandation (constat
+  // compliance-privacy-reviewer + advisory-architect, revues finales Lot
+  // 7B) : la protection principale est désormais côté
+  // SessionRecommendations.jsx (garde sur l'écran de création lui-même),
+  // ceci évite en complément de laisser apparaître des affordances de
+  // création sur un foyer déjà archivé. Réutilise EXACTEMENT le même
+  // prédicat serveur que `recommendation_capabilities.create`
+  // (`advisorySessions.js`) et `assertSessionWritable`
+  // (`advisoryRecommendations.js`) -- plus aucun recalcul frontend depuis
+  // `household.status` (GATE LOT 7B ciblé §2B).
+  const canCreateRecommendation = actions.can_create_recommendation;
 
   return (
     <>
@@ -157,13 +201,14 @@ export default function SessionFindings() {
         </div>
         <div className="actions">
           <button className="ghost" onClick={() => navigate(`/diagnostic-360/sessions/${id}/workspace`)}>Ouvrir l'espace de rendez-vous</button>
+          <button className="ghost" onClick={() => navigate(`/diagnostic-360/sessions/${id}/recommendations`)}>Ouvrir les recommandations</button>
           <button className="primary" disabled={!actions.can_launch_analysis || analyzing} onClick={launchAnalysis}>
             {analyzing ? 'Analyse en cours…' : "Lancer l'analyse"}
           </button>
         </div>
       </div>
 
-      {globalError && <div className="alert error">{globalError}</div>}
+      {globalError && <div className="alert error" role="alert" aria-live="assertive">{globalError}</div>}
       {household.status === 'archive' && (
         <div className="alert warn">Ce foyer est archivé : consultation uniquement, aucune nouvelle analyse ni écartement n'est possible.</div>
       )}
@@ -183,12 +228,22 @@ export default function SessionFindings() {
               role="tab"
               aria-selected={d === activeDomain}
               className={d === activeDomain ? 'active' : ''}
-              onClick={() => setActiveDomain(d)}
+              onClick={() => switchDomain(d)}
             >
               {LINK_DOMAIN_LABELS[d] || d}
               {by_domain[d].findings.some((f) => f.status === 'active' && f.needs_review) && <span aria-hidden> ⚠</span>}
             </button>
           ))}
+        </div>
+      )}
+
+      {selectedFindingIds.size > 0 && (
+        <div className="readonly-banner mb">
+          <span>{selectedFindingIds.size} constat(s) sélectionné(s) ({LINK_DOMAIN_LABELS[activeDomain] || activeDomain}) — changer de domaine est désactivé tant que la sélection n'est pas vidée.</span>
+          <div className="flex">
+            {canCreateRecommendation && <button className="primary small" onClick={() => createFromFindings([...selectedFindingIds])}>Créer une recommandation ({selectedFindingIds.size})</button>}
+            <button className="ghost small" onClick={clearSelection}>Vider la sélection</button>
+          </div>
         </div>
       )}
 
@@ -201,6 +256,12 @@ export default function SessionFindings() {
           onDismiss={setDismissTarget}
           onGoToSource={goToSourceAnswer}
           onOpenHistory={() => setHistoryDomain(activeDomain)}
+          multiSelect={multiSelect}
+          onToggleMultiSelect={() => { setMultiSelect((v) => !v); clearSelection(); }}
+          selectedFindingIds={selectedFindingIds}
+          onToggleSelected={toggleSelected}
+          onCreateFromFinding={(findingId) => createFromFindings([findingId])}
+          canCreateRecommendation={canCreateRecommendation}
         />
       )}
 
@@ -293,7 +354,7 @@ const STATUS_FILTERS = [['active', 'Actifs'], ['dismissed', 'Écartés'], ['all'
 const PRIORITY_FILTERS = [['all', 'Toutes'], ['critical', 'Critique'], ['high', 'Élevée'], ['medium', 'Moyenne'], ['low', 'Faible']];
 const TYPE_FILTERS = [['all', 'Tous'], ...Object.entries(FINDING_TYPES)];
 
-function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHistory }) {
+function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHistory, multiSelect, onToggleMultiSelect, selectedFindingIds, onToggleSelected, onCreateFromFinding, canCreateRecommendation }) {
   const [filters, setFilters] = useState({ status: 'active', priority: 'all', type: 'all', member: 'all' });
   const findings = domainData.findings;
 
@@ -330,6 +391,11 @@ function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHi
       <DomainStateBanner domainData={domainData} />
       {domainData.last_execution && (
         <button className="ghost small mb" onClick={onOpenHistory}>Voir l'historique des analyses</button>
+      )}
+      {canCreateRecommendation && (
+        <button type="button" className={`chip mb${multiSelect ? ' active' : ''}`} aria-pressed={multiSelect} onClick={onToggleMultiSelect}>
+          Sélection multiple
+        </button>
       )}
 
       {domainData.last_execution && (
@@ -378,7 +444,12 @@ function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHi
         <Empty>Aucun constat ne correspond aux filtres actuels.</Empty>
       ) : (
         visible.map((f) => (
-          <FindingCard key={f.id} finding={f} canDismiss={canDismiss} onDismiss={() => onDismiss(f)} onGoToSource={onGoToSource} titleById={titleById} />
+          <FindingCard
+            key={f.id} finding={f} canDismiss={canDismiss} onDismiss={() => onDismiss(f)} onGoToSource={onGoToSource} titleById={titleById}
+            multiSelect={multiSelect} selected={selectedFindingIds?.has(f.id)} onToggleSelected={() => onToggleSelected(f.id)}
+            onCreateFromFinding={() => onCreateFromFinding(f.id)}
+            canCreateRecommendation={canCreateRecommendation}
+          />
         ))
       )}
     </>
@@ -387,7 +458,7 @@ function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHi
 
 // --- Carte d'un constat --------------------------------------------------
 
-function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly, titleById }) {
+function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly, titleById, multiSelect, selected, onToggleSelected, onCreateFromFinding, canCreateRecommendation }) {
   const answerRefs = (f.used_inputs_ref || []).filter((r) => r.kind === 'answer');
   const contractRefs = (f.used_inputs_ref || []).filter((r) => r.kind === 'contract_branch');
   const ruleRefCount = (f.used_inputs_ref || []).filter((r) => r.kind === 'rule_result').length;
@@ -401,6 +472,11 @@ function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly
   return (
     <div className={`card finding-card${activeConflict ? ' needs-review' : ''}${f.status !== 'active' ? ' dismissed' : ''}`}>
       <div className="f-head">
+        {multiSelect && f.status === 'active' && (
+          <label className="check" style={{ marginRight: 2 }}>
+            <input type="checkbox" checked={!!selected} onChange={onToggleSelected} aria-label={`Sélectionner « ${f.title} » pour une recommandation groupée`} />
+          </label>
+        )}
         <Badge value={f.finding_type} label={FINDING_TYPES[f.finding_type] || f.finding_type} />
         <Badge value={f.priority} label={PRIORITIES[f.priority] || f.priority} />
         <Badge value={f.finding_scope} label={FINDING_SCOPES[f.finding_scope] || f.finding_scope} />
@@ -507,9 +583,10 @@ function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly
         </div>
       </details>
 
-      {!readOnly && canDismiss && f.status === 'active' && (
+      {!readOnly && f.status === 'active' && (
         <div className="f-actions">
-          <button className="ghost small" onClick={onDismiss}>Écarter ce constat</button>
+          {canDismiss && <button className="ghost small" onClick={onDismiss}>Écarter ce constat</button>}
+          {!multiSelect && canCreateRecommendation && <button className="ghost small" onClick={onCreateFromFinding}>Créer une recommandation à partir de ce constat</button>}
         </div>
       )}
       {f.status === 'dismissed' && (

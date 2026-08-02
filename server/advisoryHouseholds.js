@@ -24,11 +24,17 @@ export const DEMOTABLE_ROLES = ['conjoint', 'autre_charge'];
 // 404/409 que seul ce service peut détecter (existence, conflits
 // d'invariants). Les routes restent responsables des 404 « ressource
 // introuvable » simples qu'elles peuvent vérifier elles-mêmes directement.
+// `code` (GATE LOT 7B ciblé §3) : identifiant machine STABLE, optionnel —
+// distinct de `message` (texte français destiné à l'affichage, jamais un
+// contrat). `null` par défaut pour tous les appelants qui n'en fournissent
+// pas encore : jamais une valeur inventée a posteriori, jamais un `code`
+// dérivé du message par un appelant.
 export class AdvisoryError extends Error {
-  constructor(message, status = 400) {
+  constructor(message, status = 400, code = null) {
     super(message);
     this.name = 'AdvisoryError';
     this.status = status;
+    this.code = code;
   }
 }
 

@@ -4,7 +4,12 @@
   --surface: #fcfcfb;
   --ink: #0b0b0b;
   --ink-2: #52514e;
-  --muted: #898781;
+  /* #898781 mesurait ~3.4:1 sur --page/--surface (sous le seuil WCAG AA
+     4.5:1 pour du texte normal) -- corrigé (GATE LOT 7B, correctif exigé
+     avant commit), variable globale donc bénéficie à toute l'application,
+     jamais une teinte réservée au seul module Diagnostic 360. #6a6862
+     mesure ~5.3:1 sur --surface / ~5.4:1 sur --page. */
+  --muted: #6a6862;
   --grid: #e1e0d9;
   --baseline: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
@@ -16,7 +21,10 @@
   --good-text: #006300;
   --warning: #fab219;
   --serious: #ec835a;
-  --critical: #d03b3b;
+  /* #d03b3b mesurait ~4.2:1 sur le fond teinté de `.alert.error`
+     (rgba(critical, 0.06) composé sur --page/--surface) -- sous le seuil
+     AA 4.5:1. Corrigé : #c33434 mesure ~4.7-5.3:1 selon le fond. */
+  --critical: #c33434;
   --wash: rgba(42, 120, 214, 0.08);
   --shadow: 0 1px 3px rgba(11, 11, 11, 0.07);
 }
@@ -37,6 +45,13 @@
     --series-2: #199e70;
     --good: #0ca30c;
     --good-text: #0ca30c;
+    /* #d03b3b (hérité de --root faute de redéfinition ici) mesurait
+       ~3.9:1 sur le fond teinté sombre de `.alert.error` -- sous AA en
+       thème sombre aussi, et davantage que le défaut du thème clair
+       (fond bien plus sombre, nécessite un rouge bien plus clair, pas
+       simplement le même rouge assombri utilisé côté clair). Corrigé :
+       #ff6b6b mesure ~6.3-7:1 sur les fonds sombres de ce thème. */
+    --critical: #ff6b6b;
     --wash: rgba(57, 135, 229, 0.14);
     --shadow: none;
   }
@@ -136,7 +151,11 @@ button:hover { background: var(--wash); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
 button.danger { color: var(--critical); border-color: var(--critical); background: transparent; }
-button.danger:hover { background: rgba(208, 59, 59, 0.08); }
+/* `color-mix` plutôt qu'un rgba figé (dette signalée par la revue finale
+   `client-meeting-ux`, correction round) : suit automatiquement `--critical`
+   quel que soit le thème, jamais une teinte qui pourrait se désynchroniser
+   silencieusement d'un futur changement de palette. */
+button.danger:hover { background: color-mix(in srgb, var(--critical) 8%, transparent); }
 button.ghost { border-color: transparent; background: transparent; color: var(--accent-ink); }
 button.small { padding: 4px 10px; font-size: 12px; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -186,7 +205,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* ---------- Misc ---------- */
 .empty { color: var(--muted); text-align: center; padding: 28px 10px; font-size: 13px; }
 .alert { border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; border: 1px solid; }
-.alert.error { color: var(--critical); border-color: var(--critical); background: rgba(208, 59, 59, 0.06); }
+.alert.error { color: var(--critical); border-color: var(--critical); background: color-mix(in srgb, var(--critical) 6%, transparent); }
 .alert.warn { color: #8a6100; border-color: var(--warning); background: rgba(250, 178, 25, 0.1); }
 @media (prefers-color-scheme: dark) { .alert.warn { color: var(--warning); } }
 .alert.ok { color: var(--good-text); border-color: var(--good); background: rgba(12, 163, 12, 0.07); }
@@ -371,16 +390,49 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .chip:hover { background: var(--wash); }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-.finding-card { margin-bottom: 10px; }
-.finding-card.needs-review { border-color: var(--warning); }
-.finding-card.dismissed { opacity: 0.7; }
-.finding-card .f-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
-.finding-card .f-title { font-weight: 600; flex: 1 1 auto; }
-.finding-card .f-summary { color: var(--ink-2); font-size: 13px; margin-bottom: 6px; }
-.finding-card .f-explanation { font-size: 13px; margin: 6px 0; padding: 8px 10px; background: var(--page); border-radius: 8px; border: 1px solid var(--border); }
+.finding-card, .recommendation-card { margin-bottom: 10px; }
+.finding-card.needs-review, .recommendation-card.stale { border-color: var(--warning); }
+.finding-card.dismissed, .recommendation-card.dismissed, .recommendation-card.withdrawn, .recommendation-card.superseded { opacity: 0.7; }
+.finding-card .f-head, .recommendation-card .f-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+/* Case de sélection multiple (Lot 7B) -- même remarque de cible tactile que
+   `.radiogroup label.check` (GATE LOT 3B §12, constat client-meeting-ux
+   revues finales Lot 7B) : `label.check` seul ne donne que la taille native
+   du contrôle sur tablette. */
+.finding-card .f-head label.check { padding: 8px 6px; min-height: 32px; border-radius: 6px; }
+.finding-card .f-head label.check input { flex-shrink: 0; width: 20px; height: 20px; }
+.finding-card .f-title, .recommendation-card .f-title { font-weight: 600; flex: 1 1 auto; }
+.finding-card .f-summary, .recommendation-card .f-summary { color: var(--ink-2); font-size: 13px; margin-bottom: 6px; }
+.finding-card .f-explanation, .recommendation-card .f-explanation { font-size: 13px; margin: 6px 0; padding: 8px 10px; background: var(--page); border-radius: 8px; border: 1px solid var(--border); }
 .finding-card .f-explanation.client { background: var(--wash); }
-.finding-card .f-explanation-label { display: block; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
-.finding-card .f-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+.finding-card .f-explanation-label, .recommendation-card .f-explanation-label { display: block; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+.finding-card .f-actions, .recommendation-card .f-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---------- Recommandations humaines (Lot 7B) -- réutilise .finding-card
+   ci-dessus par extension de sélecteur (même principe que « .kcard details,
+   .finding-card details » plus haut), classes propres uniquement pour ce
+   que .finding-card ne couvre pas déjà. ---------- */
+.recommendation-card .r-findings { margin-top: 6px; font-size: 12.5px; }
+.recommendation-card .r-findings summary { cursor: pointer; color: var(--accent-ink); }
+.rec-form-layout { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) {
+  .rec-form-layout { grid-template-columns: 1fr; }
+  /* Même précédent que `.wksp-rail` ci-dessus : un panneau sticky en layout
+     empilé (tablette portrait) recouvre le formulaire pendant le défilement
+     (constat client-meeting-ux, revues finales Lot 7B). */
+  .rec-sources { position: static; }
+}
+.rec-sources { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 12px; }
+/* `<fieldset>` (constat client-meeting-ux : associer programmatiquement le
+   libellé de rubrique aux trois boutons radio) porte une bordure/un
+   padding par défaut du navigateur -- réinitialisés ici. Cible tactile
+   alignée sur `.radiogroup label.check` (même 13px/20px, même remarque GATE
+   LOT 3B §12 : l'incohérence entre les deux était elle-même un défaut
+   relevé lors des revues finales Lot 7B). */
+.declaration-group { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; border: none; padding: 0; }
+.declaration-group legend { padding: 0; margin-bottom: 2px; }
+.declaration-group label.check { padding: 13px 6px; min-height: 32px; border-radius: 6px; }
+.declaration-group label.check:hover { background: var(--wash); }
+.declaration-group label.check input { flex-shrink: 0; width: 20px; height: 20px; }
 
 .muted { color: var(--muted); }
 .right { text-align: right; }

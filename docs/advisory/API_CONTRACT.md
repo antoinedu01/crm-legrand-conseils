@@ -246,6 +246,33 @@
   + composition (`questionnaire_versions`) + `answered_count`. Pas encore de
   réponses/findings/recommandations/consentements imbriqués (ces objets
   n'existent pas avant les lots suivants).
+- **`members`** (ajouté Lot 7B, revue préalable `advisory-architect`) :
+  périmètre figé de la session (`sessionMembersFor`, même source que
+  `GET .../workspace`), surface minimale — `{id, display_name, member_role,
+  historical}` par membre, jamais `client_id`/`current_status` bruts. Sert
+  au sélecteur de membres du formulaire de recommandation (`scope =
+  member`) sans devoir charger l'arbre complet du questionnaire. Un ancien
+  membre (`historical: true`) reste présent — voir `DATA_MODEL.md` §5.5ter,
+  un ancien membre du périmètre reste ciblable pour une nouvelle
+  recommandation, seul un membre jamais membre de la session ne l'est pas.
+  `can_answer` retiré de cette surface (GATE LOT 7B ciblé §11, revue
+  compliance-privacy-reviewer) : jamais consommé par le sélecteur de
+  membres qui lit cette liste (`SessionRecommendations.jsx`) — à ne pas
+  confondre avec `can_answer` du périmètre de travail (`GET .../workspace`
+  ci-dessous), lui bien consommé par `SessionWorkspace.jsx` et resté
+  inchangé.
+- **`recommendation_capabilities`** (ajouté GATE LOT 7B ciblé §2B) :
+  `{ create: boolean }` — la disponibilité de la CRÉATION d'une nouvelle
+  recommandation est, comme ses transitions (`allowed_actions`, voir
+  ci-dessous), une décision métier que le frontend ne doit jamais
+  recalculer. Réutilise EXACTEMENT le même prédicat `isSessionWritable`
+  (`server/advisorySessions.js`, exporté et partagé avec
+  `server/advisoryRecommendations.js` — `assertSessionWritable`,
+  `computeAllowedActions` — et `server/advisoryRuleExecutions.js` —
+  `actions.can_create_recommendation` sur `GET .../findings-workspace`,
+  consommé par `SessionFindings.jsx`) : `session.status === 'completed' &&
+  household.status !== 'archive'`, une seule définition, jamais une
+  redéfinition divergente entre les trois modules.
 - **Audit** : aucun dans ce lot (accès non journalisé, à la différence du
   détail d'un foyer — à revoir si un contenu personnel plus sensible y
   apparaît en Lot 5/6).
@@ -788,6 +815,18 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
   `read_at`, et pour une réponse l'id immuable `advisory_answers`
   réellement utilisé — GATE LOT 4A §4) : jamais réévaluée à cette lecture,
   quelle que soit la classification actuelle de la question.
+- **`findings[].member`** (corrigé GATE LOT 7B ciblé §11, revue
+  compliance-privacy-reviewer) : même projection MINIMALE que
+  `findings[].member` de `GET .../findings-workspace` ci-dessous —
+  `{id, display_name, member_role, historical}`, jamais `client_id`/
+  `current_status`/`no_longer_active`/`can_answer`. Cette route reste
+  réutilisée telle quelle par `HistoryModal`
+  (`client/src/pages/SessionFindings.jsx`), qui rend ses findings via le
+  MÊME composant `FindingCard` que l'écran principal — le même défaut de
+  sur-exposition que celui déjà corrigé sur `findings-workspace` avait été
+  reproduit ici (route distincte, minimisation appliquée séparément et
+  jamais partagée avant ce correctif) et n'avait pas été détecté par
+  l'audit initial du §6, ciblé uniquement sur `findings-workspace`.
 - **Erreurs** : `404` si l'exécution n'appartient pas à cette session (même
   protection que `getQuestionForSession`, Lot 3A).
 - **Cache** : `Cache-Control: no-store, private`.
@@ -876,7 +915,7 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
         "last_attempt_error": null,
         "findings": [{ "id": 101, "domain": "health", "finding_scope": "member",
           "household_member_id": 12, "member": { "id": 12, "display_name": "...",
-            "member_role": "principal", "historical": false, "can_answer": true },
+            "member_role": "principal", "historical": false },
           "finding_type": "detected_need", "priority": "high", "title": "...", "summary": "...",
           "advisor_explanation": "...", "client_explanation": null, "missing_data": null,
           "warnings": [], "contraindications": [], "status": "active",
@@ -893,9 +932,25 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
     "global_state": "up_to_date",
     "synthesis": { "active_findings_count": 4, "active_conflicts_count": 0,
       "domains_current": ["health", "life_pension"], "domains_excluded_stale": [] },
-    "actions": { "can_launch_analysis": true, "can_dismiss_findings": true }
+    "actions": { "can_launch_analysis": true, "can_dismiss_findings": true, "can_create_recommendation": true }
   }
   ```
+- **`actions.can_create_recommendation`** (ajouté GATE LOT 7B ciblé §2B) :
+  même prédicat `isSessionWritable` que `recommendation_capabilities.create`
+  (`GET .../sessions/:id`) et `assertSessionWritable`/`computeAllowedActions`
+  (`server/advisoryRecommendations.js`) — une seule définition partagée,
+  consommée par `SessionFindings.jsx` pour masquer ses deux points d'entrée
+  vers la création d'une recommandation (bouton par constat, bouton groupé
+  de sélection multiple) sans jamais recalculer `household.status` côté
+  client.
+- **`findings[].member`** (revu GATE LOT 7B ciblé §6, minimisation) : projection
+  MINIMALE `{id, display_name, member_role, historical}` — `client_id`
+  (identifiant technique interne), `current_status`/`no_longer_active`
+  (doublons stricts de `historical`) et `can_answer` (nécessaire ailleurs,
+  à `GET .../workspace` pour le statut de réponse d'un membre, sans usage
+  sur cet écran) ne sont plus transmis ici : aucun de ces champs n'était
+  consommé par `SessionFindings.jsx` (défaut de sur-exposition détecté et
+  corrigé pendant l'audit de minimisation de ce GATE).
 - **États de domaine** (`by_domain[domaine].state`, TOUJOURS dérivés à la
   lecture, jamais stockés) : `no_rule_set_available` (aucune exécution
   complétée ET aucun ensemble publié — état normal, jamais une erreur) ;
@@ -1024,6 +1079,80 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
 > global `/api`), auditées, `Cache-Control: no-store, private` en lecture,
 > protection IDOR (recommandation vérifiée appartenir à la session déduite —
 > `404` sinon, jamais un `500`).
+>
+> **Noms d'auteur (ajouté Lot 7B, revue préalable `advisory-architect`)** :
+> chaque route de lecture ET d'écriture ci-dessous ajoute désormais
+> `created_by_name`/`validated_by_name`/`dismissed_by_name`/
+> `withdrawn_by_name` à côté des `*_user_id` déjà présents (jamais en
+> remplacement), résolus par lot via `hydrateRecommendationNames` — même
+> pattern que `dismissed_by_name` pour les findings
+> (`server/advisoryRuleExecutions.js`, `hydrateFindingRows`). `null` quand
+> l'action correspondante n'a pas encore eu lieu.
+>
+> **`allowed_actions` (ajouté GATE LOT 7B ciblé)** : chaque route de lecture
+> ET d'écriture ci-dessous ajoute désormais un objet `allowed_actions` —
+> `{ edit, validate, dismiss, withdraw, replace, link_finding,
+> unlink_finding, link_member, unlink_member }` (booléens) — calculé
+> EXCLUSIVEMENT côté serveur (`computeAllowedActions`,
+> `server/advisoryRecommendations.js`), reflet exact des gardes déjà
+> imposés par chaque route d'écriture correspondante
+> (`assertSessionWritable` + `assertDraftMutable`/`assertAction` via
+> `TRANSITIONS`) — jamais une redéfinition divergente. Élimine la
+> duplication frontend de ces transitions (`status === 'draft'`,
+> `status === 'validated'`, `household.status === 'archive'`), jusque-là
+> recalculées indépendamment dans `SessionRecommendations.jsx`. Additif et
+> minimal : reflète uniquement l'éligibilité par statut, jamais une
+> prédiction de succès pour un corps de requête donné — chaque route
+> revalide intégralement à l'appel. Ne couvre pas la CRÉATION d'une
+> nouvelle recommandation (propriété de la session/du foyer, pas d'une
+> ligne recommandation existante) — cette capacité est couverte séparément
+> par `recommendation_capabilities.create` (`GET .../sessions/:id`, §2B
+> ci-dessus) et par `actions.can_create_recommendation` (`GET
+> .../findings-workspace`), jamais recalculée côté page. `link_member`/
+> `unlink_member` exigent en plus `scope === 'member'` (corrigé GATE LOT 7B
+> ciblé §11, revue advisory-architect — absent jusque-là, un brouillon
+> `scope = household`/`session` affichait ces deux actions comme
+> disponibles alors que `linkMember`/`unlinkMember` les auraient rejetées) :
+> reflet exact des gardes serveur réelles
+> (`assert(rec.scope === 'member', ...)`). `replace` exige en plus
+> l'absence d'un remplacement déjà actif -- non `dismissed` -- sur cette
+> recommandation (correctif GATE LOT 7B correction round, revue
+> `advisory-architect` -- absent jusque-là, `replace` valait `isValidated`
+> seul, le bouton « Créer une nouvelle version » restait affiché même
+> quand `POST .../replacement` aurait rejeté la tentative en 409) : reflet
+> exact du même contrôle bloquant (`activeSuccessorOf`,
+> `server/advisoryRecommendations.js`).
+>
+> **Codes d'erreur machine (ajouté GATE LOT 7B ciblé §3)** : la distinction
+> entre différents conflits ne doit jamais dépendre du texte français de
+> `error` (susceptible d'être reformulé) — chaque réponse d'erreur émise
+> par ce groupe de routes porte désormais, en plus de `error`, un champ
+> `code` optionnel dès que la situation correspond à l'une des suivantes
+> (`server/advisoryRecommendations.js`, `ERROR_CODES`) :
+>
+> | `code` | Situation | Statut HTTP |
+> |---|---|---|
+> | `RECOMMENDATION_REVISION_CONFLICT` | `expected_recommendation_revision` ne correspond plus à la révision réelle | 409 |
+> | `SESSION_REVISION_CONFLICT` | `expected_session_revision` ne correspond plus à la révision réelle (validation uniquement) | 409 |
+> | `RECOMMENDATION_STATE_CONFLICT` | Transition impossible depuis le statut courant (`assertAction`/`TRANSITIONS`), ou écriture tentée sur une recommandation qui n'est plus `draft` (`assertDraftMutable`) | 409 |
+> | `SESSION_NOT_WRITABLE` | La session n'est pas `completed` | 409 |
+> | `HOUSEHOLD_ARCHIVED` | Le foyer est `archive` | 409 |
+>
+> Format de réponse :
+> ```json
+> { "error": "Cette recommandation a été modifiée ailleurs depuis votre dernière lecture (révision attendue 3, révision réelle 4). Rechargez avant de réessayer.",
+>   "code": "RECOMMENDATION_REVISION_CONFLICT" }
+> ```
+> `code` est **absent** (jamais une valeur inventée) pour les situations non
+> couvertes par cette liste (ex. finding non actif au moment de la
+> validation, finding hors du bon domaine, remplacement déjà en cours) —
+> ces cas restent, pour l'instant, distingués uniquement par `error` et par
+> le statut HTTP ; aucun code n'a été inventé pour une situation non
+> demandée par ce GATE, conformément à la consigne « éviter de créer
+> plusieurs codes pour une même situation ». `SessionRecommendations.jsx`
+> (`ValidateModal`, `save()`, `unlinkFinding()`) distingue désormais ces
+> conflits sur `err.data.code`, jamais plus sur une correspondance de texte
+> (`err.message`).
 
 ### `GET /api/advisory/sessions/:id/recommendations`
 - Liste des recommandations de la session (filtre `domain?`/`status?`
@@ -1118,13 +1247,21 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
 - **Audit** : `recommandation retirée`.
 
 ### `POST /api/advisory/recommendations/:id/replacement`
-- **Corps** : `{ expected_source_recommendation_revision, title, advisor_rationale, scope, member_ids?, ...champs narratifs facultatifs }`.
+- **Corps** : `{ expected_source_recommendation_revision, title, advisor_rationale, scope, member_ids?, finding_ids?, ...champs narratifs facultatifs }`.
 - Crée un brouillon de remplacement (`supersedes_recommendation_id` fixé,
   domaine hérité de la source). Source doit être `validated`, révision
   attendue conforme, aucun autre successeur non-`dismissed` déjà actif
   (`409` sinon — garanti au niveau SQLite par un index UNIQUE PARTIEL,
   `docs/MIGRATIONS.md` version 12). Un premier brouillon de remplacement
   écarté (`dismissed`) libère la possibilité d'un nouvel essai.
+- `finding_ids` (correctif GATE LOT 7B, correction round pré-commit) : mêmes
+  contrôles que `POST .../sessions/:id/recommendations` (cohérence de
+  domaine via un constat de la session/du domaine de la source, cohérence
+  membre via `assertFindingMemberCoherence`), liés dans la même transaction
+  que la création. Facultatif — un remplacement créé sans `finding_ids`
+  reste un brouillon sans constat lié (même comportement historique), mais
+  ne pourra pas être validé tant qu'au moins un constat n'est pas lié (voir
+  `POST .../:id/findings` ci-dessous).
 - **Audit** : `recommandation créée`.
 
 **Interdiction explicite** : aucune route de ce contrat ne permet à un

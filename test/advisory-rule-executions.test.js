@@ -1942,6 +1942,7 @@ test('getSessionFindingsWorkspace — session mixed : by_domain regroupe STRICTE
   assert.equal(before.household.members.length, 2);
   assert.equal(before.actions.can_launch_analysis, true);
   assert.equal(before.actions.can_dismiss_findings, true);
+  assert.equal(before.actions.can_create_recommendation, true);
 
   E.executeApplicableRuleSetsForSession(sessionId, rev(sessionId), REQ);
   const after = E.getSessionFindingsWorkspace(sessionId, REQ);
@@ -1953,6 +1954,22 @@ test('getSessionFindingsWorkspace — session mixed : by_domain regroupe STRICTE
   assert.equal(after.by_domain.life_pension.findings.length, 0);
   assert.equal(after.by_domain.common.state, 'no_rule_set_available');
   assert.equal(after.by_domain.life_pension.state, 'no_rule_set_available');
+});
+
+// GATE LOT 7B ciblé §2B : `can_create_recommendation` réutilise le même
+// prédicat `isSessionWritable` que `advisorySessions.js`
+// (`recommendation_capabilities.create`) et `advisoryRecommendations.js`
+// (`assertSessionWritable`) -- foyer dédié isolé (jamais le `householdId`
+// partagé par le reste de ce fichier) pour l'archiver sans affecter les
+// autres tests.
+test('getSessionFindingsWorkspace — actions.can_create_recommendation : faux si le foyer est archivé', () => {
+  const dedicatedPrincipalId = insertClient();
+  const { id: dedicatedHouseholdId } = createHousehold({ primary_client_id: dedicatedPrincipalId }, REQ);
+  const sessionId = createAndStartSession(dedicatedHouseholdId, 'health', { versionId: healthVersionId });
+  ensureCompleted(sessionId);
+  db.prepare("UPDATE households SET status = 'archive' WHERE id = ?").run(dedicatedHouseholdId);
+  const workspace = E.getSessionFindingsWorkspace(sessionId, REQ);
+  assert.equal(workspace.actions.can_create_recommendation, false);
 });
 
 test('getSessionFindingsWorkspace — finding_scope=member : le membre concerné est résolu via sessionMembersFor (jamais une lecture directe household_members), household_member_id absent -> member null', () => {
@@ -1981,6 +1998,63 @@ test('getSessionFindingsWorkspace — finding_scope=member : le membre concerné
   assert.equal(finding.member.id, principalMemberId);
   assert.equal(finding.member.member_role, 'principal');
   assert.equal(finding.member.historical, false);
+});
+
+test('getSessionFindingsWorkspace — finding.member : projection minimale exacte (GATE LOT 7B ciblé §6), client_id/current_status/no_longer_active/can_answer absents', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [
+    { question_id: memberQId, household_member_id: principalMemberId, status: 'answered', value: true },
+  ], rev(sessionId), REQ);
+  archiveAllPublishedForDomain('common');
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-workspace-member-minimal'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-WORKSPACE-MEMBER-MINIMAL',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [], finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+
+  const workspace = E.getSessionFindingsWorkspace(sessionId, REQ);
+  const finding = workspace.by_domain.health.findings[0];
+  // Assertion sur l'ensemble EXACT des clés (pas seulement la présence des
+  // champs utiles) -- toute clé technique interne ajoutée par erreur
+  // (`client_id`, `current_status`, `no_longer_active`, `can_answer`, non
+  // consommées par SessionFindings.jsx) ferait échouer ce test.
+  assert.deepEqual(Object.keys(finding.member).sort(), ['display_name', 'historical', 'id', 'member_role'].sort());
+});
+
+test('getExecutionDetail — finding.member : même projection minimale exacte que getSessionFindingsWorkspace (GATE LOT 7B ciblé §11, revue compliance-privacy-reviewer), client_id/current_status/no_longer_active/can_answer absents', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [
+    { question_id: memberQId, household_member_id: principalMemberId, status: 'answered', value: true },
+  ], rev(sessionId), REQ);
+  archiveAllPublishedForDomain('common');
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-detail-member-minimal'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-DETAIL-MEMBER-MINIMAL',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [], finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  const finding = detail.findings[0];
+  assert.ok(finding.member, 'un finding de portée membre doit porter le membre résolu, y compris via getExecutionDetail (HistoryModal)');
+  // Assertion sur l'ensemble EXACT des clés : toute clé technique interne
+  // ajoutée par erreur (`client_id`, `current_status`, `no_longer_active`,
+  // `can_answer`, non consommées par HistoryModal/FindingCard) ferait
+  // échouer ce test.
+  assert.deepEqual(Object.keys(finding.member).sort(), ['display_name', 'historical', 'id', 'member_role'].sort());
 });
 
 test('getSessionFindingsWorkspace — un finding écarté porte le nom du conseiller qui l\'a écarté (dismissed_by_name), hydraté en une seule requête groupée', () => {

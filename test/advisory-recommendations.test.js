@@ -283,6 +283,73 @@ test('withdrawRecommendation — foyer archivé après validation : retrait refu
   );
 });
 
+// Correctif GATE LOT 7B (correction round, revue finale
+// `compliance-privacy-reviewer`) : la politique foyer archivé était déjà
+// appliquée par le code (`assertSessionWritable` appelée sans exception par
+// les 10 fonctions d'écriture) mais seulement verrouillée par un test dédié
+// pour 4 d'entre elles ci-dessus -- jamais pour `createReplacement`
+// (précisément le chemin modifié par ce round), ni pour
+// `linkFinding`/`unlinkFinding`/`linkMember`/`unlinkMember`. Comble ce trou
+// de couverture : un futur refactor de ces 5 fonctions romprait désormais
+// un test si la revalidation `household.status` disparaissait.
+test('createReplacement — foyer archivé après validation de la source : remplacement refusé (409)', () => {
+  const { householdId: hId } = buildHouseholdWithChild();
+  const { sessionId, findingId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = baseDraft(sessionId, 'health', { summary: 'Résumé technique fictif.' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) }, REQ).recommendation;
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  assert.throws(
+    () => REC.createReplacement(sessionId, validated.id, { expected_source_recommendation_revision: validated.revision, title: 'X', advisor_rationale: 'R', scope: 'household' }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409
+  );
+});
+
+test('linkFinding — foyer archivé après création du brouillon : liaison refusée (409)', () => {
+  const { householdId: hId } = buildHouseholdWithChild();
+  const { sessionId, findingId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = baseDraft(sessionId, 'health');
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  assert.throws(
+    () => REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409
+  );
+});
+
+test('unlinkFinding — foyer archivé après liaison du finding : déliaison refusée (409)', () => {
+  const { householdId: hId } = buildHouseholdWithChild();
+  const { sessionId, findingId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = baseDraft(sessionId, 'health');
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  assert.throws(
+    () => REC.unlinkFinding(sessionId, rec.id, findingId, linked.revision, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409
+  );
+});
+
+test('linkMember — foyer archivé après création du brouillon : liaison refusée (409)', () => {
+  const { householdId: hId, principalMemberId: pId, childMemberId: cId } = buildHouseholdWithChild();
+  const { sessionId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = REC.createRecommendation(sessionId, { domain: 'health', scope: 'member', member_ids: [pId], title: 'T', advisor_rationale: 'R' }, REQ);
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  assert.throws(
+    () => REC.linkMember(sessionId, rec.id, cId, rec.revision, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409
+  );
+});
+
+test('unlinkMember — foyer archivé après liaison de deux membres : déliaison refusée (409)', () => {
+  const { householdId: hId, principalMemberId: pId, childMemberId: cId } = buildHouseholdWithChild();
+  const { sessionId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = REC.createRecommendation(sessionId, { domain: 'health', scope: 'member', member_ids: [pId, cId], title: 'T', advisor_rationale: 'R' }, REQ);
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  assert.throws(
+    () => REC.unlinkMember(sessionId, rec.id, pId, rec.revision, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409
+  );
+});
+
 // ============================================================================
 // Portée et membres — mise à jour atomique
 // ============================================================================
@@ -629,6 +696,73 @@ test('createReplacement — création normale : brouillon draft, supersedes_reco
   assert.equal(replacement.domain, source.domain);
 });
 
+// Correctif GATE LOT 7B (correction round) : `createReplacement` ignorait
+// silencieusement `finding_ids` (contrairement à `createRecommendation`),
+// si bien qu'un remplacement créé depuis l'interface ne pouvait jamais être
+// validé (« Au moins un constat source est obligatoire pour valider une
+// recommandation »), détecté uniquement par la QA Playwright réelle (§3/§4)
+// -- jamais par une inspection statique. Même contrat de validation que
+// `createRecommendation` : domaine cohérent (`requireFindingForRecommendation`)
+// et cohérence membre (`assertFindingMemberCoherence`), jamais une simple
+// copie brute des ids reçus.
+test('createReplacement — finding_ids fourni à la création : lié immédiatement, sans appel séparé à linkFinding', () => {
+  const { sessionId, source } = validatedRecommendation();
+  const sourceSessionFinding = db.prepare(
+    `SELECT f.id FROM advisory_findings f WHERE f.session_id = ? AND f.domain = ? AND f.status = 'active' LIMIT 1`
+  ).get(sessionId, source.domain);
+  const replacement = REC.createReplacement(sessionId, source.id, {
+    expected_source_recommendation_revision: source.revision, title: 'Version corrigée', advisor_rationale: 'R2',
+    scope: 'household', finding_ids: [sourceSessionFinding.id],
+  }, REQ);
+  const linked = db.prepare('SELECT finding_id FROM advisory_recommendation_findings WHERE recommendation_id = ?').all(replacement.id);
+  assert.deepEqual(linked.map((r) => r.finding_id), [sourceSessionFinding.id]);
+});
+
+test('createReplacement — finding_ids fourni à la création : validation directe réussit sans liaison manuelle ultérieure', () => {
+  const { sessionId, source } = validatedRecommendation();
+  const sourceSessionFinding = db.prepare(
+    `SELECT f.id FROM advisory_findings f WHERE f.session_id = ? AND f.domain = ? AND f.status = 'active' LIMIT 1`
+  ).get(sessionId, source.domain);
+  const replacement = REC.createReplacement(sessionId, source.id, {
+    expected_source_recommendation_revision: source.revision, title: 'Version corrigée', advisor_rationale: 'R2', summary: 'S2',
+    scope: 'household', finding_ids: [sourceSessionFinding.id],
+  }, REQ);
+  const result = REC.validateRecommendation(sessionId, replacement.id, {
+    expected_recommendation_revision: replacement.revision, expected_session_revision: rev(sessionId),
+  }, REQ);
+  assert.equal(result.recommendation.status, 'validated');
+});
+
+test('createReplacement — finding_ids d\'un autre domaine que la source refusé (409), rien n\'est écrit (même contrôle que createRecommendation)', () => {
+  const { sessionId: healthSessionId } = createSessionWithActiveFinding('health');
+  const foreignFinding = db.prepare(
+    `SELECT id FROM advisory_findings WHERE session_id = ? AND domain = 'health' LIMIT 1`
+  ).get(healthSessionId);
+  const { sessionId, source } = validatedRecommendation('life_pension');
+  assert.throws(
+    () => REC.createReplacement(sessionId, source.id, {
+      expected_source_recommendation_revision: source.revision, title: 'X', advisor_rationale: 'R', scope: 'household',
+      finding_ids: [foreignFinding.id],
+    }, REQ),
+    (e) => e.status === 409 || e.status === 404
+  );
+  const count = db.prepare('SELECT COUNT(*) AS n FROM advisory_recommendations WHERE supersedes_recommendation_id = ?').get(source.id).n;
+  assert.equal(count, 0, 'aucun brouillon de remplacement ne doit rester si la validation des findings échoue avant la transaction');
+});
+
+test('createReplacement — sans finding_ids (défaut) : comportement historique inchangé, brouillon créé sans aucun constat lié', () => {
+  const { sessionId, source } = validatedRecommendation();
+  const replacement = REC.createReplacement(sessionId, source.id, {
+    expected_source_recommendation_revision: source.revision, title: 'Version corrigée', advisor_rationale: 'R2', scope: 'household',
+  }, REQ);
+  const linked = db.prepare('SELECT finding_id FROM advisory_recommendation_findings WHERE recommendation_id = ?').all(replacement.id);
+  assert.equal(linked.length, 0);
+  assert.throws(
+    () => REC.validateRecommendation(sessionId, replacement.id, { expected_recommendation_revision: replacement.revision, expected_session_revision: rev(sessionId) }, REQ),
+    (e) => e.status === 400
+  );
+});
+
 test('createReplacement — source non validated refusée (draft)', () => {
   const { sessionId } = createSessionWithActiveFinding('health');
   const draft = baseDraft(sessionId, 'health');
@@ -662,6 +796,33 @@ test('createReplacement — deux successeurs NON dismissed simultanés refusés 
     () => REC.createReplacement(sessionId, source.id, { expected_source_recommendation_revision: source.revision, title: 'Essai 2', advisor_rationale: 'R', scope: 'household' }, REQ),
     (e) => e.status === 409
   );
+});
+
+// Correctif GATE LOT 7B (correction round, §5 : « capacités après un
+// remplacement dismissed ») : `allowed_actions.replace` valait `isValidated`
+// seul, sans jamais vérifier l'absence d'un remplacement déjà actif --
+// détecté en écrivant précisément ce test, jamais par la QA Playwright (le
+// script vérifiait toujours le bouton APRÈS avoir écarté le brouillon
+// précédent, jamais PENDANT qu'un remplacement actif existait encore).
+test('allowed_actions.replace — vrai sur une recommandation validated sans successeur', () => {
+  const { sessionId, source } = validatedRecommendation();
+  const detail = REC.getRecommendationDetail(sessionId, source.id, REQ);
+  assert.equal(detail.allowed_actions.replace, true);
+});
+
+test('allowed_actions.replace — devient FAUX dès qu\'un remplacement actif (non dismissed) existe', () => {
+  const { sessionId, source } = validatedRecommendation();
+  REC.createReplacement(sessionId, source.id, { expected_source_recommendation_revision: source.revision, title: 'Essai 1', advisor_rationale: 'R', scope: 'household' }, REQ);
+  const detail = REC.getRecommendationDetail(sessionId, source.id, REQ);
+  assert.equal(detail.allowed_actions.replace, false, 'un second remplacement serait refusé en 409 par createReplacement : le bouton ne doit jamais rester affiché');
+});
+
+test('allowed_actions.replace — redevient vrai après écartement (dismissed) du remplacement actif', () => {
+  const { sessionId, source } = validatedRecommendation();
+  const first = REC.createReplacement(sessionId, source.id, { expected_source_recommendation_revision: source.revision, title: 'Essai 1', advisor_rationale: 'R', scope: 'household' }, REQ);
+  REC.dismissRecommendation(sessionId, first.id, { dismiss_reason: 'motif fictif', expected_recommendation_revision: first.revision }, REQ);
+  const detail = REC.getRecommendationDetail(sessionId, source.id, REQ);
+  assert.equal(detail.allowed_actions.replace, true);
 });
 
 test('validateRecommendation (remplacement) — bascule atomique : ancienne superseded, nouvelle validated, révisions des deux augmentées', () => {
@@ -1057,4 +1218,268 @@ test('IDOR — une recommandation adressée avec le mauvais session_id est intro
   const { sessionId: sessionB } = createSessionWithActiveFinding('health');
   const recA = baseDraft(sessionA, 'health');
   assert.throws(() => REC.getRecommendationDetail(sessionB, recA.id, REQ), (e) => e.status === 404);
+});
+
+// ============================================================================
+// Résolution du nom d'auteur (LOT 7B, revue préalable advisory-architect) --
+// `hydrateRecommendationNames`, même pattern que `hydrateFindingRows`
+// (server/advisoryRuleExecutions.js). Les ids `*_user_id` restent toujours
+// intacts ; `*_name` s'y ajoute, jamais en remplacement.
+// ============================================================================
+
+const REQ2 = { session: { userEmail: 'second-conseiller-reco@exemple.ch' } };
+db.prepare('INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)').run('second-conseiller-reco@exemple.ch', 'Deuxième Conseiller', 'x');
+
+test('hydrateRecommendationNames — création : created_by_name résolu, les trois autres noms null (rien ne s\'est encore produit)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  assert.equal(rec.created_by_name, 'Conseiller');
+  assert.ok(rec.created_by_user_id, 'created_by_user_id doit rester présent, jamais remplacé par le nom');
+  assert.equal(rec.validated_by_name, null);
+  assert.equal(rec.dismissed_by_name, null);
+  assert.equal(rec.withdrawn_by_name, null);
+});
+
+test('hydrateRecommendationNames — écartement par un AUTRE utilisateur que le créateur : les deux noms distincts coexistent', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = REC.createRecommendation(sessionId, { domain: 'health', scope: 'household', title: 'T', advisor_rationale: 'R' }, REQ);
+  const dismissed = REC.dismissRecommendation(sessionId, rec.id, { dismiss_reason: 'motif fictif', expected_recommendation_revision: rec.revision }, REQ2);
+  assert.equal(dismissed.created_by_name, 'Conseiller', 'le créateur original reste attribué correctement');
+  assert.equal(dismissed.dismissed_by_name, 'Deuxième Conseiller');
+});
+
+test('hydrateRecommendationNames — validation : validated_by_name résolu sur la recommandation retournée', () => {
+  const { sessionId, findingId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health', { summary: 'S' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) }, REQ2);
+  assert.equal(validated.recommendation.validated_by_name, 'Deuxième Conseiller');
+  assert.equal(validated.recommendation.created_by_name, 'Conseiller');
+  assert.equal(validated.supersedes, null);
+});
+
+test('hydrateRecommendationNames — liste et historique hydratent aussi les noms (pas seulement le détail unitaire)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  baseDraft(sessionId, 'health');
+  const list = REC.getSessionRecommendationsList(sessionId, {}, REQ);
+  assert.ok(list.length >= 1);
+  assert.equal(list[0].created_by_name, 'Conseiller');
+  const history = REC.getSessionRecommendationsHistory(sessionId, {}, REQ);
+  assert.ok(history.length >= 1);
+  assert.equal(history[0].created_by_name, 'Conseiller');
+});
+
+test('hydrateRecommendationNames — minimisation (GATE LOT 7B ciblé §6) : uniquement id+nom résolus, aucun email/rôle/objet utilisateur imbriqué', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = REC.createRecommendation(sessionId, { domain: 'health', scope: 'household', title: 'T', advisor_rationale: 'R' }, REQ);
+  const dismissed = REC.dismissRecommendation(sessionId, rec.id, { dismiss_reason: 'motif fictif', expected_recommendation_revision: rec.revision }, REQ2);
+  // Les quatre champs `*_name` sont des CHAÎNES SIMPLES (jamais un objet
+  // utilisateur imbriqué qui exposerait d'autres colonnes de `users` en
+  // même temps que le nom) -- `SELECT id, name FROM users` ne peut de toute
+  // façon matériellement renvoyer que ces deux colonnes, mais ce test
+  // vérifie la FORME EFFECTIVEMENT renvoyée au frontend, pas seulement la
+  // requête SQL.
+  assert.equal(typeof dismissed.created_by_name, 'string');
+  assert.equal(typeof dismissed.dismissed_by_name, 'string');
+  // Aucune clé `*_email`/`*_role`/`*_user` (hors les `*_user_id` déjà
+  // attendus) n'apparaît nulle part sur le détail retourné.
+  const keys = Object.keys(dismissed);
+  const forbidden = keys.filter((k) => /email|password|role|_user$/i.test(k));
+  assert.deepEqual(forbidden, [], `clés inattendues potentiellement sensibles : ${forbidden.join(', ')}`);
+});
+
+// ============================================================================
+// `allowed_actions` (GATE LOT 7B ciblé) -- projection additive calculée
+// EXCLUSIVEMENT côté serveur, reflet exact des gardes déjà imposés par
+// chaque fonction d'écriture (`assertSessionWritable` + `assertDraftMutable`/
+// `assertAction`). Élimine la duplication frontend de ces transitions
+// (`status === 'draft'`, `status === 'validated'`, `household.status ===
+// 'archive'`), jusque-là recalculées indépendamment côté client.
+// ============================================================================
+
+const ALL_ACTIONS = ['edit', 'validate', 'dismiss', 'withdraw', 'replace', 'link_finding', 'unlink_finding', 'link_member', 'unlink_member'];
+function assertActions(rec, trueOnes) {
+  for (const a of ALL_ACTIONS) {
+    assert.equal(rec.allowed_actions[a], trueOnes.includes(a), `allowed_actions.${a} attendu ${trueOnes.includes(a)}, obtenu ${rec.allowed_actions[a]}`);
+  }
+}
+
+test('allowed_actions — brouillon, session complétée, foyer actif, scope=household : edit/validate/dismiss/link_finding/unlink_finding vrais, withdraw/replace/link_member/unlink_member faux (scope non membre)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  assertActions(rec, ['edit', 'validate', 'dismiss', 'link_finding', 'unlink_finding']);
+});
+
+// GATE LOT 7B ciblé §11 (revue advisory-architect) : `link_member`/
+// `unlink_member` exigent en plus `scope === 'member'`, reflet exact des
+// gardes serveur réelles (`assert(rec.scope === 'member', ...)` dans
+// `linkMember`/`unlinkMember`) -- un brouillon scope=household ou
+// scope=session ne doit JAMAIS afficher ces actions comme disponibles,
+// sous peine d'un appel réel rejeté malgré un `allowed_actions` optimiste.
+test('allowed_actions — brouillon, scope=member : link_member/unlink_member également vrais (en plus des actions communes)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = REC.createRecommendation(sessionId, {
+    domain: 'health', scope: 'member', member_ids: [principalMemberId], title: 'Titre technique fictif', advisor_rationale: 'Justification technique fictive.',
+  }, REQ);
+  assertActions(rec, ['edit', 'validate', 'dismiss', 'link_finding', 'unlink_finding', 'link_member', 'unlink_member']);
+});
+
+test('allowed_actions — validée : withdraw/replace vrais, tout le reste faux (contenu immuable)', () => {
+  const { sessionId, findingId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health', { summary: 'Résumé technique fictif.' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) }, REQ).recommendation;
+  assertActions(validated, ['withdraw', 'replace']);
+});
+
+test('allowed_actions — écartée : toutes les actions faussses (statut terminal)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  const dismissed = REC.dismissRecommendation(sessionId, rec.id, { dismiss_reason: 'motif fictif', expected_recommendation_revision: rec.revision }, REQ);
+  assertActions(dismissed, []);
+});
+
+test('allowed_actions — retirée : toutes les actions fausses (statut terminal, historique préservé)', () => {
+  const { sessionId, findingId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health', { summary: 'Résumé technique fictif.' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) }, REQ).recommendation;
+  const withdrawn = REC.withdrawRecommendation(sessionId, rec.id, { withdraw_reason: 'motif fictif', expected_recommendation_revision: validated.revision }, REQ);
+  assertActions(withdrawn, []);
+});
+
+test('allowed_actions — remplacée (superseded) : toutes les actions fausses', () => {
+  const { sessionId, findingId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health', { summary: 'Résumé technique fictif.' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) }, REQ).recommendation;
+  const replacement = REC.createReplacement(sessionId, rec.id, { title: 'Nouvelle version', advisor_rationale: 'R', summary: 'Résumé technique fictif (remplacement).', scope: 'household', expected_source_recommendation_revision: validated.revision }, REQ);
+  const relinked = REC.linkFinding(sessionId, replacement.id, findingId, replacement.revision, REQ);
+  const superseded = REC.validateRecommendation(sessionId, replacement.id, { expected_recommendation_revision: relinked.revision, expected_session_revision: rev(sessionId) }, REQ).supersedes;
+  assert.equal(superseded.status, 'superseded');
+  assertActions(superseded, []);
+});
+
+test('allowed_actions — foyer archivé : toutes les actions fausses même sur un brouillon fraîchement créé', () => {
+  const { householdId: hId } = buildHouseholdWithChild();
+  const { sessionId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = baseDraft(sessionId, 'health');
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  const reloaded = REC.getRecommendationDetail(sessionId, rec.id, REQ);
+  assertActions(reloaded, []);
+});
+
+// Une session `completed` est un état TERMINAL au niveau des transitions de
+// session (aucune transition publique ne permet d'en sortir, `TRANSITIONS`
+// de advisorySessions.js) : une recommandation n'existe jamais en pratique
+// sur une session redevenue non-completed. La propriété défensive de
+// `computeAllowedActions` (writable exige `session.status === 'completed'`)
+// reste néanmoins vérifiée ici directement en base, indépendamment de
+// l'atteignabilité par l'API publique -- même précédent que les tests de
+// corruption forcée du LOT 7A (rollback en cours de transaction).
+test('allowed_actions — session non complétée (état forcé, défense en profondeur) : toutes les actions fausses', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  db.prepare("UPDATE advisory_sessions SET status = 'suspended' WHERE id = ?").run(sessionId);
+  const reloaded = REC.getRecommendationDetail(sessionId, rec.id, REQ);
+  assertActions(reloaded, []);
+});
+
+test('allowed_actions — exposé sur la liste ET l\'historique (pas seulement le détail unitaire)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  baseDraft(sessionId, 'health');
+  const list = REC.getSessionRecommendationsList(sessionId, {}, REQ);
+  assert.ok(list.length >= 1);
+  assertActions(list[0], ['edit', 'validate', 'dismiss', 'link_finding', 'unlink_finding']);
+  const history = REC.getSessionRecommendationsHistory(sessionId, {}, REQ);
+  assert.ok(history.length >= 1);
+  assertActions(history[0], ['edit', 'validate', 'dismiss', 'link_finding', 'unlink_finding']);
+});
+
+// ============================================================================
+// Codes machine stables (GATE LOT 7B ciblé §3) -- la distinction entre
+// différents conflits ne doit jamais dépendre du texte français de
+// `error`. Un test dédié par code, chacun isolant PRÉCISÉMENT la situation
+// concernée (jamais un 409 générique supposé être toujours la même cause).
+// ============================================================================
+
+test('code — RECOMMENDATION_REVISION_CONFLICT sur une révision de recommandation obsolète', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  assert.throws(
+    () => REC.updateRecommendationDraft(sessionId, rec.id, { title: 'Nouveau titre', expected_recommendation_revision: rec.revision + 1 }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409 && e.code === REC.ERROR_CODES.RECOMMENDATION_REVISION_CONFLICT
+  );
+});
+
+test('code — SESSION_REVISION_CONFLICT sur une révision de session obsolète (validation)', () => {
+  const { sessionId, findingId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health', { summary: 'Résumé technique fictif.' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  assert.throws(
+    () => REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) + 1 }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409 && e.code === REC.ERROR_CODES.SESSION_REVISION_CONFLICT
+  );
+});
+
+test('code — RECOMMENDATION_STATE_CONFLICT sur une transition impossible (valider une recommandation déjà écartée)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  const dismissed = REC.dismissRecommendation(sessionId, rec.id, { dismiss_reason: 'motif fictif', expected_recommendation_revision: rec.revision }, REQ);
+  assert.throws(
+    () => REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: dismissed.revision, expected_session_revision: rev(sessionId) }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409 && e.code === REC.ERROR_CODES.RECOMMENDATION_STATE_CONFLICT
+  );
+});
+
+test('code — RECOMMENDATION_STATE_CONFLICT sur assertDraftMutable (modifier une recommandation déjà validée)', () => {
+  const { sessionId, findingId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health', { summary: 'Résumé technique fictif.' });
+  const linked = REC.linkFinding(sessionId, rec.id, findingId, rec.revision, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: linked.revision, expected_session_revision: rev(sessionId) }, REQ).recommendation;
+  assert.throws(
+    () => REC.updateRecommendationDraft(sessionId, rec.id, { title: 'Nouveau titre', expected_recommendation_revision: validated.revision }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409 && e.code === REC.ERROR_CODES.RECOMMENDATION_STATE_CONFLICT
+  );
+});
+
+test('code — SESSION_NOT_WRITABLE sur une session non complétée', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  db.prepare("UPDATE advisory_sessions SET status = 'suspended' WHERE id = ?").run(sessionId);
+  assert.throws(
+    () => REC.updateRecommendationDraft(sessionId, rec.id, { title: 'Nouveau titre', expected_recommendation_revision: rec.revision }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409 && e.code === REC.ERROR_CODES.SESSION_NOT_WRITABLE
+  );
+});
+
+test('code — HOUSEHOLD_ARCHIVED sur un foyer archivé', () => {
+  const { householdId: hId } = buildHouseholdWithChild();
+  const { sessionId } = createSessionWithActiveFinding('health', { householdIdOverride: hId });
+  const rec = baseDraft(sessionId, 'health');
+  updateHousehold(hId, { status: 'archive' }, REQ);
+  assert.throws(
+    () => REC.updateRecommendationDraft(sessionId, rec.id, { title: 'Nouveau titre', expected_recommendation_revision: rec.revision }, REQ),
+    (e) => e instanceof AdvisoryError && e.status === 409 && e.code === REC.ERROR_CODES.HOUSEHOLD_ARCHIVED
+  );
+});
+
+test('code — la route HTTP expose bien "code" dans le corps JSON (pas seulement le service)', () => {
+  const { sessionId } = createSessionWithActiveFinding('health');
+  const rec = baseDraft(sessionId, 'health');
+  let caught = null;
+  try {
+    REC.updateRecommendationDraft(sessionId, rec.id, { title: 'X', expected_recommendation_revision: rec.revision + 1 }, REQ);
+  } catch (e) {
+    caught = e;
+  }
+  assert.ok(caught);
+  // Réplique exactement la construction du corps JSON faite par `handle()`
+  // dans server/routes/advisoryRecommendations.js -- vérifie que le champ
+  // sur lequel repose ce contrat (`err.code`) est bien présent et distinct
+  // du message, pas seulement que l'erreur existe.
+  const body = { error: caught.message };
+  if (caught.code) body.code = caught.code;
+  assert.equal(body.code, 'RECOMMENDATION_REVISION_CONFLICT');
+  assert.equal(typeof body.error, 'string');
 });

@@ -62,6 +62,17 @@ function assertHouseholdWritable(householdId) {
   }
 }
 
+// Prédicat PARTAGÉ avec `advisoryRecommendations.js` (`assertSessionWritable`,
+// `computeAllowedActions`) -- source UNIQUE de « cette session autorise-t-elle
+// une nouvelle activité sur ses recommandations », jamais une redéfinition
+// divergente entre les deux modules (GATE LOT 7B ciblé §2B : la disponibilité
+// de la CRÉATION d'une recommandation est, elle aussi, une décision métier
+// qui ne doit jamais être recalculée côté frontend, au même titre que les
+// transitions déjà couvertes par `allowed_actions`).
+export function isSessionWritable(session, household) {
+  return session.status === 'completed' && !(household && household.status === 'archive');
+}
+
 function assertTransition(session, action) {
   const next = (TRANSITIONS[session.status] || {})[action];
   if (!next) {
@@ -116,7 +127,30 @@ export function getSessionDetail(id) {
   const answerCount = db.prepare(
     "SELECT COUNT(*) AS n FROM advisory_answers WHERE session_id = ? AND superseded_by_answer_id IS NULL AND status = 'answered'"
   ).get(id).n;
-  return { ...session, questionnaire_versions: links, answered_count: answerCount };
+  // Périmètre figé de la session (LOT 7B, revue advisory-architect) --
+  // surface volontairement minimale (jamais client_id/current_status bruts,
+  // non nécessaires à un sélecteur de membres) : réutilise `sessionMembersFor`
+  // telle quelle, jamais une résolution divergente des membres d'une session.
+  // `can_answer` retiré (GATE LOT 7B ciblé §11, revue compliance-privacy-reviewer)
+  // : jamais consommé par `session.members` côté frontend (seul le sélecteur
+  // de membres de `SessionRecommendations.jsx` lit cette liste, uniquement
+  // `id`/`display_name`) -- à ne pas confondre avec le `can_answer` du
+  // périmètre de travail (`getWorkspace`, plus bas dans ce fichier), lui bien
+  // consommé par `SessionWorkspace.jsx` et resté inchangé.
+  const members = sessionMembersFor(session).map((m) => ({
+    id: m.id, display_name: m.display_name, member_role: m.member_role, historical: m.historical,
+  }));
+  // Capacités additives (GATE LOT 7B ciblé §2B) : la disponibilité de la
+  // CRÉATION d'une recommandation ne doit pas plus être recalculée côté
+  // frontend que ses transitions (`allowed_actions`, déjà couvert). Même
+  // prédicat `isSessionWritable` que `advisoryRecommendations.js`
+  // (`assertSessionWritable`, `computeAllowedActions`) -- source unique.
+  const household = getHousehold(session.household_id);
+  const recommendationCapabilities = { create: isSessionWritable(session, household) };
+  return {
+    ...session, questionnaire_versions: links, answered_count: answerCount, members,
+    recommendation_capabilities: recommendationCapabilities,
+  };
 }
 
 // --- Écriture : création --------------------------------------------------

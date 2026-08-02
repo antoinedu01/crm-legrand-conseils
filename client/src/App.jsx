@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
 import { api } from './api.js';
+import { NavigationGuardProvider, useNavigationGuard } from './navigationGuard.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Clients from './pages/Clients.jsx';
@@ -18,6 +19,7 @@ import Sessions from './pages/Sessions.jsx';
 import SessionDetail from './pages/SessionDetail.jsx';
 import SessionWorkspace from './pages/SessionWorkspace.jsx';
 import SessionFindings from './pages/SessionFindings.jsx';
+import SessionRecommendations from './pages/SessionRecommendations.jsx';
 
 const NAV = [
   ['/', '📊', 'Tableau de bord'],
@@ -50,6 +52,48 @@ export default function App() {
   if (auth === null) return null;
   if (!auth.authenticated) return <Login setupDone={auth.setupDone} onDone={refresh} />;
 
+  // `NavigationGuardProvider` doit englober TOUT l'arbre authentifié (barre
+  // latérale ET zone de contenu routée) : c'est la seule façon pour le
+  // hook `useNavigationGuard` d'intercepter à la fois les liens latéraux/le
+  // bouton de déconnexion (portés par `App`) et l'état sale déclaré par une
+  // page enfant (`SessionRecommendations.jsx`) -- une seule source de
+  // vérité partagée, jamais une garde reconstruite par page (correctif
+  // exigé avant commit, GATE LOT 7B).
+  return (
+    <NavigationGuardProvider>
+      <AuthenticatedShell auth={auth} refresh={refresh} />
+    </NavigationGuardProvider>
+  );
+}
+
+function AuthenticatedShell({ auth, refresh }) {
+  const navigate = useNavigate();
+  const { confirmIfDirty } = useNavigationGuard();
+
+  // Liens latéraux ET déconnexion : chemins de navigation qui NE passent
+  // JAMAIS par un `navigate()` de la page elle-même, donc invisibles à
+  // toute garde locale à une page -- protégés ici, au niveau de l'app,
+  // exactement comme le bouton Précédent/Suivant du navigateur et
+  // `beforeunload` le sont déjà à l'intérieur de `NavigationGuardProvider`.
+  async function handleNavClick(e, to) {
+    // Un modificateur (nouvel onglet/fenêtre) doit garder son comportement
+    // natif du navigateur, jamais intercepté par la garde applicative --
+    // correctif GATE LOT 7B (correction round, défaut certain relevé par
+    // la revue finale `client-meeting-ux`) : `preventDefault()`
+    // inconditionnel empêchait Ctrl/Cmd/Maj+clic d'ouvrir un nouvel onglet,
+    // une régression pour un écran potentiellement partagé en rendez-vous.
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    const ok = await confirmIfDirty();
+    if (ok) navigate(to);
+  }
+
+  async function handleLogout() {
+    const ok = await confirmIfDirty();
+    if (!ok) return;
+    api.post('/api/auth/logout').then(refresh);
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -61,7 +105,11 @@ export default function App() {
           </div>
         </div>
         {NAV.map(([to, icon, label]) => (
-          <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => `nav${isActive ? ' active' : ''}`}>
+          <NavLink
+            key={to} to={to} end={to === '/'}
+            className={({ isActive }) => `nav${isActive ? ' active' : ''}`}
+            onClick={(e) => handleNavClick(e, to)}
+          >
             <span aria-hidden>{icon}</span> {label}
           </NavLink>
         ))}
@@ -72,7 +120,7 @@ export default function App() {
           <button
             className="ghost small"
             style={{ padding: 0 }}
-            onClick={() => api.post('/api/auth/logout').then(refresh)}
+            onClick={handleLogout}
           >
             Se déconnecter
           </button>
@@ -94,6 +142,7 @@ export default function App() {
           <Route path="/diagnostic-360/sessions/:id" element={<SessionDetail />} />
           <Route path="/diagnostic-360/sessions/:id/workspace" element={<SessionWorkspace />} />
           <Route path="/diagnostic-360/sessions/:id/findings" element={<SessionFindings />} />
+          <Route path="/diagnostic-360/sessions/:id/recommendations" element={<SessionRecommendations />} />
           <Route path="/conformite" element={<Compliance />} />
           <Route path="/parametres" element={<Settings user={auth.user} onSaved={refresh} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

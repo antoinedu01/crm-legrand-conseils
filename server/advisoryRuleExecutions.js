@@ -10,7 +10,7 @@ import { assert, inEnum, ValidationError } from './validate.js';
 import { audit } from './audit.js';
 import { AdvisoryError, displayName } from './advisoryHouseholds.js';
 import { evaluateRuleCondition, refKind, resolveQuantifierMembers } from './advisoryRuleConditions.js';
-import { sessionMembersFor, answerValueFor } from './advisorySessions.js';
+import { sessionMembersFor, answerValueFor, isSessionWritable } from './advisorySessions.js';
 import { getVersionDetail } from './advisoryQuestionnaires.js';
 import { getRuleSetDetail, listRuleSets, RULE_SET_DOMAINS } from './advisoryRules.js';
 
@@ -843,10 +843,18 @@ export function getExecutionDetail(sessionId, executionId, req) {
   // précisément sur l'écran dont la traçabilité est la raison d'être.
   const session = requireSession(sessionId);
   const membersById = new Map(sessionMembersFor(session).map((m) => [m.id, m]));
-  const findings = hydrateFindingRows(rows, sessionId).map((f) => ({
-    ...f,
-    member: f.household_member_id != null ? membersById.get(f.household_member_id) || null : null,
-  }));
+  // Projection MINIMALE (GATE LOT 7B ciblé §6, revue compliance-privacy-reviewer
+  // finale) : même défaut que celui déjà corrigé sur `getSessionFindingsWorkspace`
+  // -- `HistoryModal` (`SessionFindings.jsx`) rend `detail.findings` via le
+  // MÊME composant `FindingCard` que l'écran principal, qui ne lit jamais que
+  // `id`/`display_name`/`member_role`/`historical`. `client_id`/
+  // `current_status`/`no_longer_active`/`can_answer` n'ont ici aucun usage
+  // frontend, jamais transmis sans besoin réel.
+  const findings = hydrateFindingRows(rows, sessionId).map((f) => {
+    const fullMember = f.household_member_id != null ? membersById.get(f.household_member_id) : null;
+    const member = fullMember ? { id: fullMember.id, display_name: fullMember.display_name, member_role: fullMember.member_role, historical: fullMember.historical } : null;
+    return { ...f, member };
+  });
   const inputsSnapshot = execution.inputs_snapshot ? JSON.parse(execution.inputs_snapshot) : null;
   const hasSensitive = hasFrozenSensitiveRefInFindings(findings) || hasFrozenSensitiveRefInSnapshot(inputsSnapshot);
   auditSensitiveDataAccessIfNeeded(req, execution.session_id, execution.domain, hasSensitive);
@@ -1269,16 +1277,25 @@ export function getSessionFindingsWorkspace(sessionId, req) {
       const rows = db
         .prepare(`SELECT * FROM advisory_findings f WHERE f.rule_execution_id = ? ORDER BY ${FINDINGS_ORDER_BY}`)
         .all(state.last_execution.id);
-      findings = hydrateFindingRows(rows, sessionId).map((f) => ({
-        ...f,
+      findings = hydrateFindingRows(rows, sessionId).map((f) => {
         // Le membre concerné est résolu via `sessionMembersFor` -- JAMAIS
         // une consultation directe de `household_members` (constat GATE
         // LOT 4B, revues rules-engine-auditor/compliance-privacy-reviewer :
         // risque d'IDOR si un membre appartenant à un AUTRE foyer était
         // consulté indépendamment de son rattachement réel à CETTE
-        // session).
-        member: f.household_member_id != null ? membersById.get(f.household_member_id) || null : null,
-      }));
+        // session). Projection MINIMALE (GATE LOT 7B ciblé §6) : `id`/
+        // `display_name`/`member_role`/`historical` sont ceux réellement
+        // utiles (libellé, distinction principal/conjoint/enfant, filtre,
+        // mention « retiré du foyer ») -- `client_id` (identifiant technique
+        // interne), `current_status`/`no_longer_active` (doublons stricts
+        // de `historical`) et `can_answer` (nécessaire ailleurs, à
+        // `SessionWorkspace.jsx` pour le statut de réponse d'un membre,
+        // sans usage ici) n'ont aucun usage frontend sur cet écran, jamais
+        // transmis sans besoin réel.
+        const fullMember = f.household_member_id != null ? membersById.get(f.household_member_id) : null;
+        const member = fullMember ? { id: fullMember.id, display_name: fullMember.display_name, member_role: fullMember.member_role, historical: fullMember.historical } : null;
+        return { ...f, member };
+      });
       allFindingsForAudit.push(...findings);
     }
     byDomain[domain] = { domain, ...state, findings };
@@ -1368,9 +1385,18 @@ export function getSessionFindingsWorkspace(sessionId, req) {
     // partagées, `assertSessionExecutable`) ; `can_dismiss_findings` couvre
     // `dismissFinding` (un foyer archivé refuse déjà l'écriture là-bas,
     // reflété ici pour que le bouton n'apparaisse jamais activé à tort).
+    // `can_create_recommendation` (GATE LOT 7B ciblé §2B) réutilise
+    // EXACTEMENT le même prédicat `isSessionWritable` que
+    // `server/advisorySessions.js` (`recommendation_capabilities.create`)
+    // et `server/advisoryRecommendations.js` (`assertSessionWritable`,
+    // `computeAllowedActions`) -- `SessionFindings.jsx` recalculait
+    // jusqu'ici cette même capacité de son côté à partir de
+    // `household.status`, une duplication de la même classe que celle déjà
+    // corrigée pour `SessionRecommendations.jsx`.
     actions: {
       can_launch_analysis: session.status === 'completed' && household.status !== 'archive',
       can_dismiss_findings: household.status !== 'archive',
+      can_create_recommendation: isSessionWritable(session, household),
     },
   };
 }

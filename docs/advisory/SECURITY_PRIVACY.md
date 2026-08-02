@@ -473,6 +473,216 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
     à partir de `validated_session_revision` et du statut courant des
     findings/exécutions cités — jamais une bascule automatique de statut,
     même principe que `state`/`global_state` du Lot 4B.
+- **Lot 7B — interface conseiller des recommandations humaines** :
+  - **Aucun second audit côté frontend** : les 13 actions d'audit du Lot 7A
+    restent la seule source de vérité, aucun appel réseau ni `console.log`
+    structuré ne duplique une trace d'action côté client — vérifié en
+    revue de code, confirmé par la revue préalable
+    `compliance-privacy-reviewer`.
+  - **Aucun stockage navigateur** : `localStorage`/`sessionStorage`
+    vérifiés vides après un parcours complet (création, édition,
+    validation) via un marqueur distinctif injecté puis recherché
+    programmatiquement (`LOT7B_MANUAL_UI_CHECKLIST.md`) — même politique
+    que `SessionFindings.jsx`/`SessionWorkspace.jsx` (Lot 4B), jamais de
+    brouillon local persistant entre deux sessions du navigateur (§15 du
+    brief, décision humaine explicite).
+  - **Aucun identifiant technique ni texte narratif dans l'URL** : la
+    sélection de constats contextualisée depuis `SessionFindings.jsx`
+    (`finding_ids`, `domain`) transite exclusivement par l'état de
+    navigation React Router (`location.state`), jamais dans l'URL — même
+    convention que `goToSourceAnswer` (Lot 4B).
+  - **Cache** : les 3 routes de lecture posent déjà `Cache-Control:
+    no-store, private` + `Pragma: no-cache` côté serveur (Lot 7A) ; le
+    frontend ne fait rien de plus (`client/src/api.js` générique, même
+    convention déjà en vigueur pour `SessionFindings.jsx`/
+    `SessionWorkspace.jsx`, jamais remise en cause).
+  - **Distinction visuelle finding/recommandation préservée** : la page des
+    recommandations n'affiche jamais un finding comme éditable (lecture
+    seule stricte, un lien « ouvrir dans l'espace des constats » renvoie
+    vers `SessionFindings.jsx` pour toute action sur un finding) — jamais
+    de modification d'`advisory_findings` possible depuis cette interface,
+    garantie structurelle confirmée par `rules-engine-auditor` (aucune
+    écriture sur cette table dans `server/advisoryRecommendations.js`).
+  - **Auto-validation** : le formulaire de validation rappelle explicitement
+    (texte affiché avant confirmation) qu'un conseiller peut valider sa
+    propre recommandation en v1, que ce n'est pas un contrôle à quatre
+    yeux — jamais présenté comme une garantie de contrôle indépendant qui
+    n'existe pas.
+  - **Ancien membre du périmètre figé** : reste sélectionnable pour une
+    NOUVELLE liaison (mention « retiré du foyer » affichée, jamais bloqué
+    côté client) — comportement serveur intentionnel et documenté
+    (`DATA_MODEL.md` §5.5ter), confirmé par `advisory-architect` pendant
+    le cadrage du Lot 7B : un membre du snapshot original reste ciblable,
+    seul un membre jamais membre de la session ne l'est pas.
+  - **Foyer archivé** : l'interface reste intégralement consultable en
+    lecture seule (jamais masquée), les actions d'écriture sont
+    désactivées/masquées côté client en complément du blocage serveur
+    (409) déjà uniforme sur les 10 écritures (Lot 7A) — jamais une
+    tentative de contournement d'un 409. **Défaut détecté et corrigé** lors
+    des revues finales (`advisory-architect` et `compliance-privacy-reviewer`,
+    convergentes) : les deux points d'entrée vers la création d'une
+    recommandation depuis `SessionFindings.jsx` (bouton par constat, bouton
+    groupé du bandeau de sélection multiple) n'étaient initialement pas
+    gardés par le statut du foyer, permettant d'ouvrir et remplir un
+    formulaire de création complet avant un refus tardif du serveur (409,
+    `assertSessionWritable`) — aucune écriture n'aboutissait jamais (le
+    serveur protégeait déjà l'intégrité des données), mais l'interface ne
+    respectait pas la garantie de lecture seule annoncée. Corrigé par un
+    double garde : défense principale dans `SessionRecommendations.jsx`
+    (l'écran de création n'est plus atteignable via `location.state` en
+    lecture seule), défense complémentaire dans `SessionFindings.jsx`
+    (les deux points d'entrée masqués dès `household.status === 'archive'`,
+    symétriquement à `canDismiss`).
+  - **Résolution du nom d'auteur** (`hydrateRecommendationNames`, ajout
+    additif validé par `advisory-architect`) : noms de conseillers internes
+    uniquement (CRM mono-rôle), même précédent que `dismissed_by_name`
+    pour les findings (Lot 4A) — aucune nouvelle surface de données
+    personnelles sensibles.
+  - **Codes d'erreur machine stables** (`err.data.code`, GATE ciblé §3) :
+    aucun contenu utilisateur/narratif dans ces codes (cinq valeurs fixes,
+    voir `API_CONTRACT.md`) — un canal d'erreur purement technique, jamais
+    un vecteur de fuite de donnée.
+  - **Audit de minimisation ciblé (GATE ciblé §6)** — projections membres/
+    auteurs vérifiées explicitement clé par clé (tests dédiés, présence des
+    clés utiles ET absence des clés interdites, pas seulement la présence) :
+    `session.members` — `{id, display_name, member_role, historical}`
+    exactement, jamais `client_id`/adresse/email/téléphone/date de
+    naissance ; noms d'auteur — chaînes simples uniquement, jamais
+    d'objet utilisateur imbriqué qui exposerait d'autres colonnes de
+    `users` (email, rôle) en même temps que le nom. **Défaut réel détecté
+    et corrigé** : `findings[].member` (espace des constats,
+    `getSessionFindingsWorkspace`) transmettait en réalité la projection
+    COMPLÈTE de `sessionMembersFor` — `client_id` (identifiant technique
+    interne), `current_status`/`no_longer_active` (doublons stricts de
+    `historical`) et `can_answer` (utile ailleurs, à l'espace des réponses,
+    sans usage sur cet écran) — alors que `SessionFindings.jsx` ne lit
+    jamais que `id`/`display_name`/`historical`. Corrigé par une projection
+    minimale dédiée `{id, display_name, member_role, historical}` (le rôle
+    dans le foyer, principal/conjoint/enfant, reste utile à l'affichage,
+    contrairement aux quatre autres champs) ; aucune donnée réellement
+    sensible (adresse/email/téléphone/date de naissance/données médicales
+    ou financières) n'était exposée par ce défaut — une sur-exposition
+    d'identifiants techniques internes, pas une fuite de donnée personnelle
+    sensible, mais corrigée conformément au principe de minimisation.
+  - **Deuxième défaut de même nature détecté lors des revues finales
+    ciblées (GATE ciblé §11, revue compliance-privacy-reviewer)** :
+    `getExecutionDetail` (`GET .../rule-executions/:executionId`, source de
+    données de `HistoryModal` dans `SessionFindings.jsx`) appliquait la
+    projection COMPLÈTE de `sessionMembersFor` à `findings[].member`, sans
+    bénéficier de la minimisation déjà corrigée sur
+    `getSessionFindingsWorkspace` — deux fonctions distinctes construisant
+    chacune leur propre `.member` à partir de la même source, corrigées
+    séparément à deux moments différents plutôt que par une factorisation
+    commune. `HistoryModal` rend ses findings via le même composant
+    `FindingCard` que l'écran principal, donc les mêmes clés inutiles
+    (`client_id`/`current_status`/`no_longer_active`/`can_answer`)
+    n'étaient jamais consommées ici non plus. Corrigée avec la même
+    projection minimale `{id, display_name, member_role, historical}`,
+    verrouillée par un test dédié à clés exactes (même pattern que le
+    premier correctif). Également une sur-exposition d'identifiants
+    techniques, pas une fuite de donnée personnelle sensible — mais un
+    signal que la minimisation devrait, dans un lot futur, être factorisée
+    en une seule fonction de projection partagée plutôt que dupliquée par
+    site d'appel (non fait dans ce GATE, hors de son périmètre correctif).
+  - **`can_answer` retiré de `session.members`** (`GET
+    /api/advisory/sessions/:id`, GATE ciblé §11, revue
+    compliance-privacy-reviewer) : jamais consommé par le sélecteur de
+    membres de `SessionRecommendations.jsx`, seul lecteur de cette liste —
+    un champ inutilement transmis plutôt qu'une fuite de donnée sensible,
+    corrigé par cohérence avec le principe de minimisation déjà appliqué
+    ailleurs dans ce GATE. Ne pas confondre avec `can_answer` du périmètre
+    de travail (`GET .../workspace`), lui bien consommé par
+    `SessionWorkspace.jsx` et volontairement inchangé.
+  - **Garde de perte de saisie et `beforeunload`** (GATE ciblé §5) : aucun
+    texte n'est jamais stocké (`localStorage`/`sessionStorage`/URL/
+    historique de navigation), reconfirmé en direct après l'ajout de
+    l'écouteur `beforeunload` — celui-ci ne fait que déclencher la boîte de
+    dialogue native du navigateur, sans persister aucun contenu. **Défaut
+    réel détecté et corrigé** : `location.state.findingIds` (navigation
+    entrante contextualisée depuis `SessionFindings.jsx`) survit à un
+    rechargement complet de page (le navigateur conserve l'état associé à
+    une entrée d'historique), alors que le garde de consommation en mémoire
+    ne survit pas à un remontage — un conseiller ayant navigué vers l'écran
+    de création contextualisée puis annulé pouvait s'y retrouver réexposé
+    au moindre rafraîchissement. Sans conséquence en confidentialité stricte
+    (aucune donnée nouvelle exposée, seulement une réouverture inattendue
+    d'un écran déjà accessible), mais corrigé comme un défaut réel
+    d'ergonomie/de garde de navigation (`navigate(path, {replace: true})`
+    dès la consommation) — voir `UX_AND_CLIENT_MODE.md` §6.1.
+  - **Cas résiduel détecté lors des revues finales ciblées (GATE ciblé §11,
+    revue compliance-privacy-reviewer)** : le correctif ci-dessus purgeait
+    `history.state` uniquement APRÈS confirmation du chargement de la
+    session (`if (!data) return;` dans le même effet React) — si ce premier
+    chargement échouait (session/foyer injoignable), la purge ne survenait
+    jamais et `findingIds`/`domain` restaient indéfiniment dans
+    `history.state`, laissant la possibilité qu'un rechargement ultérieur
+    (après résolution du problème réseau) rouvre l'écran de création de
+    façon inattendue — exactement le défaut que le correctif visait à
+    éliminer, réapparu sur un chemin d'échec non couvert. Corrigé en
+    séparant purge et ouverture d'écran en deux effets React indépendants :
+    la purge de `history.state` s'exécute désormais dès la présence de
+    `findingIds`, indépendamment du succès du chargement des données ;
+    l'intention de navigation capturée est conservée dans une ref dédiée
+    et n'ouvre effectivement l'écran de création qu'une fois les données
+    disponibles (y compris après un nouvel essai réussi suite à un premier
+    échec). Toujours aucune fuite de donnée personnelle — uniquement des
+    identifiants de constats déjà accessibles au conseiller sur cette même
+    session — mais un défaut de garde de navigation réel, corrigé.
+
+- **Lot 7B — correction round pré-commit** (branche
+  `feature/advisory-recommendations-workspace-v1`, HEAD toujours au parent
+  `126575f923375bf086d4d604980ea72cd430a26b`, aucun commit produit au
+  moment de cette revue) — revue ciblée `compliance-privacy-reviewer` des
+  trois ajouts propres à ce round (garde de navigation partagée
+  `navigationGuard.jsx`, modale accessible rendue via portail `ui.jsx`,
+  `createReplacement`/`allowed_actions.replace` côté
+  `server/advisoryRecommendations.js`), puis deux défauts certains
+  supplémentaires détectés par la revue finale `client-meeting-ux` relancée
+  après corrections :
+  - Fait confirmé — la sentinelle Précédent/Suivant (`navigationGuard.jsx`)
+    ne pousse jamais que `{ __navGuardSentinel: true }` dans
+    `history.state`, aucun champ narratif.
+  - Fait confirmé — les appels `navigate(..., { state })` de ce lot
+    (`SessionFindings.jsx`) ne transmettent que des identifiants techniques
+    (`questionId`, `memberId`, `answerId`, `findingIds`, `domain`), jamais
+    un texte saisi.
+  - Fait confirmé — `Modal` (`ui.jsx`) est rendue par portail dans
+    `document.body`, `inert`/`aria-hidden` posés exclusivement sur `#root`
+    (jamais un ancêtre contenant la modale), compteur de module pour les
+    modales imbriquées, restauration exacte de `overflow`.
+  - Fait confirmé — `createReplacement` accepte `finding_ids` avec les
+    mêmes contrôles que `createRecommendation` (cohérence domaine/membre) ;
+    `allowed_actions.replace` reproduit exactement le même prédicat que le
+    contrôle bloquant (`activeSuccessorOf`) ; aucun champ additionnel dans
+    la projection retournée.
+  - Fait confirmé — les 10 fonctions d'écriture de
+    `advisoryRecommendations.js` (dont `createReplacement`) revalident
+    `household.status` à CHAQUE appel ; 5 tests dédiés ajoutés pour
+    verrouiller ce comportement sur `createReplacement`/
+    `linkFinding`/`unlinkFinding`/`linkMember`/`unlinkMember`, gap de
+    couverture relevé par cette même revue et comblé avant clôture.
+  - **Défaut critique détecté et corrigé** (revue `client-meeting-ux`) :
+    `onOpenOther` (bouton « #X » des bannières de remplacement,
+    `SessionRecommendations.jsx`) changeait l'écran affiché sans jamais
+    appeler `confirmIfDirty()` — un brouillon en cours d'édition perdait
+    silencieusement ses modifications non enregistrées. Corrigé
+    (`handleOpenOther`, même garde que le bouton « ← Recommandations »).
+    Sans fuite de donnée personnelle (aucune donnée transmise à un tiers),
+    mais une perte de saisie silencieuse contraire au principe même de
+    cette garde.
+  - **Défaut élevé détecté et corrigé** (revue `client-meeting-ux`) : Échap
+    fermait simultanément une confirmation de perte de saisie ET la modale
+    « Écarter »/« Retirer » déjà ouverte en dessous (chaque `Modal` posait
+    son propre écouteur clavier sans notion de modale « du sommet »),
+    détruisant un motif déjà tapé sans confirmation dédiée. Corrigé par une
+    pile de modales partagée (`modalStack`, `ui.jsx`).
+  - `API_CONTRACT.md` §7 (`POST .../replacement`) mis à jour pour
+    documenter `finding_ids?` et la condition d'`allowed_actions.replace`.
+  - Vérifié en direct (Chromium réel, environnement QA isolé, données
+    100% fictives) après corrections : garde de navigation
+    sidebar/déconnexion/Précédent/Suivant/`beforeunload` (7/7, 1 limite
+    connue documentée), `onOpenOther` et pile de modales (3/3) — détail
+    complet dans `LOT7B_MANUAL_UI_CHECKLIST.md` « Round 4 ».
 
 ## 7. Verrouillage de session
 

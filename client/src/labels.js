@@ -177,6 +177,20 @@ export const EXECUTION_STATUSES = {
   failed: 'Échouée',
 };
 
+// Legrand Diagnostic 360 — recommandations humaines (Lot 7B). `RECOMMENDATION_
+// SCOPES` n'existe pas séparément : la portée d'une recommandation utilise
+// exactement les mêmes valeurs et le même sens que `FINDING_SCOPES`
+// ci-dessus (session/household/member), réutilisé tel quel (décision
+// UX_AND_CLIENT_MODE.md — aucun nouveau dictionnaire pour une valeur
+// identique).
+export const RECOMMENDATION_STATUSES = {
+  draft: 'Brouillon',
+  validated: 'Validée',
+  dismissed: 'Écartée',
+  superseded: 'Remplacée',
+  withdrawn: 'Retirée',
+};
+
 // État global agrégé de l'analyse (Lot 4B, GATE §3) -- ne porte QUE sur les
 // domaines REQUIS par le type de la session (`common` en est toujours
 // exclu, voir server/advisoryRuleExecutions.js, resolveGlobalAnalysisState).

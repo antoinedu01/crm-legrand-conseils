@@ -10,7 +10,7 @@ import path from 'path';
 process.env.CRM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-advisory-sessions-'));
 
 const { default: db } = await import('../server/db.js');
-const { createHousehold, AdvisoryError } = await import('../server/advisoryHouseholds.js');
+const { createHousehold, addMember, removeMember, AdvisoryError } = await import('../server/advisoryHouseholds.js');
 const Q = await import('../server/advisoryQuestionnaires.js');
 const {
   createSession, getSessionDetail, listSessions, updateSessionMetadata,
@@ -82,6 +82,87 @@ test('createSession — création réussie avec une seule version de domaine (se
   const detail = getSessionDetail(id);
   assert.equal(detail.status, 'draft');
   assert.equal(detail.questionnaire_versions.length, 1);
+});
+
+// LOT 7B (revue préalable advisory-architect) : `getSessionDetail` expose
+// désormais le périmètre figé de la session -- surface volontairement
+// minimale (id/display_name/member_role/historical), jamais client_id/
+// current_status bruts, jamais une résolution divergente de
+// `sessionMembersFor` (déjà couverte par ailleurs, ici on vérifie
+// uniquement la projection ajoutée à ce niveau). `can_answer` retiré de
+// cette surface (GATE LOT 7B ciblé §11, revue compliance-privacy-reviewer) :
+// jamais consommé par le sélecteur de membres qui lit cette liste
+// (`SessionRecommendations.jsx`) -- à ne pas confondre avec le `can_answer`
+// du périmètre de travail (`getWorkspace`), lui toujours exposé et testé
+// séparément.
+test('getSessionDetail — expose members (périmètre figé), surface minimale', () => {
+  const householdId = buildHousehold();
+  const { vid } = buildPublishedQuestionnaire('health');
+  const { id } = createSession({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  const detail = getSessionDetail(id);
+  assert.equal(detail.members.length, 1);
+  const m = detail.members[0];
+  assert.deepEqual(Object.keys(m).sort(), ['display_name', 'historical', 'id', 'member_role'].sort());
+  assert.equal(m.member_role, 'principal');
+  assert.equal(m.historical, false);
+});
+
+test('getSessionDetail — membre retiré du foyer APRÈS le démarrage : reste dans members, historical=true', () => {
+  const householdId = buildHousehold();
+  const conjointClientId = insertClient();
+  const { id: conjointId } = addMember(householdId, { member_role: 'conjoint', client_id: conjointClientId }, REQ);
+  const { vid } = buildPublishedQuestionnaire('health');
+  const { id: sessionId } = createSession({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  removeMember(householdId, conjointId, {}, REQ);
+
+  const detail = getSessionDetail(sessionId);
+  assert.equal(detail.members.length, 2, 'le membre retiré ne doit jamais disparaître silencieusement de la projection');
+  const conjointMember = detail.members.find((m) => m.id === conjointId);
+  assert.equal(conjointMember.historical, true);
+  const principalMember = detail.members.find((m) => m.id !== conjointId);
+  assert.equal(principalMember.historical, false);
+});
+
+// GATE LOT 7B ciblé §2B : la disponibilité de la CRÉATION d'une
+// recommandation ne doit pas être recalculée côté frontend, au même titre
+// que les transitions déjà couvertes par `allowed_actions`
+// (test/advisory-recommendations.test.js). `recommendation_capabilities.
+// create` réutilise EXACTEMENT le même prédicat `isSessionWritable` que
+// `server/advisoryRecommendations.js` (`assertSessionWritable`,
+// `computeAllowedActions`) — vérifié ici uniquement du point de vue de
+// `getSessionDetail`, la logique elle-même étant testée exhaustivement
+// côté service des recommandations.
+test('getSessionDetail — recommendation_capabilities.create : vrai sur une session complétée, foyer actif', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  const detail = getSessionDetail(sessionId);
+  assert.equal(detail.recommendation_capabilities.create, true);
+});
+
+test('getSessionDetail — recommendation_capabilities.create : faux sur une session non complétée (draft)', () => {
+  const { sessionId } = createSimpleSession();
+  const detail = getSessionDetail(sessionId);
+  assert.equal(detail.status, 'draft');
+  assert.equal(detail.recommendation_capabilities.create, false);
+});
+
+test('getSessionDetail — recommendation_capabilities.create : faux si le foyer est archivé, même session complétée', () => {
+  const { sessionId, questionId, householdId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  db.prepare("UPDATE households SET status = 'archive' WHERE id = ?").run(householdId);
+  const detail = getSessionDetail(sessionId);
+  assert.equal(detail.recommendation_capabilities.create, false);
 });
 
 test('createSession — refuse un foyer inexistant', () => {
