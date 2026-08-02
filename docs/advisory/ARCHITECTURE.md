@@ -160,7 +160,7 @@ Un service serveur, purement déterministe, qui évalue les `advisory_rules`
 d'un `rule_set` figé contre les réponses de la session et les données
 existantes (contrats). Il produit des `advisory_rule_executions` (traces) et
 des `advisory_findings` (constats). Il ne produit **jamais** directement une
-`advisory_recommendation` à l'état `validee_conseiller`.
+`advisory_recommendation` à l'état `validated` (Lot 7A, voir §7bis).
 
 > **Point confirmé (Lot 4A, implémenté)** : le moteur vit dans deux modules
 > serveur distincts — `server/advisoryRules.js` (cycle de vie des règles :
@@ -217,6 +217,32 @@ des `advisory_findings` (constats). Il ne produit **jamais** directement une
 >   concurrentes sur le même fichier (verrouillage WAL observé, puis
 >   violation d'unicité) et un rollback forcé (échec après l'archivage,
 >   avant la fin de la transaction — aucun état intermédiaire persistant).
+
+## 7bis. Recommandations humaines (Lot 7A, résumé — détail dans `DATA_MODEL.md` §5.5 et `API_CONTRACT.md` §7)
+
+Module strictement séparé du moteur de règles — `server/
+advisoryRecommendations.js`, isolé de `server/advisoryRules.js`/`server/
+advisoryRuleExecutions.js` exactement comme ces deux modules le sont l'un de
+l'autre. Une recommandation (`advisory_recommendations`) est **toujours**
+créée par un conseiller humain authentifié, jamais par le moteur : aucune
+fonction de ce nouveau module n'est atteinte depuis l'exécution/la
+publication de règles, aucune fonction du moteur n'écrit dans les tables de
+recommandations. Cycle de vie strict (`draft` → `validated`/`dismissed`,
+`validated` → `withdrawn`/`superseded`) avec un verrou de concurrence
+optimiste **propre à chaque recommandation** (`revision`, grain nouveau
+dans ce dépôt, distinct de `advisory_sessions.revision` mais coexistant
+avec lui — la validation exige les deux simultanément). Findings liés en
+relation N:M (`advisory_recommendation_findings`), toujours du même domaine
+que la recommandation ; membres destinataires explicites en relation N:M
+(`advisory_recommendation_members`), portée choisie par le conseiller,
+jamais dérivée automatiquement des findings. Un remplacement
+(`supersedes_recommendation_id`) bascule atomiquement l'ancienne
+recommandation vers `superseded` à la validation de la nouvelle, garanti au
+niveau SQLite par un index UNIQUE PARTIEL (au plus un successeur actif par
+recommandation validée, migration 12). Aucun champ produit, assureur,
+catégorie de conseil, décision client ou présentation client dans ce lot —
+backend uniquement, l'interface conseiller (Lot 7B), les produits/assureurs
+(Lot 11) et le dossier de conseil (Lot 9) restent des lots séparés.
 
 ## 8. Mode conseiller
 

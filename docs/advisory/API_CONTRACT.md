@@ -1015,26 +1015,124 @@ une session finalisée ou annulée ne peut jamais être réouverte silencieuseme
   jamais modifié.
 - **Audit** : `finding écarté`.
 
+> **Statut d'implémentation (Lot 7A, backend uniquement — aucune interface,
+> voir Lot 7B).** Les routes ci-dessous remplacent intégralement la
+> proposition LOT 1 (`PUT /api/advisory/recommendations/:id` unique avec
+> `status`/`discard_reason`/`presented_to_client`/`client_decision`) —
+> divergence substantielle documentée dans `DATA_MODEL.md` §5.5. Toutes :
+> `requireAuth` hérité (montage `server/app.js`), CSRF sur écriture (middleware
+> global `/api`), auditées, `Cache-Control: no-store, private` en lecture,
+> protection IDOR (recommandation vérifiée appartenir à la session déduite —
+> `404` sinon, jamais un `500`).
+
 ### `GET /api/advisory/sessions/:id/recommendations`
+- Liste des recommandations de la session (filtre `domain?`/`status?`
+  optionnel). Chaque élément porte `finding_ids`, `member_ids`, et
+  `potentially_stale` (dérivé à la lecture, jamais stocké).
+- **Filtre `domain`** : facultatif ; si transmis, accepte exclusivement
+  `common` | `health` | `life_pension` (même énumération que la création,
+  validation centralisée `assertValidDomainFilter`, jamais dupliquée entre
+  les routes) — toute autre valeur est refusée en `400` **avant** toute
+  utilisation en SQL, en projection ou en audit : aucune normalisation
+  silencieuse vers « absent », aucune chaîne libre jamais inscrite dans
+  `audit_log.details`.
+- **Audit** : `consultation recommandations session` (déduplication 15
+  minutes) ; `consultation recommandations sensibles` dérivé si au moins une
+  recommandation cite un finding dont la sensibilité a été figée à
+  l'exécution (`used_inputs_ref[].sensitivity_at_execution = true`),
+  indépendamment du statut courant de ce finding.
+
+### `POST /api/advisory/sessions/:id/recommendations`
+- **Corps** : `{ domain, scope, title, advisor_rationale, member_ids?, finding_ids?, ...champs narratifs facultatifs }`.
+- Crée un brouillon (`status = 'draft'`, `revision = 1`). Exige une session
+  `completed` (même garantie structurelle qu'une exécution finale du
+  moteur, Lot 4A) et un foyer non archivé.
+- **Audit** : `recommandation créée`.
+
+### `GET /api/advisory/sessions/:id/recommendations/history`
+- Historique complet, tous statuts, `id DESC` — toujours journalisé, jamais
+  dédupliqué (même convention que `GET .../findings/history`).
+- **Filtre `domain`** : même politique stricte que la liste ci-dessus
+  (`common` | `health` | `life_pension` uniquement, facultatif, `400` sinon,
+  validé avant SQL/audit).
+- **Audit** : `consultation historique recommandations` (sans déduplication).
+
+### `GET /api/advisory/recommendations/:id`
+- Détail d'une recommandation (`session_id` dérivé de la ligne elle-même,
+  revérifié par le service — routes adressées directement par id, sans
+  session dans l'URL, chemin adapté par rapport à la proposition initiale
+  et documenté ici).
 
 ### `PUT /api/advisory/recommendations/:id`
-- **Corps possibles** :
-  - `{ status: 'ecartee', discard_reason }` ;
-  - `{ status: 'validee_conseiller' }` — **la seule route qui valide une
-    recommandation**, et uniquement si l'appelant est un conseiller
-    authentifié (déjà garanti par `requireAuth` : il n'existe aucun autre
-    type d'appelant possible dans cette version, donc aucune API séparée
-    pour une validation « automatique » ou « par IA » n'existe, et aucune ne
-    doit jamais être ajoutée) ; renseigne automatiquement
-    `validated_by_user_id`/`validated_at` côté serveur, jamais transmis par
-    le client dans le corps de la requête (pour éviter toute usurpation
-    d'horodatage/identité).
-  - `{ presented_to_client: true }`, `{ client_decision, client_decision_at }`.
-- **Audit** : `validation recommandation` / `écartement recommandation` /
-  `décision client enregistrée`.
-- **Interdiction explicite** : aucune route de ce contrat ne permet à un
-  processus automatique (règle, IA) d'écrire directement
-  `status = 'validee_conseiller'`. Voir aussi `RULES_ENGINE.md` §5.
+- **Corps** : `{ expected_recommendation_revision, ...tout champ narratif/scope/member_ids/domain à modifier }`.
+- Modifie un brouillon (`409` si non `draft`). Portée et liste de membres
+  modifiables atomiquement en un seul appel (`scope`+`member_ids` toujours
+  transmis ensemble — jamais un retrait implicite). Une seule
+  incrémentation de `revision` même pour une mutation regroupant plusieurs
+  aspects.
+- **Audit** : `recommandation modifiée`.
+
+### `POST /api/advisory/recommendations/:id/findings` / `DELETE .../findings/:findingId`
+- **Corps** : `{ finding_id?, expected_recommendation_revision }`.
+- Le finding doit appartenir à la même session et au même domaine que la
+  recommandation ; pour `scope = member`, un finding `finding_scope =
+  member` doit concerner l'un des membres explicitement ciblés (`409`
+  sinon — jamais un finding concernant une autre personne que celles
+  visées).
+- **Audit** : `finding lié` / `finding délié`.
+
+### `POST /api/advisory/recommendations/:id/members` / `DELETE .../members/:memberId`
+- **Corps** : `{ household_member_id?, expected_recommendation_revision }`.
+- Limité à `scope = member` ; le membre doit appartenir au
+  `household_snapshot` figé de la session ; retrait du dernier membre ciblé
+  refusé (`400`).
+- **Audit** : `membre lié` / `membre délié`.
+
+### `POST /api/advisory/recommendations/:id/validate`
+- **Corps** : `{ expected_recommendation_revision, expected_session_revision }`.
+- **La seule route qui valide une recommandation**, uniquement si
+  l'appelant est un conseiller authentifié (aucun autre type d'appelant
+  possible, aucune API séparée pour une validation automatique ou par IA).
+  Vérifie dans une transaction unique : révisions (recommandation et
+  session), champs narratifs obligatoires, portée valide, au moins un
+  finding source, et que chaque finding lié est `active`, issu d'une
+  exécution `completed` de la révision COURANTE de la session, non
+  `dismissed`, non `superseded`. Tout échec → `409`, rien n'est écrit,
+  aucun audit de succès. Renseigne automatiquement
+  `validated_by_user_id`/`validated_at`/`validated_session_revision` côté
+  serveur, jamais transmis par le client. Si la recommandation remplace une
+  autre (`supersedes_recommendation_id`), bascule atomiquement l'ancienne
+  vers `superseded` dans la même transaction.
+- **Audit** : `recommandation validée` (+ `recommandation remplacée` si une
+  supersession a eu lieu).
+
+### `POST /api/advisory/recommendations/:id/dismiss`
+- **Corps** : `{ dismiss_reason, expected_recommendation_revision }`. Brouillon
+  uniquement (`409` sinon), motif obligatoire.
+- **Audit** : `recommandation écartée`.
+
+### `POST /api/advisory/recommendations/:id/withdraw`
+- **Corps** : `{ withdraw_reason, expected_recommendation_revision }`.
+  Recommandation `validated` uniquement, motif obligatoire. Contenu
+  narratif historique jamais modifié.
+- **Audit** : `recommandation retirée`.
+
+### `POST /api/advisory/recommendations/:id/replacement`
+- **Corps** : `{ expected_source_recommendation_revision, title, advisor_rationale, scope, member_ids?, ...champs narratifs facultatifs }`.
+- Crée un brouillon de remplacement (`supersedes_recommendation_id` fixé,
+  domaine hérité de la source). Source doit être `validated`, révision
+  attendue conforme, aucun autre successeur non-`dismissed` déjà actif
+  (`409` sinon — garanti au niveau SQLite par un index UNIQUE PARTIEL,
+  `docs/MIGRATIONS.md` version 12). Un premier brouillon de remplacement
+  écarté (`dismissed`) libère la possibilité d'un nouvel essai.
+- **Audit** : `recommandation créée`.
+
+**Interdiction explicite** : aucune route de ce contrat ne permet à un
+processus automatique (règle, moteur, IA) d'écrire directement `status =
+'validated'`, de choisir un finding source, ou de renseigner
+automatiquement une justification. Voir aussi `RULES_ENGINE.md` §5, §9.
+**Hors périmètre de ce lot** (Lot 7B/9/11) : décision client, présentation
+client, produit, assureur, rapport, catégorie de conseil (`category`).
 
 ---
 

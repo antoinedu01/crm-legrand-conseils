@@ -656,21 +656,146 @@
 
 ## Lot 7 — Recommandations et validation humaine
 
-- **Objectif** : `advisory_recommendations`, écran de validation conseiller
-  (`UX_AND_CLIENT_MODE.md` 1.8, 1.10).
-- **Tables** : `advisory_recommendations`.
-- **Routes** : `API_CONTRACT.md` §7 (recommandations).
-- **Tests** : impossibilité de valider automatiquement une recommandation
-  sans action humaine explicite ; `validated_by_user_id` toujours renseigné
-  côté serveur ; écartement toujours motivé.
+> **Découpage acté (cadrage humain validé en 3 rapports successifs avant
+> implémentation)** : ce lot est scindé en **Lot 7A** (backend générique,
+> implémenté) et **Lot 7B** (interface conseiller, non démarré). Le
+> découpage précède volontairement le contenu métier réel (Lots 5/6, non
+> démarrés) — l'infrastructure de recommandation est indépendante du
+> contenu métier et peut être conçue/testée avec les règles fictives déjà
+> disponibles depuis le Lot 4A, exactement comme le Lot 4A/4B l'ont fait.
+> La dépendance du Lot 7 vers les Lots 4-6 reste correcte pour une mise en
+> production avec du contenu réel, pas pour son développement backend.
+
+### Lot 7A — Backend générique (implémenté)
+
+> **Statut : implémenté et testé.** Migration 12, `server/
+> advisoryRecommendations.js`, `server/routes/advisoryRecommendations.js`,
+> extension de `server/app.js`. Aucune interface conseiller (Lot 7B), aucun
+> produit/assureur (Lot 11), aucune décision/présentation client ni rapport
+> (Lot 9).
+
+- **Objectif réellement livré** : modèle, service et API permettant à un
+  conseiller humain de créer, modifier, valider, écarter, retirer et
+  remplacer une recommandation générique fondée sur des findings
+  déterministes. Le système ne produit, ne valide et ne remplit jamais
+  automatiquement une recommandation — confirmé par construction (aucune
+  fonction du moteur de règles n'écrit dans les nouvelles tables) et par
+  test comportemental dédié.
+- **Tables (3, conformes au cadrage)** : `advisory_recommendations`,
+  `advisory_recommendation_findings`, `advisory_recommendation_members` —
+  voir `docs/MIGRATIONS.md` version 12 et `DATA_MODEL.md` §5.5-§5.5ter.
+- **Routes** : `API_CONTRACT.md` §7 — sous-ressources de session
+  (liste/création/historique, `/api/advisory/sessions/:id/recommendations`)
+  et adressage direct par id (`/api/advisory/recommendations/:id/...` pour
+  le détail, la modification, les liens findings/membres, la validation,
+  l'écartement, le retrait et le remplacement) — chemins légèrement adaptés
+  par rapport à la proposition du cadrage, documenté dans `API_CONTRACT.md`.
+- **Décisions d'architecture actées pendant le cadrage (4 revues préalables,
+  3 rapports de correction avant tout code)** :
+  - **Statuts en anglais**, cinq valeurs (`draft`/`validated`/`dismissed`/
+    `superseded`/`withdrawn`) — `submitted`/`approved`/`rejected` explicitement
+    exclus (absence de mécanisme humain de quatre yeux dans cette version
+    mono-utilisateur).
+  - **`category` délibérément absent** (ambiguïté avec
+    `advisory_rules.result_payload.category_hint`) ; **`domain`/`scope`
+    explicites**, `scope` jamais dérivé automatiquement des findings liés.
+  - **Table de liaison N:M** vers les findings (pas un JSON) et vers les
+    membres ciblés — cas réellement N:M, contrairement au 1:N finding/
+    exécution du Lot 4A.
+  - **Révision propre à la recommandation** (`revision`), grain de
+    concurrence optimiste NOUVEAU dans ce dépôt, distinct de
+    `advisory_sessions.revision` — la validation exige les deux
+    simultanément (`expected_recommendation_revision` +
+    `expected_session_revision`).
+  - **Remplacement atomique** (`supersedes_recommendation_id`, porté par la
+    nouvelle recommandation) garanti par un index UNIQUE PARTIEL SQLite
+    (au plus un successeur ACTIF par recommandation validée — un
+    successeur `dismissed` libère un nouvel essai), vérifié par une
+    matrice de tests SQL bruts et deux vraies connexions `better-sqlite3`
+    concurrentes.
+  - **Session `completed` exigée dès la création** (pas seulement à la
+    validation) — recommandation forte de la revue préalable
+    `advisory-architect` : une session non finalisée peut encore être
+    annulée, ce qui laisserait une recommandation orpheline.
+  - **Trois booléens de déclaration explicite** (`no_alternatives_identified`/
+    `no_additional_risks_identified`/`no_missing_information_known`)
+    distinguant « non renseigné » de « examiné, rien identifié » — jamais
+    renseignés automatiquement, mutuellement exclusifs avec leur champ
+    texte associé.
+  - **`potentially_stale`** : état d'obsolescence entièrement dérivé à la
+    lecture (jamais stocké), jamais une bascule automatique de statut.
+- **Tests — 113 nouveaux, répartis sur trois fichiers** (baseline au commit
+  `7ba63545633518971acb211320746ac8e55fbe8c` : **855**, vérifiée par
+  `npm test` avant toute modification ; total actuel : **968** — écart
+  vérifié par comparaison directe des `test(` par fichier, jamais une
+  addition narrative) :
+  - `test/advisory-recommendations.test.js` (nouveau fichier) : **75** —
+    création, portée/membres (transitions atomiques), findings (cohérence
+    domaine et cohérence membre/finding pour `scope = member`, y compris
+    le cas explicitement interdit « recommandation pour Alice citant un
+    finding sur Bob »), révisions, validation (checklist complète),
+    écartement, retrait, remplacement (concurrence à deux connexions
+    réelles, brouillon abandonné puis nouvel essai autorisé, ROLLBACK
+    FORCÉ par déclencheur SQL entre les deux `UPDATE` de la transaction
+    atomique — ajouté lors des revues finales, le premier test ne
+    couvrait qu'un échec de PRÉ-CONDITION, pas un échec réellement
+    intra-transactionnel), déclarations explicites, obsolescence dérivée,
+    audit (les 13 actions toutes réellement exercées avec marqueur
+    distinctif et vérifiées présentes, pas seulement 8 sur 13 comme dans
+    une première version).
+  - `test/advisory-recommendations-api.test.js` (nouveau fichier) : **23**
+    — auth/CSRF (étendu aux 7 routes d'écriture, pas seulement 2), cache
+    (les 3 routes de lecture, dont l'historique), cycle de vie complet par
+    HTTP, IDOR (id inexistant + recommandation existante absente d'une
+    autre session), 404 neutre (6 routes), 409 concurrence, validation 400
+    (3 cas), minimisation des réponses d'erreur, absence de fuite SQL sur
+    un conflit de remplacement concurrent, audit.
+  - `test/migrations.test.js` (fichier préexistant, 55 → 70, **+15**) :
+    trois tables, colonnes (dont l'absence explicite de `category`/
+    `presented_to_client`/`client_decision`), index unique partiel
+    (présence/unicité/caractère partiel/SQL exact du WHERE/matrice
+    complète des statuts croisant EXPLICITEMENT les deux dimensions du
+    `WHERE`/migration réelle depuis v11/redémarrages répétés/deux
+    connexions réelles). Six tests v11 préexistants rescopés (jamais
+    supprimés) pour refléter que la base dépasse désormais v11 — même
+    précédent que le rescopage v10 lors de l'ajout de la migration 11.
+- **Revues** : 4 revues préalables (avant tout code) et 4 revues finales
+  (après implémentation) — `advisory-architect`, `compliance-privacy-reviewer`,
+  `rules-engine-auditor`, `backend-test-auditor` (rôle assuré par un agent
+  general-purpose spécialisé, aucun agent dédié de ce nom n'existant dans ce
+  dépôt). **Défauts réels trouvés par les revues finales, tous corrigés
+  avant le rapport final** : comptage documentaire erroné (« douze » vs
+  treize actions d'audit réelles, `SECURITY_PRIVACY.md`) ; test de
+  « rollback forcé » ne couvrant en réalité qu'un échec de pré-condition,
+  jamais un échec intra-transactionnel réel (corrigé par un déclencheur
+  SQL temporaire, même technique que le Lot 4A) ; test de non-fuite d'audit
+  n'exerçant réellement que 8 des 13 actions avec le marqueur (corrigé,
+  les 13 sont désormais exercées et leur présence vérifiée explicitement) ;
+  couverture API insuffisante sur CSRF/IDOR/404/cache/validation (étendue).
+  Voir le rapport final du GATE Lot 7A pour le détail complet.
 - **Critères d'acceptation** : aucune route ne permet à un appel automatisé
-  (test compris) d'atteindre `status = validee_conseiller` sans passer par
-  l'action de validation explicite authentifiée.
-- **Actions interdites** : aucune automatisation de la validation, même
-  partielle.
-- **Dépendances** : Lots 4-6.
-- **Retour arrière** : `DROP TABLE advisory_recommendations` — findings
-  restent intacts (table indépendante).
+  (test compris) d'atteindre `status = validated` sans passer par l'action
+  de validation explicite authentifiée ; aucun produit, assureur, décision
+  client ou présentation client dans le schéma ou l'API de ce lot.
+- **Actions interdites (respectées)** : aucune interface conseiller (Lot
+  7B), aucune automatisation de la validation même partielle, aucun
+  catalogue produit, aucun appel IA/MCP.
+- **Dépendances** : Lot 4A (findings), Lot 3A (sessions/membres) —
+  explicitement PAS les Lots 5/6 (contenu métier réel), voir note de
+  découpage ci-dessus.
+- **Retour arrière** : `DROP TABLE` des 3 tables dans l'ordre inverse de
+  création (`advisory_recommendation_members` → `advisory_recommendation_findings`
+  → `advisory_recommendations`) — findings/exécutions/règles restent
+  intacts (tables indépendantes, jamais modifiées par ce lot).
+
+### Lot 7B — Interface conseiller des recommandations (non démarré)
+
+- **Objectif** : écran de création/édition/validation contextualisé depuis
+  `SessionFindings.jsx`, sur le modèle fonctionnel déjà esquissé au
+  cadrage (point d'entrée par finding, panier de sélection multi-findings
+  borné à un domaine, alternatives écartées en `<details>`, badge non
+  bloquant pour une recommandation `potentially_stale`).
+- **Dépendances** : Lot 7A.
 
 ## Lot 8 — Mode présentation client
 

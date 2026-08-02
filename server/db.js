@@ -973,6 +973,129 @@ if (version < 11) {
   migrate();
 }
 
+if (version < 12) {
+  // LOT 7A — Legrand Diagnostic 360 : backend générique des recommandations
+  // humaines. Trois tables entièrement nouvelles. Une recommandation est
+  // TOUJOURS créée par un conseiller humain authentifié (server/
+  // advisoryRecommendations.js) — le moteur de règles (server/advisoryRules.js,
+  // server/advisoryRuleExecutions.js) n'écrit jamais dans ces tables, ne les
+  // référence jamais, et ne peut ni créer ni valider une recommandation, ni
+  // choisir un produit ou un assureur, ni renseigner automatiquement une
+  // justification (aucune table produit/assureur n'existe, LOT 11 hors
+  // périmètre). Numéro vérifié disponible au moment de l'implémentation :
+  // aucun bloc `< 12` n'existait, la version 11 restait la dernière ; aucune
+  // branche locale ou distante connue ne dépasse la version 11.
+  const migrate = db.transaction(() => {
+    db.exec(`
+      -- Une recommandation : proposition de conseil rédigée par un humain,
+      -- justifiée par un ou plusieurs findings déterministes (jamais
+      -- l'inverse). Cycle de vie strict : draft (mutable) -> validated
+      -- (immuable, action humaine explicite) ou dismissed (brouillon
+      -- abandonné) ; validated -> withdrawn (retirée sans remplacement) ou
+      -- superseded (dérivé, jamais togglé directement -- uniquement en
+      -- conséquence de la validation atomique d'un remplacement, voir
+      -- supersedes_recommendation_id ci-dessous). Aucun champ 'category' :
+      -- délibérément exclu (décision humaine, cadrage LOT 7A) pour éviter
+      -- toute confusion avec advisory_rules.result_payload.category_hint,
+      -- déjà utilisé par le moteur pour le regroupement technique des
+      -- conflits (needs_review/conflicts_with) -- une notion strictement
+      -- différente d'une taxonomie humaine de conseil. Aucun champ produit,
+      -- assureur, contrat, prime, comparaison, decision client ou
+      -- présentation client : hors périmètre de ce lot (LOT 7B/9/11).
+      CREATE TABLE IF NOT EXISTS advisory_recommendations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES advisory_sessions(id),
+        domain TEXT NOT NULL,                      -- common | health | life_pension -- JAMAIS mixed ; tous les findings liés doivent appartenir au MÊME domaine (contrôle applicatif, jamais de mélange health/life_pension, y compris common)
+        scope TEXT NOT NULL,                        -- session | household | member -- choisi explicitement par le conseiller, jamais dérivé automatiquement des findings liés
+        status TEXT NOT NULL DEFAULT 'draft',       -- draft | validated | dismissed | superseded | withdrawn
+        revision INTEGER NOT NULL DEFAULT 1,        -- verrou de concurrence optimiste PROPRE à cette ligne (grain nouveau dans ce dépôt, distinct de advisory_sessions.revision) -- incrémenté après CHAQUE écriture réussie, y compris les transitions terminales
+        title TEXT NOT NULL,
+        summary TEXT,                                -- obligatoire uniquement pour atteindre validated (contrôlé en service, jamais en CHECK)
+        advisor_rationale TEXT NOT NULL,
+        expected_benefits TEXT,
+        limitations TEXT,
+        risks TEXT,
+        no_additional_risks_identified INTEGER NOT NULL DEFAULT 0,   -- distingue « non renseigné » de « examiné, rien identifié » -- jamais renseigné automatiquement
+        alternatives_considered TEXT,
+        alternative_rejection_reason TEXT,
+        no_alternatives_identified INTEGER NOT NULL DEFAULT 0,
+        missing_information TEXT,
+        no_missing_information_known INTEGER NOT NULL DEFAULT 0,
+        warnings TEXT,
+        reservations TEXT,
+        created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        validated_by_user_id INTEGER REFERENCES users(id),          -- stampé serveur uniquement, jamais transmis par le client (auto-validation autorisée en v1 : peut coïncider avec created_by_user_id, CRM mono-utilisateur, aucun contrôle à quatre yeux prétendu)
+        validated_at TEXT,
+        validated_session_revision INTEGER,          -- révision de advisory_sessions.revision figée AU MOMENT de la validation -- jamais recalculée après coup, sert de base au calcul dérivé d'obsolescence (potentially_stale, jamais stocké)
+        dismiss_reason TEXT,                         -- obligatoire si status = dismissed (contrôlé en service)
+        dismissed_by_user_id INTEGER REFERENCES users(id),
+        dismissed_at TEXT,
+        withdraw_reason TEXT,                        -- obligatoire si status = withdrawn
+        withdrawn_by_user_id INTEGER REFERENCES users(id),
+        withdrawn_at TEXT,
+        supersedes_recommendation_id INTEGER REFERENCES advisory_recommendations(id) -- portée par la NOUVELLE recommandation (une seule direction explicite, décision humaine) -- doit référencer une recommandation validated de la même session ET du même domaine (contrôle applicatif) ; bascule atomique à la validation : l'ancienne passe à superseded, jamais avant
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendations_session ON advisory_recommendations(session_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendations_session_status ON advisory_recommendations(session_id, status);
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendations_session_domain ON advisory_recommendations(session_id, domain);
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendations_status ON advisory_recommendations(status);
+      -- Empêche au niveau SQLite lui-même qu'une recommandation validated ait
+      -- plus d'un successeur ACTIF (draft ou validated) à la fois -- ignore
+      -- délibérément les successeurs dismissed (un premier brouillon de
+      -- remplacement abandonné ne bloque jamais un nouvel essai). Syntaxe
+      -- vérifiée empiriquement compatible SQLite/better-sqlite3 pendant le
+      -- cadrage (deux successeurs dismissed acceptés, un deuxième successeur
+      -- draft/validated refusé).
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_recommendations_one_non_dismissed_successor
+        ON advisory_recommendations(supersedes_recommendation_id)
+        WHERE supersedes_recommendation_id IS NOT NULL
+          AND status <> 'dismissed';
+
+      -- Relation N:M vers les findings sources (jamais un JSON -- décision
+      -- humaine, cadrage LOT 7A : cas réellement N:M, contrairement au 1:N
+      -- finding<->exécution du Lot 4A). Un finding peut justifier plusieurs
+      -- recommandations/alternatives concurrentes ; une recommandation peut
+      -- citer plusieurs findings, TOUJOURS du même domaine et de la même
+      -- session que la recommandation (contrôle applicatif). Les findings
+      -- restent strictement en lecture depuis ce module -- aucune écriture
+      -- n'est jamais déclenchée sur advisory_findings par ce lot.
+      CREATE TABLE IF NOT EXISTS advisory_recommendation_findings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recommendation_id INTEGER NOT NULL REFERENCES advisory_recommendations(id) ON DELETE CASCADE,
+        finding_id INTEGER NOT NULL REFERENCES advisory_findings(id),
+        created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(recommendation_id, finding_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendation_findings_recommendation ON advisory_recommendation_findings(recommendation_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendation_findings_finding ON advisory_recommendation_findings(finding_id);
+
+      -- Relation N:M vers les membres du foyer explicitement ciblés (portée
+      -- choisie par le conseiller, jamais dérivée automatiquement des
+      -- findings liés -- décision humaine, cadrage LOT 7A). Un membre
+      -- référencé doit appartenir au household_snapshot figé de la session
+      -- (server/advisorySessions.js, sessionMembersFor) -- jamais une
+      -- lecture directe et vivante de household_members (même invariant
+      -- anti-IDOR que assertMemberBelongsToSession, Lot 3A).
+      CREATE TABLE IF NOT EXISTS advisory_recommendation_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recommendation_id INTEGER NOT NULL REFERENCES advisory_recommendations(id) ON DELETE CASCADE,
+        household_member_id INTEGER NOT NULL REFERENCES household_members(id),
+        created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(recommendation_id, household_member_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendation_members_recommendation ON advisory_recommendation_members(recommendation_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_recommendation_members_member ON advisory_recommendation_members(household_member_id);
+    `);
+
+    db.pragma('user_version = 12');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

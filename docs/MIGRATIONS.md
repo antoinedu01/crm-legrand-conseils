@@ -414,3 +414,100 @@ migration depuis une base héritée, idempotence, les 4 tables et l'absence
 explicite des tables hors périmètre (`advisory_recommendations`/
 `advisory_consents`/`advisory_reports`). Cette migration s'exécute dans une
 transaction SQLite unique.)*
+
+## Version 12
+
+**Objectif** : backend générique des recommandations humaines (Lot 7A) —
+trois tables entièrement nouvelles. Une recommandation est **toujours**
+créée par un conseiller humain authentifié ; le moteur de règles
+(`server/advisoryRules.js`/`server/advisoryRuleExecutions.js`) n'écrit
+jamais dans ces tables, ne peut ni créer ni valider une recommandation, ni
+choisir un produit ou un assureur, ni renseigner automatiquement une
+justification (aucune table produit/assureur n'existe, Lot 11 hors
+périmètre). Numéro vérifié disponible au moment de l'implémentation : aucun
+bloc `< 12` n'existait, la version 11 restait la dernière ; aucune branche
+locale ou distante connue ne dépasse la version 11.
+
+**Tables créées (3)** :
+- `advisory_recommendations` — `session_id`, `domain` (∈
+  `common`/`health`/`life_pension`, **jamais** `mixed` — tous les findings
+  liés doivent appartenir au même domaine que la recommandation, contrôle
+  applicatif), `scope` (∈ `session`/`household`/`member`, choisi
+  explicitement par le conseiller, **jamais dérivé automatiquement** des
+  findings liés), `status` (∈ `draft`/`validated`/`dismissed`/`superseded`/
+  `withdrawn`), `revision` (`INTEGER NOT NULL DEFAULT 1` — verrou de
+  concurrence optimiste **propre à la ligne**, grain nouveau dans ce dépôt,
+  distinct de `advisory_sessions.revision`, incrémenté après **toute**
+  écriture réussie y compris les transitions terminales), les champs
+  narratifs (`title`/`summary`/`advisor_rationale`/`expected_benefits`/
+  `limitations`/`risks`/`alternatives_considered`/
+  `alternative_rejection_reason`/`missing_information`/`warnings`/
+  `reservations`) plus trois booléens de déclaration explicite
+  (`no_alternatives_identified`/`no_additional_risks_identified`/
+  `no_missing_information_known`, défaut `0`, distinguent « non renseigné »
+  de « examiné, rien identifié » — jamais renseignés automatiquement), les
+  champs d'audit par transition (`created_by_user_id`/`created_at`,
+  `validated_by_user_id`/`validated_at`/`validated_session_revision`,
+  `dismiss_reason`/`dismissed_by_user_id`/`dismissed_at`,
+  `withdraw_reason`/`withdrawn_by_user_id`/`withdrawn_at`), et
+  `supersedes_recommendation_id` (auto-référence, portée par la **nouvelle**
+  recommandation, une seule direction explicite). **Aucun champ `category`**
+  (délibérément exclu — ambiguïté avec
+  `advisory_rules.result_payload.category_hint`, décision humaine) ;
+  **aucun champ produit, assureur, contrat, prime, comparaison,
+  `presented_to_client` ou `client_decision`** (hors périmètre Lot 7B/9/11).
+- `advisory_recommendation_findings` — relation **N:M** vers
+  `advisory_findings` (`UNIQUE(recommendation_id, finding_id)`,
+  `ON DELETE CASCADE` depuis la recommandation parente uniquement). Un
+  finding peut justifier plusieurs recommandations/alternatives ; une
+  recommandation peut citer plusieurs findings, toujours du même domaine et
+  de la même session (contrôle applicatif). Les findings restent strictement
+  en lecture depuis ce module.
+- `advisory_recommendation_members` — relation **N:M** vers
+  `household_members` (`UNIQUE(recommendation_id, household_member_id)`,
+  `ON DELETE CASCADE` depuis la recommandation parente uniquement). Un
+  membre référencé doit appartenir au `household_snapshot` figé de la
+  session (`sessionMembersFor`) — jamais une lecture directe et vivante de
+  `household_members`.
+
+**Index UNIQUE PARTIEL** (empêche au niveau SQLite lui-même qu'une
+recommandation `validated` ait plus d'un successeur **actif** à la fois,
+tout en autorisant un nouvel essai après abandon du précédent — syntaxe
+vérifiée empiriquement compatible SQLite/`better-sqlite3` avant
+implémentation) :
+```sql
+CREATE UNIQUE INDEX idx_advisory_recommendations_one_non_dismissed_successor
+ON advisory_recommendations(supersedes_recommendation_id)
+WHERE supersedes_recommendation_id IS NOT NULL
+  AND status <> 'dismissed';
+```
+Vérifié par une matrice de tests SQL bruts (plusieurs successeurs
+`dismissed` acceptés, un deuxième successeur `draft`/`validated` rejeté,
+sources indépendantes toujours autorisées), une migration réelle depuis une
+base héritée en v11, des redémarrages répétés, et deux VRAIES connexions
+`better-sqlite3` concurrentes sur le même fichier (verrouillage WAL observé,
+puis violation d'unicité).
+
+**Aucun `CHECK` déclaratif** sur les colonnes-énumération — convention déjà
+en vigueur, reconduite à l'identique.
+
+**Compatibilité** : migration strictement additive, aucune table existante
+modifiée. Aucune donnée existante réécrite.
+
+**Réversibilité** : `DROP TABLE` des 3 tables dans l'ordre inverse de
+création (`advisory_recommendation_members` → `advisory_recommendation_findings`
+→ `advisory_recommendations`) — aucune donnée hors de ce module n'est
+affectée, aucune recommandation réelle n'existant encore à ce stade.
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire ; cette
+migration n'a, à ce jour, jamais été exécutée sur la base de production.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 12)`. Testée dans `test/migrations.test.js` : base neuve,
+migration réelle depuis une base héritée en v11, idempotence, redémarrages
+répétés, les 3 tables et l'absence des tables hors périmètre (produit/
+assureur/`advisory_consents`/`advisory_reports`), les colonnes attendues
+(dont l'absence de `category`/`presented_to_client`/`client_decision`),
+l'index unique partiel (présence/unicité/caractère partiel/SQL exact du
+WHERE/matrice complète des statuts), deux connexions `better-sqlite3`
+réelles. Cette migration s'exécute dans une transaction SQLite unique.)*

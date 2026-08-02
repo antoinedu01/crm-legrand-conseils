@@ -203,6 +203,28 @@ async function buildLegacyV10Database(dataDir) {
   db.close();
 }
 
+// Même principe que `buildLegacyV10Database`, pour tester une migration
+// RÉELLE v11 -> v12 (LOT 7A) : produit par le code de migration lui-même
+// (fidélité garantie), puis retire les 3 tables de recommandations et
+// refixe `user_version = 11`.
+async function buildLegacyV11Database(dataDir) {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-migration-v11-scratch-'));
+  const scratchDb = await importFreshDb(scratchDir);
+  const scratchFile = path.join(scratchDir, 'crm.sqlite');
+  scratchDb.close();
+
+  const file = path.join(dataDir, 'crm.sqlite');
+  fs.copyFileSync(scratchFile, file);
+  const db = new Database(file);
+  db.exec(`
+    DROP TABLE advisory_recommendation_members;
+    DROP TABLE advisory_recommendation_findings;
+    DROP TABLE advisory_recommendations;
+  `);
+  db.pragma('user_version = 11');
+  db.close();
+}
+
 function insertFixtureContract(db, branch = 'lamal') {
   const company = db.prepare('INSERT INTO companies (name) VALUES (?)').run('Compagnie de test');
   const client = db
@@ -523,6 +545,10 @@ const ADVISORY_V11_TABLES = [
   'advisory_rule_sets', 'advisory_rules', 'advisory_rule_executions', 'advisory_findings',
 ];
 
+const ADVISORY_V12_TABLES = [
+  'advisory_recommendations', 'advisory_recommendation_findings', 'advisory_recommendation_members',
+];
+
 test('migration v10 — une base neuve atteint au moins user_version = 10', async () => {
   const db = await importFreshDb(tempDir());
   assert.ok(db.pragma('user_version', { simple: true }) >= 10);
@@ -555,27 +581,27 @@ test('migration v10 — les 8 tables historiques existent (sous-ensemble, la bas
   for (const t of ADVISORY_V10_TABLES) assert.ok(tables.includes(t), `table manquante : ${t}`);
 });
 
-test('migration v11 — les 4 tables du moteur de règles existent, et aucune table hors périmètre (recommendations/consents/reports/catalogue produit)', async () => {
+test('migration v11 — les 4 tables du moteur de règles existent (sous-ensemble, la base courante dépasse maintenant v11) ; consents/reports/catalogue produit toujours absents', async () => {
   const db = await importFreshDb(tempDir());
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'advisory_%'").all().map((t) => t.name);
-  const expected = [...ADVISORY_V10_TABLES, ...ADVISORY_V11_TABLES];
   for (const t of ADVISORY_V11_TABLES) assert.ok(tables.includes(t), `table manquante : ${t}`);
-  assert.equal(tables.length, expected.length, `tables inattendues : ${tables.filter((t) => !expected.includes(t))}`);
-  assert.ok(!tables.includes('advisory_recommendations'), 'advisory_recommendations ne doit pas exister au LOT 4A');
-  assert.ok(!tables.includes('advisory_consents'), 'advisory_consents ne doit pas exister au LOT 4A');
-  assert.ok(!tables.includes('advisory_reports'), 'advisory_reports ne doit pas exister au LOT 4A');
+  // advisory_recommendations existe désormais (LOT 7A, migration 12) — voir
+  // les tests « migration v12 » dédiés ci-dessous. consents/reports/catalogue
+  // produit restent hors périmètre de tous les lots livrés à ce jour.
+  assert.ok(!tables.includes('advisory_consents'), 'advisory_consents ne doit pas encore exister');
+  assert.ok(!tables.includes('advisory_reports'), 'advisory_reports ne doit pas encore exister');
 });
 
-test('migration v11 — une base neuve atteint user_version = 11', async () => {
+test('migration v11 — une base neuve atteint au moins user_version = 11', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 11);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 11);
 });
 
-test('migration v11 — idempotence : un second import de la même base n’échoue pas et reste en v11', async () => {
+test('migration v11 — idempotence : un second import de la même base n’échoue pas et reste au moins en v11', async () => {
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 11);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 11);
 });
 
 // Constat GATE LOT 4A §12 (revue advisory-architect) : les colonnes ajoutées
@@ -704,7 +730,7 @@ test('migration v11 — index unique partiel : présent après une migration RÉ
   const dir = tempDir();
   await buildLegacyV10Database(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 11);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 11);
   const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get();
   assert.ok(idx, 'l\'index doit être créé par la migration 11 en repartant d\'une base v10 réelle');
   // La contrainte fonctionne bien sur cette base issue d'une VRAIE migration.
@@ -719,19 +745,23 @@ test('migration v11 — index unique partiel : redémarrages répétés (3x) res
   const dir = tempDir();
   for (let i = 0; i < 3; i += 1) {
     const db = await importFreshDb(dir);
-    assert.equal(db.pragma('user_version', { simple: true }), 11);
+    assert.ok(db.pragma('user_version', { simple: true }) >= 11);
     const info = db.prepare('PRAGMA index_list(advisory_rule_sets)').all().filter((idx) => idx.name === 'idx_advisory_rule_sets_one_published_per_domain');
     assert.equal(info.length, 1, 'l\'index ne doit jamais être dupliqué par un redémarrage répété');
     assert.equal(info[0].unique, 1);
   }
 });
 
-test('migration v11 — absence de migration 12 : la dernière version de schéma reste 11, aucun bloc de migration ultérieur', async () => {
+// Rescopé au LOT 7A (migration 12 ajoutée légitimement, voir tests
+// « migration v12 » ci-dessous) : la frontière « aucun bloc ultérieur » se
+// déplace mécaniquement à chaque nouvelle migration ajoutée — même
+// précédent que le déplacement 11→12 lui-même documenté ici.
+test('migration v12 — absence de migration 13 : la dernière version de schéma reste 12, aucun bloc de migration ultérieur', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 11, 'la base neuve doit culminer exactement à la version 11, pas au-delà');
+  assert.equal(db.pragma('user_version', { simple: true }), 12, 'la base neuve doit culminer exactement à la version 12, pas au-delà');
   const dbJsSource = fs.readFileSync(dbModulePath, 'utf8');
-  assert.ok(!/version\s*<\s*12/.test(dbJsSource), 'aucun bloc "if (version < 12)" ne doit exister : le correctif est intégré à la migration 11 elle-même, jamais une migration 12 séparée');
-  assert.ok(!/user_version\s*=\s*12/.test(dbJsSource), 'aucun "user_version = 12" ne doit exister dans server/db.js');
+  assert.ok(!/version\s*<\s*13/.test(dbJsSource), 'aucun bloc "if (version < 13)" ne doit exister');
+  assert.ok(!/user_version\s*=\s*13/.test(dbJsSource), 'aucun "user_version = 13" ne doit exister dans server/db.js');
 });
 
 // Correctif SQL ciblé (second GATE, avant commit) : garantie SQLite
@@ -945,4 +975,207 @@ test('migration v10 — advisory_answers : deux membres différents peuvent chac
     db.prepare("INSERT INTO advisory_answers (session_id, question_id, household_member_id, status, value_boolean, revision) VALUES (?, ?, ?, 'answered', 1, 1)").run(sessionId, questionId, member1);
     db.prepare("INSERT INTO advisory_answers (session_id, question_id, household_member_id, status, value_boolean, revision) VALUES (?, ?, ?, 'answered', 0, 1)").run(sessionId, questionId, member2);
   });
+});
+
+// ============================================================================
+// Migration v12 (LOT 7A) — recommandations humaines génériques
+// ============================================================================
+
+test('migration v12 — les 3 tables de recommandations existent, aucune table hors périmètre (produit/assureur/consents/reports)', async () => {
+  const db = await importFreshDb(tempDir());
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'advisory_%'").all().map((t) => t.name);
+  for (const t of ADVISORY_V12_TABLES) assert.ok(tables.includes(t), `table manquante : ${t}`);
+  assert.ok(!tables.includes('advisory_consents'), 'advisory_consents ne doit pas exister au LOT 7A');
+  assert.ok(!tables.includes('advisory_reports'), 'advisory_reports ne doit pas exister au LOT 7A');
+  assert.ok(!tables.some((t) => /product|insurer|catalog/i.test(t)), 'aucune table produit/assureur/catalogue ne doit exister au LOT 7A');
+});
+
+test('migration v12 — une base neuve atteint exactement user_version = 12', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 12);
+});
+
+test('migration v12 — idempotence : un second import de la même base n’échoue pas et reste en v12', async () => {
+  const dir = tempDir();
+  await importFreshDb(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 12);
+});
+
+test('migration v12 — advisory_recommendations : colonnes attendues présentes avec les bons types/défauts', async () => {
+  const db = await importFreshDb(tempDir());
+  const cols = new Map(db.prepare('PRAGMA table_info(advisory_recommendations)').all().map((c) => [c.name, c]));
+  assert.ok(cols.has('domain'));
+  assert.ok(cols.has('scope'));
+  assert.equal(cols.get('status').dflt_value, "'draft'");
+  assert.equal(cols.get('revision').notnull, 1);
+  assert.equal(cols.get('revision').dflt_value, '1');
+  assert.equal(cols.get('no_alternatives_identified').dflt_value, '0');
+  assert.equal(cols.get('no_additional_risks_identified').dflt_value, '0');
+  assert.equal(cols.get('no_missing_information_known').dflt_value, '0');
+  assert.ok(cols.has('supersedes_recommendation_id'));
+  assert.ok(!cols.has('category'), 'category ne doit jamais exister (ambiguïté avec category_hint, décision humaine LOT 7A)');
+  assert.ok(!cols.has('presented_to_client'), 'presented_to_client hors périmètre LOT 7A');
+  assert.ok(!cols.has('client_decision'), 'client_decision hors périmètre LOT 7A');
+});
+
+test('migration v12 — advisory_recommendation_findings/advisory_recommendation_members : FK et UNIQUE présents', async () => {
+  const db = await importFreshDb(tempDir());
+  const findingsCols = new Set(db.prepare('PRAGMA table_info(advisory_recommendation_findings)').all().map((c) => c.name));
+  for (const c of ['recommendation_id', 'finding_id', 'created_by_user_id', 'created_at']) assert.ok(findingsCols.has(c));
+  const membersCols = new Set(db.prepare('PRAGMA table_info(advisory_recommendation_members)').all().map((c) => c.name));
+  for (const c of ['recommendation_id', 'household_member_id', 'created_by_user_id', 'created_at']) assert.ok(membersCols.has(c));
+});
+
+test('migration v12 — index unique partiel du successeur : présent, UNIQUE, PARTIEL, WHERE exact', async () => {
+  const db = await importFreshDb(tempDir());
+  const row = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_recommendations_one_non_dismissed_successor'").get();
+  assert.ok(row, 'index manquant');
+  const info = db.prepare('PRAGMA index_list(advisory_recommendations)').all().find((i) => i.name === row.name);
+  assert.equal(info.unique, 1);
+  assert.equal(info.partial, 1);
+  assert.match(row.sql, /WHERE\s+supersedes_recommendation_id\s+IS\s+NOT\s+NULL\s+AND\s+status\s*<>\s*'dismissed'/i);
+});
+
+// Fixture minimale réelle (jamais un id inventé) : la table
+// advisory_recommendations porte de vraies FK NOT NULL vers
+// advisory_sessions/users, appliquées par SQLite (`foreign_keys = ON`,
+// server/db.js) sur toute connexion issue de `importFreshDb`. Contrairement
+// à `advisory_rule_sets` (Lot 4A, sans FK NOT NULL obligatoire vers une
+// ligne devant réellement exister), ce test doit donc fabriquer un
+// utilisateur/foyer/session réels avant d'insérer une recommandation brute.
+function insertMinimalSessionFixture(db) {
+  const userId = db.prepare("INSERT INTO users (email, name, password_hash) VALUES (?, 'T', 'x')").run(`u-${Math.random()}@exemple.ch`).lastInsertRowid;
+  const clientId = db.prepare("INSERT INTO clients (type, first_name, last_name, status) VALUES ('particulier', 'P', 'T', 'prospect')").run().lastInsertRowid;
+  const householdId = db.prepare('INSERT INTO households (primary_client_id, status) VALUES (?, ?)').run(clientId, 'actif').lastInsertRowid;
+  db.prepare("INSERT INTO household_members (household_id, client_id, member_role, status) VALUES (?, ?, 'principal', 'actif')").run(householdId, clientId);
+  const sessionId = db.prepare("INSERT INTO advisory_sessions (household_id, advisor_user_id, domain, status, revision) VALUES (?, ?, 'health', 'completed', 1)").run(householdId, userId).lastInsertRowid;
+  return { sessionId, userId };
+}
+
+function insertRecommendation(db, { session_id, user_id, domain = 'health', scope = 'household', status = 'draft', supersedes_recommendation_id = null, title = 'X' }) {
+  return db.prepare(
+    `INSERT INTO advisory_recommendations (session_id, domain, scope, status, revision, title, advisor_rationale, created_by_user_id, supersedes_recommendation_id)
+     VALUES (?, ?, ?, ?, 1, ?, 'R', ?, ?)`
+  ).run(session_id, domain, scope, status, title, user_id, supersedes_recommendation_id);
+}
+
+test('migration v12 — index unique partiel : plusieurs successeurs DISMISSED de la même source sont autorisés', async () => {
+  const db = await importFreshDb(tempDir());
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  const source = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source' }).lastInsertRowid;
+  insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'dismissed', supersedes_recommendation_id: source, title: 'A' });
+  assert.doesNotThrow(() => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'dismissed', supersedes_recommendation_id: source, title: 'B' }));
+});
+
+test('migration v12 — index unique partiel : un premier successeur DRAFT est autorisé', async () => {
+  const db = await importFreshDb(tempDir());
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  const source = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source' }).lastInsertRowid;
+  assert.doesNotThrow(() => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'A' }));
+});
+
+test('migration v12 — index unique partiel : un second successeur DRAFT de la même source est rejeté directement par SQLite', async () => {
+  const db = await importFreshDb(tempDir());
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  const source = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source' }).lastInsertRowid;
+  insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'A' });
+  assert.throws(
+    () => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v12 — index unique partiel : un successeur VALIDATED alors qu’un DRAFT non-dismissed existe déjà est rejeté', async () => {
+  const db = await importFreshDb(tempDir());
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  const source = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source' }).lastInsertRowid;
+  insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'A' });
+  assert.throws(
+    () => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', supersedes_recommendation_id: source, title: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v12 — index unique partiel : sources indépendantes (successeurs de sources différentes) toujours autorisées', async () => {
+  const db = await importFreshDb(tempDir());
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  const sourceA = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source A' }).lastInsertRowid;
+  const sourceB = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source B' }).lastInsertRowid;
+  assert.doesNotThrow(() => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: sourceA, title: 'A' }));
+  assert.doesNotThrow(() => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: sourceB, title: 'B' }));
+});
+
+// Correctif (revue finale backend-test-auditor) : les tests ci-dessus
+// couvrent tous la dimension `status <> 'dismissed'` de l'index, mais
+// aucun n'isolait la dimension `supersedes_recommendation_id IS NOT NULL`
+// -- ce test le fait explicitement : un nombre arbitraire de recommandations
+// qui ne remplacent RIEN (`supersedes_recommendation_id = NULL`) ne sont
+// jamais soumises à la contrainte d'unicité, quel que soit leur statut.
+test('migration v12 — index unique partiel : supersedes_recommendation_id NULL n’est jamais soumis à la contrainte, quel que soit le nombre de lignes ou leur statut', async () => {
+  const db = await importFreshDb(tempDir());
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  assert.doesNotThrow(() => {
+    for (let i = 0; i < 5; i += 1) {
+      insertRecommendation(db, { session_id: sessionId, user_id: userId, status: i % 2 === 0 ? 'draft' : 'validated', supersedes_recommendation_id: null, title: `Indépendante ${i}` });
+    }
+  });
+});
+
+test('migration v12 — index unique partiel : présent après une migration RÉELLE depuis une base héritée en v11', async () => {
+  const dir = tempDir();
+  await buildLegacyV11Database(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 12);
+  const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_recommendations_one_non_dismissed_successor'").get();
+  assert.ok(idx, 'l\'index doit être créé par la migration 12 en repartant d\'une base v11 réelle');
+  const { sessionId, userId } = insertMinimalSessionFixture(db);
+  const source = insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source' }).lastInsertRowid;
+  insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'A' });
+  assert.throws(
+    () => insertRecommendation(db, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'B' }),
+    (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+});
+
+test('migration v12 — redémarrages répétés (3x) restent idempotents, index stable et toujours unique', async () => {
+  const dir = tempDir();
+  for (let i = 0; i < 3; i += 1) {
+    const db = await importFreshDb(dir);
+    assert.equal(db.pragma('user_version', { simple: true }), 12);
+    const info = db.prepare('PRAGMA index_list(advisory_recommendations)').all().filter((idx) => idx.name === 'idx_advisory_recommendations_one_non_dismissed_successor');
+    assert.equal(info.length, 1, 'l\'index ne doit jamais être dupliqué par un redémarrage répété');
+    assert.equal(info[0].unique, 1);
+  }
+});
+
+test('migration v12 — deux connexions SQLite réelles sur le même fichier : verrouillage WAL puis violation d\'unicité pour un second successeur non-dismissed', async () => {
+  const dir = tempDir();
+  const dbA = await importFreshDb(dir);
+  const { sessionId, userId } = insertMinimalSessionFixture(dbA);
+  const source = insertRecommendation(dbA, { session_id: sessionId, user_id: userId, status: 'validated', title: 'Source' }).lastInsertRowid;
+  const file = path.join(dir, 'crm.sqlite');
+  const dbB = new Database(file);
+  dbB.pragma('busy_timeout = 200');
+  try {
+    dbA.exec('BEGIN IMMEDIATE');
+    insertRecommendation(dbA, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'A' });
+
+    assert.throws(() => {
+      dbB.exec('BEGIN IMMEDIATE');
+      insertRecommendation(dbB, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'B' });
+    }, (e) => e.code === 'SQLITE_BUSY');
+    try { dbB.exec('ROLLBACK'); } catch { /* déjà annulée par SQLITE_BUSY */ }
+
+    dbA.exec('COMMIT');
+
+    assert.throws(
+      () => insertRecommendation(dbB, { session_id: sessionId, user_id: userId, status: 'draft', supersedes_recommendation_id: source, title: 'C' }),
+      (e) => e.code === 'SQLITE_CONSTRAINT_UNIQUE'
+    );
+    assert.equal(dbB.pragma('integrity_check', { simple: true }), 'ok');
+  } finally {
+    dbA.close();
+    dbB.close();
+  }
 });

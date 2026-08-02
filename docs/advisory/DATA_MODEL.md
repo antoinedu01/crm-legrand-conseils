@@ -456,12 +456,16 @@ deux questionnaires (voir `QUESTIONNAIRE_ENGINE.md`).
 réponse (`advisory_answers`, via la question à laquelle elle répond),
 chaque règle (`advisory_rules.domain`), chaque constat
 (`advisory_findings`, via la règle qui l'a produit) et chaque recommandation
-(`advisory_recommendations`, via ses `finding_ids`) reste rattaché à un
-domaine précis (`health` ou `life_pension`), jamais à une valeur `mixed`
+(`advisory_recommendations.domain`, via les findings qu'elle cite —
+`advisory_recommendation_findings`, Lot 7A) reste rattaché à un domaine
+précis (`common`, `health` ou `life_pension` — `common` ajouté au GATE LOT
+4A, après la rédaction initiale de cette phrase, suit exactement la même
+règle : jamais fusionné avec un autre domaine), jamais à une valeur `mixed`
 propre à l'objet lui-même — `mixed` ne qualifie que la session dans son
-ensemble. Le rapport d'une session `mixed` doit en conséquence présenter
-deux analyses clairement séparées, jamais fusionnées (voir
-`REPORT_SPECIFICATION.md`).
+ensemble. Une recommandation ne peut donc jamais citer de findings de deux
+domaines différents (contrôle applicatif, Lot 7A). Le rapport d'une session
+`mixed` doit en conséquence présenter deux analyses clairement séparées,
+jamais fusionnées (voir `REPORT_SPECIFICATION.md`).
 
 > Note de cohérence terminologique : cette énumération utilise des
 > identifiants techniques en anglais (`health`/`life_pension`/`mixed`), par
@@ -990,23 +994,105 @@ recommandation. Il n'a pas de champ « produit », pas de champ « assureur ».
 
 ### 5.5 `advisory_recommendations`
 
+> **Statut d'implémentation (Lot 7A, cadrage validé en 3 rapports puis
+> implémenté).** La proposition LOT 1 ci-dessous (`finding_ids` JSON,
+> `category`, statuts français `envisagee`/`ecartee`/`validee_conseiller`,
+> `presented_to_client`/`client_decision`) a été remplacée par le schéma
+> réellement retenu, substantiellement différent — divergences documentées :
+> - **Statuts en anglais**, cinq valeurs : `draft` (mutable) \|
+>   `validated` (immuable, action humaine explicite) \| `dismissed`
+>   (brouillon abandonné avant validation) \| `superseded` (dérivé, jamais
+>   togglé directement — uniquement conséquence de la validation atomique
+>   d'un remplacement) \| `withdrawn` (validée puis retirée sans
+>   remplacement). `submitted`/`approved`/`rejected`/`discarded` explicitement
+>   exclus (absence de mécanisme humain de quatre yeux dans cette version
+>   mono-utilisateur — un statut sans transition distincte réelle n'est
+>   jamais conservé).
+> - **`finding_ids` remplacé par une table de liaison N:M**
+>   (`advisory_recommendation_findings`, §5.5bis) — cas réellement N:M
+>   (plusieurs findings pour une recommandation, un même finding réutilisable
+>   par plusieurs recommandations concurrentes), contrairement au 1:N
+>   finding/exécution du Lot 4A qui justifiait une simple colonne. Tout
+>   finding lié doit appartenir à la même session **et** au même domaine que
+>   la recommandation (contrôle applicatif, jamais de mélange
+>   `health`/`life_pension`, y compris `common`).
+> - **`category` délibérément absent** : ambiguïté identifiée avec
+>   `advisory_rules.result_payload.category_hint` (déjà utilisé par le
+>   moteur pour le regroupement technique des conflits
+>   `needs_review`/`conflicts_with`, une notion strictement différente
+>   d'une taxonomie humaine de conseil). Le domaine, la portée, le titre et
+>   les findings sources suffisent pour ce lot ; une future taxonomie
+>   humaine devra utiliser un nom explicite (`advice_category`) et faire
+>   l'objet d'une décision séparée.
+> - **`scope` ajouté**, explicite (∈ `session`/`household`/`member`), choisi
+>   par le conseiller — **jamais dérivé automatiquement** des findings
+>   liés. Voir `advisory_recommendation_members` (§5.5ter).
+> - **`presented_to_client`/`client_decision` retirés** : reportés au Lot 9
+>   (dossier de conseil et rapports), hors périmètre backend générique.
+> - **Révision propre ajoutée** (`revision`, grain de concurrence optimiste
+>   NOUVEAU dans ce dépôt, distinct de `advisory_sessions.revision`) — voir
+>   ci-dessous.
+
 | Champ | Type logique | Nullable | Contraintes |
 |---|---|---|---|
 | `id` | entier | non | clé primaire |
-| `session_id` | référence | non | — |
-| `finding_ids` | JSON (liste de références) | non | un ou plusieurs findings à l'origine |
-| `category` | énumération contrôlée | non | catégorie de solution (ex. « renforcement couverture accident »), **jamais un nom de produit ou de compagnie** |
-| `rationale` | texte long | non | — |
-| `status` | énumération | non | `envisagee` \| `ecartee` \| `validee_conseiller` |
-| `discard_reason` | texte long | oui | obligatoire si `ecartee` |
-| `validated_by_user_id` / `validated_at` | — | oui | **seule** façon d'atteindre `validee_conseiller` — jamais automatique |
-| `presented_to_client` | booléen | non | — |
-| `client_decision` | énumération | oui | `accepte` \| `refuse` \| `a_reflechir` |
-| `client_decision_at` | horodatage | oui | — |
+| `session_id` | référence → `advisory_sessions.id` | non | — |
+| `domain` | énumération | non | `common` \| `health` \| `life_pension` — jamais `mixed` ; tous les findings liés doivent appartenir au même domaine (contrôle applicatif) |
+| `scope` | énumération | non | `session` \| `household` \| `member` — choisi explicitement, jamais dérivé des findings |
+| `status` | énumération | non | `draft` \| `validated` \| `dismissed` \| `superseded` \| `withdrawn` |
+| `revision` | entier | non | défaut `1`, verrou de concurrence optimiste propre à la ligne, incrémenté après TOUTE écriture réussie (y compris les transitions terminales) |
+| `title` / `advisor_rationale` | texte | non | obligatoires dès la création |
+| `summary` | texte long | oui | obligatoire pour atteindre `validated` |
+| `expected_benefits` / `limitations` / `risks` / `alternatives_considered` / `alternative_rejection_reason` / `missing_information` / `warnings` / `reservations` | texte long | oui | facultatifs, jamais pré-remplis automatiquement depuis un finding ou une règle |
+| `no_alternatives_identified` / `no_additional_risks_identified` / `no_missing_information_known` | booléen | non | défaut `0` — distinguent « non renseigné » de « examiné, rien identifié » ; mutuellement exclusifs avec leur champ texte associé |
+| `created_by_user_id` / `created_at` / `updated_at` | — | non | stampés serveur |
+| `validated_by_user_id` / `validated_at` | — | oui | stampés serveur, jamais transmis par le client (auto-validation autorisée en v1 — CRM mono-utilisateur, aucun contrôle à quatre yeux prétendu) |
+| `validated_session_revision` | entier | oui | révision de `advisory_sessions.revision` figée AU MOMENT de la validation — base du calcul dérivé `potentially_stale`, jamais stocké |
+| `dismiss_reason` / `dismissed_by_user_id` / `dismissed_at` | — | oui | obligatoires ensemble si `dismissed` |
+| `withdraw_reason` / `withdrawn_by_user_id` / `withdrawn_at` | — | oui | obligatoires ensemble si `withdrawn` |
+| `supersedes_recommendation_id` | référence → elle-même | oui | portée par la NOUVELLE recommandation (une seule direction explicite) — doit référencer une recommandation `validated` de la même session et du même domaine ; bascule atomique à la validation (l'ancienne passe à `superseded`) |
 
-**Aucune API ne doit permettre de passer directement à `validee_conseiller`
-sans `validated_by_user_id` renseigné par une action humaine explicite** —
-voir `API_CONTRACT.md` et `RULES_ENGINE.md`.
+**Aucune API ne doit permettre de passer directement à `validated` sans
+`validated_by_user_id` renseigné par une action humaine explicite** — voir
+`API_CONTRACT.md` §7 et `RULES_ENGINE.md`.
+
+**Index UNIQUE PARTIEL** — empêche au niveau SQLite qu'une recommandation
+`validated` ait plus d'un successeur ACTIF (`draft`/`validated`) à la fois,
+tout en autorisant un nouvel essai après abandon (`dismissed` exclu du
+champ de l'index) : voir `docs/MIGRATIONS.md` version 12 pour le détail
+complet.
+
+**Politique foyer archivé (décision humaine confirmée, GATE final LOT 7A,
+revue `advisory-architect`)** : un foyer `status = 'archive'` bloque
+**uniformément** les 10 écritures de ce module (création, modification,
+liens finding/membre, validation, écartement, retrait, remplacement),
+**sans aucune exception pour les actions de clôture** (`dismiss`/`withdraw`).
+Décision alignée sur le précédent `dismissFinding` (Lot 4A), pas sur
+l'exception `suspend`/`cancel` de `advisory_sessions` (`ARCHITECTURE.md`
+§2.1) : cette dernière existe pour débloquer une **session** restée dans
+un cycle de vie **inachevé** (`draft`/`in_progress`/`suspended`, qui ne
+peut plus progresser une fois le foyer archivé). Une recommandation, comme
+un finding, n'existe **que** sur une session déjà `completed` — un état
+déjà stable, jamais un cycle inachevé. Un brouillon resté `draft` ou une
+recommandation `validated` non retirée sur un foyer archivé est un artefact
+figé au même titre que le foyer lui-même, pas une anomalie à corriger.
+
+### 5.5bis `advisory_recommendation_findings`
+
+Relation N:M vers `advisory_findings` : `id`, `recommendation_id` (FK,
+`ON DELETE CASCADE`), `finding_id` (FK), `created_by_user_id`,
+`created_at`, `UNIQUE(recommendation_id, finding_id)`. Les findings restent
+strictement en lecture depuis ce module.
+
+### 5.5ter `advisory_recommendation_members`
+
+Relation N:M vers `household_members` (destinataires explicites d'une
+recommandation `scope = member`) : `id`, `recommendation_id` (FK,
+`ON DELETE CASCADE`), `household_member_id` (FK), `created_by_user_id`,
+`created_at`, `UNIQUE(recommendation_id, household_member_id)`. Un membre
+référencé doit appartenir au `household_snapshot` figé de la session — un
+ancien membre du snapshot reste ciblable, un membre ajouté après le
+démarrage de la session ne l'est jamais.
 
 ---
 

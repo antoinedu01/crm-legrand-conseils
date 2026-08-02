@@ -408,6 +408,71 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
     d'écriture identiques) — sans incidence sur la confidentialité, mais
     réduit un risque de double écriture involontaire (deux findings
     écartés en double, ou une analyse relancée deux fois inutilement).
+- **Lot 7A — backend générique des recommandations humaines** :
+  - **Treize nouvelles actions d'audit distinctes** (compte corrigé lors de
+    la revue finale — `compliance-privacy-reviewer` et `backend-test-auditor`
+    ont tous deux relevé un écart entre « douze » et les treize noms
+    effectivement listés) : `recommandation créée`,
+    `recommandation modifiée`, `recommandation validée`, `recommandation
+    écartée`, `recommandation retirée`, `recommandation remplacée`,
+    `consultation recommandations session` (déduplication 15 minutes),
+    `consultation recommandations sensibles` (dérivée), `consultation
+    historique recommandations` (sans déduplication), `finding lié`,
+    `finding délié`, `membre lié`, `membre délié` — toutes vérifiées par un
+    test dédié insérant un marqueur distinctif dans chaque champ narratif
+    (titre, justification, résumé, bénéfices, limites, risques,
+    alternatives, informations manquantes, avertissements, réserves,
+    motifs d'écartement/retrait) et confirmant son absence de
+    `audit_log.details` pour les treize actions — même méthodologie que le
+    test dédié du Lot 4A.
+  - **`consultation recommandations sensibles` — même critère DÉRIVÉ que
+    Lot 4A/4B, portée précisée** : une recommandation est sensible si AU
+    MOINS UN finding qu'elle cite porte `sensitivity_at_execution = true`
+    dans son `used_inputs_ref` figé — évalué sur TOUS les findings liés
+    **quel que soit leur statut courant** (actif, écarté, supersédé) : la
+    sensibilité est une propriété historique de la donnée effectivement
+    consultée à l'exécution, jamais réévaluée. Même fenêtre de
+    déduplication (15 minutes) que les routes de lecture existantes.
+  - **Séparation stricte moteur/recommandations, vérifiée par test
+    comportemental** (pas seulement une convention de code, revue
+    préalable `rules-engine-auditor`) : après une exécution de règles ou un
+    écartement de finding, aucune ligne n'apparaît jamais dans
+    `advisory_recommendations`/`advisory_recommendation_findings`/
+    `advisory_recommendation_members` tant qu'aucune route humaine
+    authentifiée n'a été appelée. `server/advisoryRecommendations.js`
+    n'importe rien de `server/advisoryRuleExecutions.js` en écriture, et
+    réciproquement.
+  - **Résolution du membre ciblé — jamais une lecture directe de
+    `household_members`** : `linkMember`/la création d'une recommandation
+    `scope = member` valident systématiquement via `sessionMembersFor`
+    (même fonction que le workspace et l'espace des constats), jamais une
+    requête indépendante — même garantie anti-IDOR que Lot 3B/4B.
+  - **Cohérence findings/membres pour `scope = member`** : un finding de
+    portée membre ne peut être lié qu'à une recommandation ciblant
+    explicitement ce membre (`409` sinon, cas type « recommandation
+    destinée à Alice citant un finding sur Bob ») — vérifié par test dédié.
+    Les findings de portée foyer/session restent toujours liables,
+    quelle que soit la portée de la recommandation, et un lien de finding
+    ne peuple jamais automatiquement la liste des membres ciblés.
+  - **Aucun champ produit, assureur, décision client, présentation client**
+    dans le schéma ni dans aucune route de ce lot (vérifié explicitement
+    par test de migration — absence des colonnes `category`/
+    `presented_to_client`/`client_decision`).
+  - **Aucun appel IA, aucun MCP** dans `server/advisoryRecommendations.js` —
+    mêmes garanties que le moteur de règles, jamais étendues à ce nouveau
+    code ; aucun champ narratif n'est jamais pré-rempli automatiquement
+    depuis un finding ou une règle.
+  - **Verrou de concurrence optimiste propre à la recommandation
+    (`revision`)** : grain NOUVEAU dans ce dépôt, distinct de
+    `advisory_sessions.revision`. La validation exige les deux
+    simultanément (`expected_recommendation_revision` et
+    `expected_session_revision`) — sans incidence sur la confidentialité,
+    mais empêche qu'une validation s'appuie sur des findings devenus
+    obsolètes entre la dernière lecture et l'action de validation.
+  - **`potentially_stale` — dérivé, jamais stocké** : calculé à la lecture
+    à partir de `validated_session_revision` et du statut courant des
+    findings/exécutions cités — jamais une bascule automatique de statut,
+    même principe que `state`/`global_state` du Lot 4B.
 
 ## 7. Verrouillage de session
 
