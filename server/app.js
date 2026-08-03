@@ -21,6 +21,11 @@ import { channelsRouter } from './routes/channels.js';
 import { prospectsRouter } from './routes/prospects.js';
 import { todayRouter } from './routes/today.js';
 import { publicRouter } from './routes/public.js';
+import { advisoryHouseholdsRouter } from './routes/advisoryHouseholds.js';
+import { advisoryQuestionnairesRouter } from './routes/advisoryQuestionnaires.js';
+import { advisorySessionsRouter } from './routes/advisorySessions.js';
+import { advisoryRulesRouter } from './routes/advisoryRules.js';
+import { sessionScopedRecommendationsRouter, recommendationsRouter } from './routes/advisoryRecommendations.js';
 import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -136,6 +141,12 @@ app.use('/api/compliance', requireAuth, complianceRouter);
 app.use('/api/channels', requireAuth, channelsRouter);
 app.use('/api/prospects', requireAuth, prospectsRouter);
 app.use('/api/today', requireAuth, todayRouter);
+app.use('/api/advisory/households', requireAuth, advisoryHouseholdsRouter);
+app.use('/api/advisory/questionnaires', requireAuth, advisoryQuestionnairesRouter);
+app.use('/api/advisory/sessions', requireAuth, advisorySessionsRouter);
+app.use('/api/advisory/sessions', requireAuth, sessionScopedRecommendationsRouter);
+app.use('/api/advisory/rule-sets', requireAuth, advisoryRulesRouter);
+app.use('/api/advisory/recommendations', requireAuth, recommendationsRouter);
 
 // Sauvegarde complète de la base (copie cohérente via l'API backup de SQLite)
 app.get('/api/backup', requireAuth, async (req, res) => {

@@ -4,7 +4,12 @@
   --surface: #fcfcfb;
   --ink: #0b0b0b;
   --ink-2: #52514e;
-  --muted: #898781;
+  /* #898781 mesurait ~3.4:1 sur --page/--surface (sous le seuil WCAG AA
+     4.5:1 pour du texte normal) -- corrigé (GATE LOT 7B, correctif exigé
+     avant commit), variable globale donc bénéficie à toute l'application,
+     jamais une teinte réservée au seul module Diagnostic 360. #6a6862
+     mesure ~5.3:1 sur --surface / ~5.4:1 sur --page. */
+  --muted: #6a6862;
   --grid: #e1e0d9;
   --baseline: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
@@ -16,7 +21,10 @@
   --good-text: #006300;
   --warning: #fab219;
   --serious: #ec835a;
-  --critical: #d03b3b;
+  /* #d03b3b mesurait ~4.2:1 sur le fond teinté de `.alert.error`
+     (rgba(critical, 0.06) composé sur --page/--surface) -- sous le seuil
+     AA 4.5:1. Corrigé : #c33434 mesure ~4.7-5.3:1 selon le fond. */
+  --critical: #c33434;
   --wash: rgba(42, 120, 214, 0.08);
   --shadow: 0 1px 3px rgba(11, 11, 11, 0.07);
 }
@@ -37,6 +45,13 @@
     --series-2: #199e70;
     --good: #0ca30c;
     --good-text: #0ca30c;
+    /* #d03b3b (hérité de --root faute de redéfinition ici) mesurait
+       ~3.9:1 sur le fond teinté sombre de `.alert.error` -- sous AA en
+       thème sombre aussi, et davantage que le défaut du thème clair
+       (fond bien plus sombre, nécessite un rouge bien plus clair, pas
+       simplement le même rouge assombri utilisé côté clair). Corrigé :
+       #ff6b6b mesure ~6.3-7:1 sur les fonds sombres de ce thème. */
+    --critical: #ff6b6b;
     --wash: rgba(57, 135, 229, 0.14);
     --shadow: none;
   }
@@ -78,7 +93,14 @@ h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; color: var(--ink-2); }
 .sidebar a.nav.active { background: var(--wash); color: var(--accent-ink); }
 .sidebar .spacer { flex: 1; }
 .sidebar .user { padding: 8px 10px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
-.main { flex: 1; padding: 24px 28px; max-width: 1200px; }
+/* `min-width: 0` -- sans cela, un enfant flex garde par défaut sa largeur
+   de contenu minimale (`min-width: auto`) : si N'IMPORTE QUEL descendant,
+   même invisible (ex. contenu d'un `<details>` fermé), exerce une pression
+   de largeur intrinsèque, TOUT `.main` refuse de rétrécir sous cette
+   largeur, décalant horizontalement la page entière sous 900px (constat
+   GATE LOT 4B, QA formelle, vérifié par un vrai défilement horizontal --
+   pas seulement une mesure DOM -- à 375px). */
+.main { flex: 1; min-width: 0; padding: 24px 28px; max-width: 1200px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .page-head .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
 
@@ -129,7 +151,11 @@ button:hover { background: var(--wash); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
 button.danger { color: var(--critical); border-color: var(--critical); background: transparent; }
-button.danger:hover { background: rgba(208, 59, 59, 0.08); }
+/* `color-mix` plutôt qu'un rgba figé (dette signalée par la revue finale
+   `client-meeting-ux`, correction round) : suit automatiquement `--critical`
+   quel que soit le thème, jamais une teinte qui pourrait se désynchroniser
+   silencieusement d'un futur changement de palette. */
+button.danger:hover { background: color-mix(in srgb, var(--critical) 8%, transparent); }
 button.ghost { border-color: transparent; background: transparent; color: var(--accent-ink); }
 button.small { padding: 4px 10px; font-size: 12px; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -179,7 +205,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* ---------- Misc ---------- */
 .empty { color: var(--muted); text-align: center; padding: 28px 10px; font-size: 13px; }
 .alert { border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; border: 1px solid; }
-.alert.error { color: var(--critical); border-color: var(--critical); background: rgba(208, 59, 59, 0.06); }
+.alert.error { color: var(--critical); border-color: var(--critical); background: color-mix(in srgb, var(--critical) 6%, transparent); }
 .alert.warn { color: #8a6100; border-color: var(--warning); background: rgba(250, 178, 25, 0.1); }
 @media (prefers-color-scheme: dark) { .alert.warn { color: var(--warning); } }
 .alert.ok { color: var(--good-text); border-color: var(--good); background: rgba(12, 163, 12, 0.07); }
@@ -211,14 +237,203 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .kcard .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .kcard .score-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .kcard select { font-size: 12px; padding: 3px 6px; width: 100%; margin-top: 8px; }
-.kcard details { margin-top: 6px; font-size: 12px; }
-.kcard details summary { cursor: pointer; color: var(--accent-ink); }
-.kcard details ul { margin: 6px 0 0 16px; padding: 0; color: var(--ink-2); }
+.kcard details, .finding-card details { margin-top: 6px; font-size: 12px; }
+.kcard details summary, .finding-card details summary { cursor: pointer; color: var(--accent-ink); }
+.kcard details ul, .finding-card details ul { margin: 6px 0 0 16px; padding: 0; color: var(--ink-2); }
+
+/* ---------- Workspace de rendez-vous (Lot 3B) ---------- */
+.wksp-modules { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.wksp-modules button {
+  border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent;
+  padding: 8px 14px; color: var(--ink-2); white-space: nowrap;
+}
+.wksp-modules button.active { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.wksp-modules button:hover { background: transparent; color: var(--accent-ink); }
+
+.wksp-layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .wksp-layout { grid-template-columns: 1fr; } }
+
+.wksp-rail { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
+@media (max-width: 900px) {
+  /* `min-width: 0` -- sans cela, un enfant de grille garde par défaut sa
+     largeur de contenu minimale (`min-width: auto`), empêchant la rangée
+     de rétrécir sous la largeur de ses items malgré `overflow-x: auto` ;
+     le débordement se propage alors à toute la page plutôt que de rester
+     contenu dans le défilement horizontal propre au rail (constat GATE
+     LOT 4B, QA formelle, débordement observé à 375px). */
+  .wksp-rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; min-width: 0; }
+}
+.wksp-rail-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; text-align: left; border: 1px solid transparent;
+  color: var(--ink-2); font-size: 12.5px; font-weight: 500; background: transparent; white-space: nowrap;
+}
+.wksp-rail-item:hover { background: var(--wash); }
+.wksp-rail-item.active { background: var(--wash); color: var(--accent-ink); border-color: var(--border); }
+.wksp-rail-item .count { color: var(--muted); font-size: 11px; font-weight: 400; }
+@media (max-width: 900px) { .wksp-rail-item { flex-shrink: 0; } }
+
+.wksp-member-switch {
+  position: sticky; top: 0; z-index: 2; background: var(--page);
+  display: flex; align-items: center; gap: 8px; padding: 6px 0 12px; margin-bottom: 4px; flex-wrap: wrap;
+}
+.wksp-member-switch .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.wksp-member-switch .seg button { padding: 10px 12px; font-size: 12.5px; min-height: 40px; }
+.wksp-member-switch .seg button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Repère de progression persistant sous 900px (voir SessionWorkspace.jsx) --
+   remplace le rôle des tuiles/du rail, qui ne restent pas visibles au
+   défilement sous ce seuil. Le sélecteur de membre n'est plus sticky sous
+   900px pour éviter que deux bandeaux collent au même `top: 0` et se
+   superposent. */
+.wksp-progress-sticky { display: none; }
+@media (max-width: 900px) {
+  .wksp-progress-sticky {
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    position: sticky; top: 0; z-index: 3; background: var(--page);
+    padding: 7px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--ink-2);
+  }
+  .wksp-progress-sticky strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .wksp-member-switch { position: static; }
+}
+
+.wksp-question { padding: 16px 0; border-bottom: 1px solid var(--grid); transition: background-color 1.2s ease, outline-color 1.2s ease; }
+.wksp-question:last-child { border-bottom: none; }
+.wksp-question:focus { outline: none; }
+/* Surlignage temporaire d'une question ciblée depuis l'espace des constats
+   (Lot 4B, §16) -- s'efface après quelques secondes (voir jumpToQuestion,
+   SessionWorkspace.jsx), jamais permanent, jamais persisté. */
+.wksp-question.highlighted { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; background: var(--wash); }
+.wksp-question .q-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.wksp-question .q-text { font-weight: 600; margin-bottom: 4px; }
+.wksp-question .q-help { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+.wksp-question .q-input { max-width: 420px; }
+/* GATE LOT 3B §12 : cible tactile portée à ~40-44px pour les contrôles
+   interactifs propres au workspace (Oui/Non, valeurs spéciales, effacer,
+   historique, amender), sans modifier le style de bouton partagé par le
+   reste de l'application. */
+.wksp-question .q-input button, .wksp-question .q-actions button { min-height: 40px; padding-top: 10px; padding-bottom: 10px; }
+.wksp-question .q-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.wksp-question .q-actions button.toggled { background: var(--wash); border-color: var(--accent); color: var(--accent-ink); }
+.wksp-question .q-error { color: var(--critical); font-size: 12px; margin-top: 6px; }
+
+.save-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.save-state .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--baseline); flex-shrink: 0; }
+.save-state.saving .dot { background: var(--warning); }
+.save-state.saved { color: var(--good-text); }
+.save-state.saved .dot { background: var(--good); }
+.save-state.error { color: var(--critical); }
+.save-state.error .dot { background: var(--critical); }
+
+.radiogroup { display: flex; flex-direction: column; gap: 2px; }
+/* Zone de clic élargie (recommandation 24-44px) : la revue post-implémentation
+   a relevé que `label.check` seul (sans padding) donnait ~16-20px de hauteur
+   cliquable, insuffisant au doigt sur tablette. Portée volontairement limitée
+   à `.radiogroup` (propre au workspace) pour ne pas modifier l'apparence des
+   cases à cocher ailleurs dans l'application. */
+/* GATE LOT 3B §12 : cible tactile portée à ~44px (précédemment ~35px). */
+.radiogroup label.check { padding: 13px 6px; min-height: 32px; border-radius: 6px; }
+.radiogroup label.check:hover { background: var(--wash); }
+.radiogroup label.check input { flex-shrink: 0; width: 20px; height: 20px; }
+
+.missing-list { list-style: none; margin: 0; padding: 0; }
+.missing-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.missing-list li:last-child { border-bottom: none; }
+.missing-list button.link-row {
+  display: flex; justify-content: space-between; width: 100%; text-align: left;
+  border: none; background: transparent; padding: 8px 0; color: var(--ink); font-weight: 500;
+  min-height: 44px; align-items: center; gap: 8px;
+}
+/* Un enfant flex garde `min-width: auto` par défaut -- l'empêche de
+   rétrécir sous la largeur intrinsèque de son texte, donc de jamais
+   passer à la ligne, même avec `white-space` normal (constat GATE LOT 4B,
+   QA formelle : débordement horizontal à 375px avec un texte de question
+   long). Corrige tous les usages de `.link-row`, pas seulement le panneau
+   de traçabilité qui l'a révélé. */
+.missing-list button.link-row > span:first-child {
+  min-width: 0; overflow-wrap: break-word;
+}
+.missing-list button.link-row:hover { color: var(--accent-ink); }
+
+/* Sélecteur de recherche d'amendement (GATE LOT 3B §8) -- remplace le
+   <select> plat, borné en hauteur pour rester utilisable avec un
+   questionnaire réel de nombreuses questions. */
+.amend-picker { max-height: 360px; overflow-y: auto; margin-top: 8px; }
+
+.readonly-banner {
+  background: var(--wash); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 14px; font-size: 13px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); font-size: 13px; }
+.history-list li:last-child { border-bottom: none; }
+.history-list .h-meta { color: var(--muted); font-size: 11.5px; }
+/* Ligne positionnée depuis une navigation « Voir la réponse source » (Lot
+   4B, GATE §2) -- distingue visuellement la réponse RÉELLEMENT utilisée par
+   le finding du badge « Active » ci-dessus (qui, lui, désigne la réponse
+   active aujourd'hui, potentiellement une ligne différente). */
+.history-list li.highlighted { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; background: var(--wash); padding-left: 8px; padding-right: 8px; }
 
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { padding: 10px 0; border-bottom: 1px solid var(--grid); display: flex; gap: 10px; }
 .timeline li:last-child { border-bottom: none; }
 .timeline .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* ---------- Espace conseiller des findings (Lot 4B) ---------- */
+.chip-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+  padding: 5px 12px; border-radius: 999px; border: 1px solid var(--baseline);
+  background: var(--surface); color: var(--ink-2);
+}
+.chip:hover { background: var(--wash); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.finding-card, .recommendation-card { margin-bottom: 10px; }
+.finding-card.needs-review, .recommendation-card.stale { border-color: var(--warning); }
+.finding-card.dismissed, .recommendation-card.dismissed, .recommendation-card.withdrawn, .recommendation-card.superseded { opacity: 0.7; }
+.finding-card .f-head, .recommendation-card .f-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+/* Case de sélection multiple (Lot 7B) -- même remarque de cible tactile que
+   `.radiogroup label.check` (GATE LOT 3B §12, constat client-meeting-ux
+   revues finales Lot 7B) : `label.check` seul ne donne que la taille native
+   du contrôle sur tablette. */
+.finding-card .f-head label.check { padding: 8px 6px; min-height: 32px; border-radius: 6px; }
+.finding-card .f-head label.check input { flex-shrink: 0; width: 20px; height: 20px; }
+.finding-card .f-title, .recommendation-card .f-title { font-weight: 600; flex: 1 1 auto; }
+.finding-card .f-summary, .recommendation-card .f-summary { color: var(--ink-2); font-size: 13px; margin-bottom: 6px; }
+.finding-card .f-explanation, .recommendation-card .f-explanation { font-size: 13px; margin: 6px 0; padding: 8px 10px; background: var(--page); border-radius: 8px; border: 1px solid var(--border); }
+.finding-card .f-explanation.client { background: var(--wash); }
+.finding-card .f-explanation-label, .recommendation-card .f-explanation-label { display: block; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+.finding-card .f-actions, .recommendation-card .f-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---------- Recommandations humaines (Lot 7B) -- réutilise .finding-card
+   ci-dessus par extension de sélecteur (même principe que « .kcard details,
+   .finding-card details » plus haut), classes propres uniquement pour ce
+   que .finding-card ne couvre pas déjà. ---------- */
+.recommendation-card .r-findings { margin-top: 6px; font-size: 12.5px; }
+.recommendation-card .r-findings summary { cursor: pointer; color: var(--accent-ink); }
+.rec-form-layout { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) {
+  .rec-form-layout { grid-template-columns: 1fr; }
+  /* Même précédent que `.wksp-rail` ci-dessus : un panneau sticky en layout
+     empilé (tablette portrait) recouvre le formulaire pendant le défilement
+     (constat client-meeting-ux, revues finales Lot 7B). */
+  .rec-sources { position: static; }
+}
+.rec-sources { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 12px; }
+/* `<fieldset>` (constat client-meeting-ux : associer programmatiquement le
+   libellé de rubrique aux trois boutons radio) porte une bordure/un
+   padding par défaut du navigateur -- réinitialisés ici. Cible tactile
+   alignée sur `.radiogroup label.check` (même 13px/20px, même remarque GATE
+   LOT 3B §12 : l'incohérence entre les deux était elle-même un défaut
+   relevé lors des revues finales Lot 7B). */
+.declaration-group { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; border: none; padding: 0; }
+.declaration-group legend { padding: 0; margin-bottom: 2px; }
+.declaration-group label.check { padding: 13px 6px; min-height: 32px; border-radius: 6px; }
+.declaration-group label.check:hover { background: var(--wash); }
+.declaration-group label.check input { flex-shrink: 0; width: 20px; height: 20px; }
+
 .muted { color: var(--muted); }
 .right { text-align: right; }
 .mt { margin-top: 14px; }
