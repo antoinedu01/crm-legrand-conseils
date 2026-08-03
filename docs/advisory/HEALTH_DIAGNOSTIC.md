@@ -1,5 +1,11 @@
 # Parcours Assurance Maladie
 
+> **Statut (LOT 5 phase 1)** : un premier noyau réel (9 questions, 5 règles)
+> est désormais provisionné en **brouillon, non publié** — voir
+> `HEALTH_LOT5_CONTENT.md`. Ce document reste la proposition de conception
+> complète (26 sections) ; seul un sous-ensemble restreint en est
+> implémenté à ce stade, le reste demeure une proposition non réalisée.
+
 > Proposition de conception (LOT 1). Décrit le contenu métier du
 > questionnaire et les analyses attendues, en s'appuyant sur le moteur
 > générique (`QUESTIONNAIRE_ENGINE.md`) et le moteur de règles
