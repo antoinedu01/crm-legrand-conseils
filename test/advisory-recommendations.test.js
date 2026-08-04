@@ -1080,6 +1080,57 @@ test('potentially_stale — toujours false pour un brouillon (draft), aucune not
   assert.equal(REC.getRecommendationDetail(sessionId, rec.id, REQ).potentially_stale, false);
 });
 
+// Correctif d'intégrité de la complétude de session (§5) : une recommandation
+// déjà validée ne doit jamais être supprimée ni voir son contenu humain
+// réécrit automatiquement par une réouverture de session déclenchée par un
+// amendement (réponse requise retirée -> `completed` -> `in_progress`). Seule
+// la staleness DÉRIVÉE (potentially_stale, déjà couverte ci-dessus) peut
+// changer -- jamais la ligne elle-même.
+test('validateRecommendation puis amendement qui rouvre la session (réponse requise retirée) — la recommandation validée reste intacte, jamais supprimée ni réécrite', () => {
+  const { id: qid } = Q.createQuestionnaire({ stable_key: uniqueKey('quest-reco-required'), domain: 'health', name: 'Démo reco requise' }, REQ);
+  const { id: vidReq } = Q.createDraftVersion(qid, {}, REQ);
+  const { id: sectionId } = Q.upsertSection(vidReq, { stable_key: 's1', title: 'S', sort_order: 1 }, REQ);
+  const { id: reqQId } = Q.upsertQuestion(sectionId, { stable_key: 'q-reco-required', advisor_text: 'Question requise fictive ?', type: 'boolean', required: true, sort_order: 1 }, REQ);
+  Q.publishVersion(vidReq, REQ);
+  const { id: sessionId } = S.createSession({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: vidReq, domain: 'health', module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  S.startSession(sessionId, rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [{ question_id: reqQId, status: 'answered', value: true }], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-reco-required'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: uniqueKey('RULE-RECO-REQUIRED'),
+    conditions: { op: 'equals', ref: { answer: 'q-reco-required' }, value: true },
+    required_data: [{ answer: 'q-reco-required' }],
+  }), REQ);
+  publishForDomain('health', ruleSetId);
+  ensureCompleted(sessionId);
+  const execResult = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const findingId = E.getExecutionDetail(sessionId, execResult.execution_id).findings[0].id;
+
+  const rec = REC.createRecommendation(sessionId, { domain: 'health', scope: 'household', title: 'Titre humain préservé', advisor_rationale: 'Justification humaine préservée.', summary: 'Résumé technique fictif.', finding_ids: [findingId] }, REQ);
+  const validated = REC.validateRecommendation(sessionId, rec.id, { expected_recommendation_revision: rec.revision, expected_session_revision: rev(sessionId) }, REQ).recommendation;
+
+  const amend = S.amendAnswer(sessionId, {
+    question_id: reqQId, status: 'cleared',
+    amendment_reason: 'Réponse requise retirée par erreur — test intégrité recommandation.', expected_revision: rev(sessionId),
+  }, REQ);
+  assert.equal(amend.session_status, 'in_progress', 'précondition du test : l’amendement doit réellement rouvrir la session');
+
+  const row = db.prepare('SELECT * FROM advisory_recommendations WHERE id = ?').get(rec.id);
+  assert.equal(row.status, 'validated', 'jamais supprimée ni repassée en brouillon automatiquement');
+  assert.equal(row.title, 'Titre humain préservé');
+  assert.equal(row.advisor_rationale, 'Justification humaine préservée.');
+  assert.equal(row.validated_session_revision, validated.validated_session_revision, 'jamais réécrite rétroactivement');
+
+  // La staleness dérivée, elle, peut légitimement changer (session amendée) --
+  // mais reste un calcul à la lecture, jamais une modification de la ligne.
+  const detail = REC.getRecommendationDetail(sessionId, rec.id, REQ);
+  assert.equal(detail.potentially_stale, true);
+});
+
 // ============================================================================
 // Audits — minimisation et déduplication
 // ============================================================================

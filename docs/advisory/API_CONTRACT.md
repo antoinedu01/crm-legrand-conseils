@@ -460,8 +460,18 @@ une modification concurrente.
 - **Réponse** : `{ ok: true, revision }`.
 - **Audit** : `session annulée`.
 
-**Aucune transition sortante n'existe depuis `completed` ni `cancelled`** —
-une session finalisée ou annulée ne peut jamais être réouverte silencieusement.
+**Aucune transition sortante n'existe depuis `cancelled`** — une session
+annulée ne peut jamais être réouverte.
+
+**`completed` possède UNE SEULE transition sortante, `reopen -> in_progress`
+(correctif d'intégrité de la complétude de session)** — jamais atteignable
+par une route HTTP dédiée : exclusivement un effet de bord interne de
+`POST .../answers/amend` (`amendAnswer`, voir plus bas) quand l'amendement
+retire la seule réponse active à une question requise, rendant
+`validateSessionForCompletion` invalide. Une session finalisée ne peut donc
+toujours pas être réouverte à la demande ni silencieusement — seule une
+réponse requise devenue absente déclenche ce retour automatique, toujours
+journalisé (`session rouverte (amendement)`, voir `SECURITY_PRIVACY.md`).
 
 ---
 

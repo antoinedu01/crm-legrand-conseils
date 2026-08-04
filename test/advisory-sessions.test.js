@@ -703,13 +703,22 @@ test('recordAnswers — rollback : un lot contenant une entrée invalide n’enr
   assert.equal(before, after, 'aucune réponse du lot ne doit être enregistrée si une entrée échoue');
 });
 
-test('audit — aucune valeur de réponse ni donnée sensible dans les détails journalisés', () => {
+// Étendu par le correctif d'intégrité de la complétude de session pour
+// couvrir la nouvelle action `session rouverte (amendement)` (compliance-
+// privacy-reviewer, revue ciblée) -- la liste blanche de ce test doit
+// suivre toute nouvelle action touchant à une réponse/session, jamais rester
+// figée sur les seules actions préexistantes.
+test('audit — aucune valeur de réponse ni donnée sensible dans les détails journalisés (y compris la réouverture par amendement)', () => {
   const { sessionId, questionId } = createSimpleSession();
   startSession(sessionId, rev(sessionId), REQ);
   recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
-  const rows = db.prepare("SELECT details FROM audit_log WHERE action IN ('réponse enregistrée','réponse remplacée','réponse effacée','réponse amendée')").all();
+  completeSession(sessionId, rev(sessionId), REQ);
+  amendAnswer(sessionId, { question_id: questionId, status: 'cleared', amendment_reason: 'Test anti-fuite de l’audit de réouverture.', expected_revision: rev(sessionId) }, REQ);
+
+  const rows = db.prepare("SELECT action, details FROM audit_log WHERE action IN ('réponse enregistrée','réponse remplacée','réponse effacée','réponse amendée','session rouverte (amendement)')").all();
+  assert.ok(rows.some((r) => r.action === 'session rouverte (amendement)'), 'précondition du test : le nouvel audit doit réellement avoir été émis');
   for (const r of rows) {
-    assert.ok(!/true|false/i.test(r.details || '') || /nouvelle|remplac/i.test(r.details), 'pas de valeur brute dans les détails');
+    assert.ok(!/true|false|cleared|unknown/i.test(r.details || '') || /nouvelle|remplac/i.test(r.details), 'pas de valeur ni de statut de réponse bruts dans les détails');
   }
 });
 
@@ -774,4 +783,176 @@ test('sessionMembersFor (via getSessionWorkspace) — draft : reflète les membr
   const detail = getSessionDetail(sessionId);
   assert.equal(detail.household_snapshot, null, 'aucun snapshot avant le démarrage');
   void questionId;
+});
+
+// --- Correctif d'intégrité de la complétude de session (§3, membres
+// historiques) : un membre historisé (retiré du foyer APRÈS le démarrage,
+// `sessionMembersFor` -> `historical: true`) ne peut plus jamais répondre
+// (`assertMemberCanAnswer`) -- exiger indéfiniment sa réponse bloquerait la
+// session sans recours opérationnel. `validateLinkForCompletion` l'exclut
+// désormais du calcul de complétude ; un membre réellement ACTIF, lui,
+// continue de bloquer normalement (aucune réduction de portée par ailleurs).
+
+function createMemberScopedSession(domain = 'health') {
+  const householdId = buildHousehold();
+  const conjointClientId = insertClient();
+  const { id: conjointId } = addMember(householdId, { member_role: 'conjoint', client_id: conjointClientId }, REQ);
+  const principalId = db.prepare("SELECT id FROM household_members WHERE household_id = ? AND member_role = 'principal'").get(householdId).id;
+  const { vid, questionId } = buildPublishedQuestionnaire(domain, { memberScope: true, required: true });
+  const { id: sessionId } = createSession({
+    household_id: householdId, domain,
+    questionnaire_versions: [{ questionnaire_version_id: vid, domain, module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  return { sessionId, questionId, householdId, conjointId, principalId };
+}
+
+test('validateSessionForCompletion — un membre ACTIF avec réponse requise manquante bloque toujours la finalisation (régression)', () => {
+  const { sessionId, questionId, principalId } = createMemberScopedSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: principalId, status: 'answered', value: true }], rev(sessionId), REQ);
+  // Le conjoint, toujours ACTIF, n'a jamais répondu -> bloque normalement.
+  assert.equal(validateSessionForCompletion(sessionId).valid, false);
+  assert.throws(() => completeSession(sessionId, rev(sessionId), REQ), (err) => err.status === 409 && Array.isArray(err.missing));
+});
+
+test('validateSessionForCompletion — un membre HISTORISÉ (retiré après démarrage, jamais répondu) ne bloque plus la finalisation (correctif §3)', () => {
+  const { sessionId, questionId, householdId, conjointId, principalId } = createMemberScopedSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  removeMember(householdId, conjointId, {}, REQ); // jamais répondu, puis retiré
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: principalId, status: 'answered', value: true }], rev(sessionId), REQ);
+  assert.equal(validateSessionForCompletion(sessionId).valid, true);
+  assert.doesNotThrow(() => completeSession(sessionId, rev(sessionId), REQ));
+});
+
+test('membre historisé — ses réponses déjà enregistrées AVANT le retrait restent intégralement lisibles, jamais supprimées ni réassignées à un autre membre', () => {
+  const { sessionId, questionId, householdId, conjointId, principalId } = createMemberScopedSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: conjointId, status: 'answered', value: true }], rev(sessionId), REQ);
+  removeMember(householdId, conjointId, {}, REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: principalId, status: 'answered', value: false }], rev(sessionId), REQ);
+  assert.doesNotThrow(() => completeSession(sessionId, rev(sessionId), REQ));
+
+  const conjointAnswer = listActiveAnswers(sessionId).find((a) => a.household_member_id === conjointId);
+  assert.ok(conjointAnswer, 'la réponse du membre historisé reste active et lisible');
+  assert.equal(conjointAnswer.value, true, 'jamais modifiée par le retrait du membre');
+  const history = listAnswerHistory(sessionId, questionId, conjointId, REQ);
+  assert.equal(history.length, 1, 'le retrait du membre n’ajoute ni ne supprime aucune ligne de réponse');
+});
+
+test('membre historisé — multi-membres : seul le membre historisé est exclu, un second membre actif sans réponse continue de bloquer', () => {
+  const householdId = buildHousehold();
+  const conjointClientId = insertClient();
+  const { id: conjointId } = addMember(householdId, { member_role: 'conjoint', client_id: conjointClientId }, REQ);
+  const enfantClientId = insertClient();
+  const { id: enfantId } = addMember(householdId, { member_role: 'enfant', client_id: enfantClientId }, REQ);
+  const principalId = db.prepare("SELECT id FROM household_members WHERE household_id = ? AND member_role = 'principal'").get(householdId).id;
+  const { vid, questionId } = buildPublishedQuestionnaire('health', { memberScope: true, required: true });
+  const { id: sessionId } = createSession({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: vid, domain: 'health', module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: principalId, status: 'answered', value: true }], rev(sessionId), REQ);
+  removeMember(householdId, conjointId, {}, REQ); // historisé, jamais répondu -> exclu du calcul
+
+  // L'enfant, lui, reste actif et n'a pas répondu -> continue de bloquer seul.
+  const check = validateSessionForCompletion(sessionId);
+  assert.equal(check.valid, false);
+  const missing = check.byLink[0].missing;
+  assert.ok(!missing.some((m) => m.household_member_id === conjointId), 'le membre historisé ne doit jamais apparaître dans les manquants');
+  assert.ok(missing.some((m) => m.household_member_id === enfantId), 'le membre actif reste, lui, pleinement exigé');
+
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: enfantId, status: 'answered', value: true }], rev(sessionId), REQ);
+  assert.equal(validateSessionForCompletion(sessionId).valid, true);
+});
+
+test('membre historisé — le retrait reste journalisé exactement comme avant (audit préexistant, inchangé par ce correctif)', () => {
+  const { sessionId, householdId, conjointId } = createMemberScopedSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  const before = auditCount('retrait membre foyer');
+  removeMember(householdId, conjointId, {}, REQ);
+  assert.equal(auditCount('retrait membre foyer'), before + 1);
+});
+
+// --- Correctif d'intégrité de la complétude de session (§4/§5, amendements)
+// -- une session ne doit jamais rester `completed` avec une réponse requise
+// devenue absente : `amendAnswer` rouvre alors automatiquement la session
+// (`completed` -> `in_progress`, transition `reopen`). Un amendement qui
+// laisse la complétude valide (ex. vers `unknown` quand la question
+// l'autorise) ne rouvre, lui, jamais la session -- et ne déclenche pas non
+// plus de ré-exécution automatique du moteur (politique GATE LOT 4B §7.5,
+// inchangée par ce correctif : le conseiller reste seul décisionnaire de la
+// relance, voir server/routes/advisorySessions.js).
+
+test('amendAnswer — supprimer une réponse requise sur une session complétée la rouvre automatiquement (in_progress), jamais un état incohérent', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  const beforeReopen = auditCount('session rouverte (amendement)');
+
+  const result = amendAnswer(sessionId, { question_id: questionId, status: 'cleared', amendment_reason: 'Réponse retirée par erreur — à corriger.', expected_revision: rev(sessionId) }, REQ);
+  assert.equal(result.session_status, 'in_progress');
+  assert.equal(getSessionDetail(sessionId).status, 'in_progress');
+  assert.equal(auditCount('session rouverte (amendement)'), beforeReopen + 1);
+  assert.equal(validateSessionForCompletion(sessionId).valid, false, 'jamais un statut completed incohérent avec une réponse requise absente');
+});
+
+test('amendAnswer — après réouverture, la session peut être recomplétée normalement une fois la réponse à nouveau fournie', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  amendAnswer(sessionId, { question_id: questionId, status: 'cleared', amendment_reason: 'Réponse retirée par erreur — à corriger.', expected_revision: rev(sessionId) }, REQ);
+  assert.equal(getSessionDetail(sessionId).status, 'in_progress');
+
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: false }], rev(sessionId), REQ);
+  assert.doesNotThrow(() => completeSession(sessionId, rev(sessionId), REQ));
+  assert.equal(getSessionDetail(sessionId).status, 'completed');
+});
+
+test('amendAnswer — l’amendement qui rouvre la session reste historisé (is_amendment, motif) exactement comme un amendement ordinaire', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  amendAnswer(sessionId, { question_id: questionId, status: 'cleared', amendment_reason: 'Motif de test réouverture.', expected_revision: rev(sessionId) }, REQ);
+
+  const history = listAnswerHistory(sessionId, questionId, null, REQ);
+  const last = history[history.length - 1];
+  assert.equal(last.status, 'cleared');
+  assert.equal(last.is_amendment, 1);
+  assert.equal(last.amendment_reason, 'Motif de test réouverture.');
+});
+
+test('amendAnswer — vers "unknown" (allows_unknown: true) ne rouvre jamais la session : reste completed, satisfait la complétude, aucune ré-exécution automatique déclenchée', () => {
+  const { sessionId, questionId } = createSimpleSession(); // allows_unknown=true par défaut
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+  const beforeReopen = auditCount('session rouverte (amendement)');
+
+  const result = amendAnswer(sessionId, { question_id: questionId, status: 'unknown', amendment_reason: 'Passage à inconnue pour test.', expected_revision: rev(sessionId) }, REQ);
+  assert.equal(result.session_status, 'completed');
+  assert.equal(getSessionDetail(sessionId).status, 'completed');
+  assert.equal(auditCount('session rouverte (amendement)'), beforeReopen, 'un statut unknown compte comme présent pour la complétude -- jamais de réouverture');
+  assert.equal(validateSessionForCompletion(sessionId).valid, true);
+});
+
+test('amendAnswer — invariant : jamais un statut "completed" en base alors que validateSessionForCompletion est invalide, sur une série d’amendements successifs', () => {
+  const { sessionId, questionId } = createSimpleSession();
+  startSession(sessionId, rev(sessionId), REQ);
+  recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+  completeSession(sessionId, rev(sessionId), REQ);
+
+  for (const nextStatus of ['cleared', 'unknown']) {
+    amendAnswer(sessionId, { question_id: questionId, status: nextStatus, amendment_reason: `Amendement de test vers ${nextStatus}.`, expected_revision: rev(sessionId) }, REQ);
+    const status = getSessionDetail(sessionId).status;
+    const completion = validateSessionForCompletion(sessionId);
+    assert.ok(!(status === 'completed' && !completion.valid), `incohérence detected après amendement vers ${nextStatus}`);
+    if (status !== 'completed') {
+      recordAnswers(sessionId, [{ question_id: questionId, status: 'answered', value: true }], rev(sessionId), REQ);
+      completeSession(sessionId, rev(sessionId), REQ);
+    }
+  }
 });

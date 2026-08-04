@@ -23,11 +23,18 @@ export const ANSWER_STATUSES = ['answered', 'unknown', 'not_applicable', 'cleare
 // (jamais démarrée) — bug détecté et corrigé par un test dédié pendant le
 // développement de ce lot. Toute transition hors de cette table est
 // refusée avec une erreur métier claire (409).
+// `completed.reopen` (correctif d'intégrité §4) : jamais atteignable par une
+// route dédiée -- exclusivement un effet de bord interne de `amendAnswer`
+// quand un amendement rend la complétude invalide (réponse requise
+// supprimée/rendue absente). Documentée ici, dans la même table centrale
+// que toute autre transition, plutôt que comme un changement de statut ad
+// hoc hors machine d'état -- cohérent avec le principe déjà énoncé
+// ci-dessus (« toute transition hors de cette table est refusée »).
 const TRANSITIONS = {
   draft: { start: 'in_progress', cancel: 'cancelled' },
   in_progress: { suspend: 'suspended', complete: 'completed', cancel: 'cancelled' },
   suspended: { resume: 'in_progress', cancel: 'cancelled' },
-  completed: {},
+  completed: { reopen: 'in_progress' },
   cancelled: {},
 };
 
@@ -432,6 +439,22 @@ function validateLinkForCompletion(session, link, answerIndex, activeMembers) {
       }
     } else {
       for (const member of activeMembers) {
+        // Correction d'intégrité (limite résiduelle §3, membre historisé) :
+        // un membre retiré du foyer depuis le démarrage de la session
+        // (`historical: true`, `sessionMembersFor`) ne peut plus jamais
+        // recevoir de nouvelle réponse (`assertMemberCanAnswer` le refuse
+        // explicitement, 409) -- exiger indéfiniment une réponse requise de
+        // sa part bloquerait la session sans aucune issue opérationnelle
+        // (seule l'annulation resterait possible). Le modèle métier confirme
+        // déjà qu'il ne fait plus partie du périmètre actif : exclu ici du
+        // contrôle de complétude. Ses réponses déjà enregistrées restent
+        // intégralement conservées et consultables (aucune suppression,
+        // aucune réattribution à un autre membre) ; sa présence dans le
+        // foyer et son changement de statut restent tracés dans l'audit
+        // (`retrait membre foyer`, server/advisoryHouseholds.js), inchangé
+        // par ce correctif. Un membre encore actif au moment du démarrage
+        // et qui le reste n'est jamais concerné par cette exclusion.
+        if (member.historical) continue;
         const getAnswer = memberGetAnswer(member.id);
         for (const q of section.questions) {
           if (q.status !== 'active') continue;
@@ -456,9 +479,18 @@ export function validateSessionForCompletion(sessionId) {
     .all(sessionId);
   // Périmètre figé (GATE LOT 3B §5) : mêmes membres que ceux affichés par
   // getSessionWorkspace, jamais recalculés séparément sur les membres vivants
-  // -- y compris les membres historisés (`can_answer: false`), pour ne
-  // jamais réduire silencieusement la portée d'une exigence déjà en vigueur
-  // au démarrage simplement parce qu'un membre a été retiré depuis.
+  // -- y compris les membres historisés (`can_answer: false`), pour que
+  // l'AFFICHAGE (historique de réponses, résolution du contexte du moteur de
+  // règles) reste identique quel que soit l'appelant, jamais une troisième
+  // résolution divergente des membres d'une session. La liste transmise ici
+  // à `validateLinkForCompletion` inclut donc toujours les membres
+  // historisés -- c'est `validateLinkForCompletion` elle-même qui les EXCLUT
+  // ensuite du CONTRÔLE DE COMPLÉTUDE spécifiquement (correctif d'intégrité
+  // §3 : un membre historisé ne peut plus jamais répondre, l'exiger
+  // indéfiniment bloquait la session sans issue). Distinction déliberée :
+  // « fait partie du périmètre affiché » (oui, toujours) et « peut encore
+  // bloquer la finalisation » (non, s'il est historisé) sont deux questions
+  // différentes.
   const members = sessionMembersFor(session);
   const answerIndex = buildAnswerIndex(sessionId);
 
@@ -649,15 +681,23 @@ export function getSessionWorkspace(sessionId, req) {
     let moduleRequiredTotal = 0;
     let moduleRequiredAnswered = 0;
 
-    function projectQuestion(q, getAnswer, memberContext, memberId, sectionVisible) {
+    function projectQuestion(q, getAnswer, memberContext, memberId, sectionVisible, isHistoricalMember) {
       if (q.status !== 'active') return null;
       const cond = q.display_condition ? JSON.parse(q.display_condition) : null;
       const visible = sectionVisible && evaluateCondition(cond, { session: { domain: session.domain }, getAnswer, member: memberContext });
       const key = `${q.id}|${memberId ?? 'household'}`;
       const row = memberId != null ? answerIndex.get(`${q.id}|${memberId}`) : answerIndex.get(`${q.id}|household`);
       const answer = row ? { status: row.status, value: answerValueFor(row) } : null;
-      const missing = visible && q.required && missingSet.has(key);
-      if (visible && q.required) {
+      // Correction d'intégrité §3 : cohérent avec `validateLinkForCompletion`
+      // (déjà corrigée ci-dessus), un membre historisé n'entre plus dans le
+      // périmètre de complétude -- ni dans `missing`, ni dans les compteurs
+      // de progression ci-dessous -- sans quoi la barre de progression
+      // resterait bloquée sous 100% indéfiniment alors que la session est
+      // réellement complétable. `required` (renvoyé plus bas) continue de
+      // refléter la conception de la question elle-même, inchangée.
+      const requiredForThisMember = q.required && !isHistoricalMember;
+      const missing = visible && requiredForThisMember && missingSet.has(key);
+      if (visible && requiredForThisMember) {
         moduleRequiredTotal += 1;
         globalRequiredTotal += 1;
         if (!missing) { moduleRequiredAnswered += 1; globalRequiredAnswered += 1; }
@@ -707,7 +747,7 @@ export function getSessionWorkspace(sessionId, req) {
             can_answer: member.can_answer,
           },
           questions: section.questions
-            .map((q) => projectQuestion(q, memberGetAnswer(member.id), { member_role: member.member_role }, member.id, sectionVisible))
+            .map((q) => projectQuestion(q, memberGetAnswer(member.id), { member_role: member.member_role }, member.id, sectionVisible, member.historical))
             .filter(Boolean),
         }));
       }
@@ -1008,11 +1048,35 @@ export function clearAnswer(sessionId, questionId, householdMemberId, expectedRe
 }
 
 // Amendement après finalisation (§8.4) — seule route pouvant modifier une
-// session déjà `completed`. Motif obligatoire, jamais de retour en arrière
-// du statut de la session. Contrairement à recordAnswers/clearAnswer,
-// n'appelle jamais assertMemberCanAnswer : corriger un enregistrement
-// historique reste valide même si le membre concerné n'est plus actif
-// aujourd'hui (GATE LOT 3B §5).
+// session déjà `completed`. Motif obligatoire. Contrairement à
+// recordAnswers/clearAnswer, n'appelle jamais assertMemberCanAnswer :
+// corriger un enregistrement historique reste valide même si le membre
+// concerné n'est plus actif aujourd'hui (GATE LOT 3B §5).
+//
+// Correction d'intégrité (limite résiduelle §4, reproduite puis corrigée) :
+// un amendement qui retire la SEULE réponse active à une question REQUISE
+// (nouveau statut `cleared` ou toute valeur qui ne satisfait plus
+// `validateSessionForCompletion`) ne doit plus jamais laisser la session
+// `completed` avec une exigence de complétude non satisfaite -- constat
+// empirique avant correctif : `amendAnswer` réussissait silencieusement
+// dans ce cas, la session restait `completed` alors que
+// `validateSessionForCompletion` devenait `valid: false`, sans qu'aucune
+// ré-exécution du moteur n'ait jamais lieu automatiquement. Corrigé en
+// réévaluant la complétude DANS LA MÊME TRANSACTION que l'amendement,
+// jamais après coup : si elle échoue, la session est ramenée à
+// `in_progress` (transition `reopen`, ajoutée à TRANSITIONS ci-dessus) --
+// le mécanisme normal de réponse manquante (`completeSession` refusant tant
+// que `validateSessionForCompletion` échoue) redevient alors la seule voie
+// de re-complétion, exactement comme pour une première finalisation.
+// `completed_at` n'est jamais réinitialisé (même convention que
+// `suspended_at`, jamais effacé par `resumeSession`) : il continue de
+// refléter la date de la DERNIÈRE complétion réelle. Si la complétude reste
+// satisfaite (ex. remplacement par `unknown` quand `allows_unknown: true`,
+// ou par une autre valeur valide), la session reste `completed` sans
+// changement de statut -- c'est alors à l'appelant (route HTTP) de
+// déclencher la ré-exécution du moteur pour ce cas, `advisorySessions.js`
+// n'importe jamais `advisoryRuleExecutions.js` (celui-ci importe déjà CE
+// module, une dépendance circulaire serait introduite dans l'autre sens).
 export function amendAnswer(sessionId, { question_id, household_member_id, status, value, amendment_reason, expected_revision } = {}, req) {
   const session = requireSession(sessionId);
   if (session.status !== 'completed') {
@@ -1028,7 +1092,7 @@ export function amendAnswer(sessionId, { question_id, household_member_id, statu
   const existing = findActiveAnswerRow(sessionId, question_id, household_member_id ?? null);
   const newRevision = session.revision + 1;
 
-  const answerId = db.transaction(() => {
+  const { answerId, reopened } = db.transaction(() => {
     retireActiveAnswer(existing);
     const info = db
       .prepare(
@@ -1043,11 +1107,25 @@ export function amendAnswer(sessionId, { question_id, household_member_id, statu
         amendment_reason, newRevision, session.advisor_user_id
       );
     if (existing) db.prepare('UPDATE advisory_answers SET superseded_by_answer_id = ? WHERE id = ?').run(info.lastInsertRowid, existing.id);
+
+    const completion = validateSessionForCompletion(sessionId);
+    let didReopen = false;
+    if (!completion.valid) {
+      assertTransition(session, 'reopen');
+      db.prepare("UPDATE advisory_sessions SET status = 'in_progress' WHERE id = ?").run(sessionId);
+      didReopen = true;
+    }
     db.prepare("UPDATE advisory_sessions SET revision = ?, updated_at = datetime('now') WHERE id = ?").run(newRevision, sessionId);
-    return info.lastInsertRowid;
+    return { answerId: info.lastInsertRowid, reopened: didReopen };
   })();
   audit(req, 'réponse amendée', 'advisory_session', sessionId, `question #${question_id}`);
-  return { id: answerId, revision: newRevision };
+  if (reopened) {
+    audit(
+      req, 'session rouverte (amendement)', 'advisory_session', sessionId,
+      `question #${question_id} : réponse requise devenue absente, complétude à revalider`
+    );
+  }
+  return { id: answerId, revision: newRevision, session_status: reopened ? 'in_progress' : 'completed' };
 }
 
 export function listActiveAnswers(sessionId) {

@@ -120,6 +120,23 @@ advisorySessionsRouter.delete('/:id/answers/:questionId', (req, res) => {
   handle(res, () => res.json(clearAnswer(req.params.id, req.params.questionId, household_member_id ? Number(household_member_id) : null, expected_revision, req)));
 });
 
+// Correctif d'intégrité de la complétude de session (§4/§5) : un amendement
+// qui laisse la session `completed` (réponse remplacée par une autre valeur
+// présente, ou par `unknown` quand la question l'autorise) NE déclenche
+// PAS de ré-exécution automatique ici -- décision humaine confirmée et déjà
+// testée (GATE LOT 4B §7.5, RULES_ENGINE.md §10 : « amender une réponse ne
+// déclenche toujours pas de relance automatique -- le conseiller reste seul
+// décisionnaire du moment où relancer »). Ce correctif ne modifie donc PAS
+// cette politique : le mécanisme de péremption déjà existant
+// (`resolveDomainAnalysisState`, comparaison de révision) marque déjà
+// automatiquement le domaine concerné `stale` dès que `amendAnswer` fait
+// avancer la révision de session (inchangé par ce correctif) -- le
+// conseiller relance ensuite explicitement via `POST .../analyze`, qui
+// supersède correctement l'ancienne exécution et ses findings (mécanisme
+// déjà existant, inchangé). Seul le cas où l'amendement REND la session
+// incomplète (réponse requise devenue absente) a un traitement propre à ce
+// correctif : voir `amendAnswer` (server/advisorySessions.js), qui rouvre
+// alors la session (`completed` -> `in_progress`, transition `reopen`).
 advisorySessionsRouter.post('/:id/answers/amend', (req, res) => {
   handle(res, () => res.status(201).json(amendAnswer(req.params.id, req.body || {}, req)));
 });

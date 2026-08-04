@@ -490,11 +490,20 @@ l'intégrité référentielle des `advisory_findings`/`advisory_recommendations`
 liés.
 
 **Immuable après validation** (passage à `completed`) : `household_snapshot`,
-la composition `advisory_session_questionnaires`, toutes les réponses.
-**Modifiable** : rien ne rouvre jamais une session `completed` (aucune
-transition sortante dans la machine d'état implémentée — voir §3.2) ;
-`title`/`scheduled_at` restent modifiables via une route dédiée tant que la
-session n'est pas `completed`/`cancelled`.
+la composition `advisory_session_questionnaires`. Les réponses, elles,
+restent modifiables par le seul mécanisme d'amendement tracé (`amendAnswer`,
+jamais un autre chemin d'écriture).
+**Modifiable** : `title`/`scheduled_at` restent modifiables via une route
+dédiée tant que la session n'est pas `completed`/`cancelled`.
+**Correctif d'intégrité de la complétude de session** : `completed` possède
+désormais UNE SEULE transition sortante, `reopen -> in_progress` — jamais
+atteignable par une route HTTP dédiée, exclusivement un effet de bord
+interne d'`amendAnswer` quand un amendement retire la seule réponse active à
+une question requise (rendant la session invalide au regard de
+`validateSessionForCompletion`). Une session finalisée ne peut donc
+toujours pas être réouverte à la demande ni silencieusement — voir
+`API_CONTRACT.md` (route `.../answers/amend`) et `SECURITY_PRIVACY.md`
+(action d'audit `session rouverte (amendement)`).
 
 ### 3.2 `advisory_session_questionnaires` (implémentée au Lot 3A — composition modulaire)
 
