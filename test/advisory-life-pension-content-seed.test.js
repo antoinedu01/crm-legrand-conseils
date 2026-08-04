@@ -78,11 +78,18 @@ test('seedAdvisoryLifePensionContent — questionnaire créé en brouillon avec 
     'changement_familial_patrimonial_recent_declare', 'revision_recente_beneficiaires_protections_declare',
   ];
   assert.deepEqual(questions.map((q) => q.stable_key), expectedKeys);
+  // required: true (correction du dossier d'approbation, §5) sur les 3
+  // questions de couverture référencées par la règle C — allows_unknown
+  // reste true pour toutes les questions, y compris ces 3.
+  const REQUIRED_KEYS = [
+    'couverture_deces_connue_declare', 'couverture_incapacite_gain_connue_declare',
+    'prevoyance_professionnelle_volontaire_connue_declare',
+  ];
   for (const q of questions) {
     assert.equal(q.type, 'single_choice');
     assert.equal(q.scope, 'member');
     assert.equal(q.allows_unknown, 1);
-    assert.equal(q.required, 0);
+    assert.equal(q.required, REQUIRED_KEYS.includes(q.stable_key) ? 1 : 0, `${q.stable_key} : required inattendu`);
   }
   const sensitiveKeys = questions.filter((q) => q.sensitive === 1).map((q) => q.stable_key).sort();
   assert.deepEqual(sensitiveKeys, [
@@ -106,6 +113,21 @@ test('seedAdvisoryLifePensionContent — questionnaire créé en brouillon avec 
     assert.ok(!forbidden.test(q.advisor_text));
     assert.ok(!forbidden.test(q.client_text || ''));
   }
+});
+
+// --- Correction §4 du dossier d'approbation : affiliation facultative,
+// jamais un rachat volontaire ---
+
+test('prevoyance_professionnelle_volontaire_connue_declare — texte relatif à l’affiliation facultative, jamais au rachat', () => {
+  const detail = Q.getVersionDetail(seedResult.versionId);
+  const q = detail.sections[0].questions.find((x) => x.stable_key === 'prevoyance_professionnelle_volontaire_connue_declare');
+  assert.ok(q);
+  assert.match(q.advisor_text, /affiliation facultative/i);
+  assert.match(q.client_text, /affilié/i);
+  assert.doesNotMatch(q.advisor_text, /rachat/i, 'le texte conseiller ne doit plus employer le terme « rachat »');
+  assert.doesNotMatch(q.client_text, /rachat/i, 'le texte client ne doit plus employer le terme « rachat »');
+  assert.deepEqual(q.options.map((o) => o.value), ['oui', 'non']);
+  assert.equal(q.allows_unknown, 1);
 });
 
 test('seedAdvisoryLifePensionContent — ensemble de règles créé en brouillon avec les 5 règles exactes', () => {
@@ -205,11 +227,28 @@ function answer(sessionId, memberId, stableKey, value) {
 function answerUnknown(sessionId, memberId, stableKey) {
   S.recordAnswers(sessionId, [{ question_id: questionId(stableKey), household_member_id: memberId, status: 'unknown' }], rev(sessionId), REQ);
 }
+// required: true (correction §5) sur ces 3 questions — une session ne peut
+// plus être finalisée sans réponse (y compris "unknown") à chacune d'elles,
+// pour le ou les membres réellement actifs. La plupart des tests ci-dessous
+// portent sur une autre règle : `runAndGetFindings` complète automatiquement,
+// avec une valeur neutre, celles que le scénario testé n'a pas explicitement
+// renseignées, pour ne jamais changer le comportement de la règle réellement
+// testée (voir les tests dédiés à la complétude et à la règle C plus bas
+// pour les scénarios qui, eux, laissent délibérément ces questions absentes).
+const REQUIRED_COVERAGE_KEYS = [
+  'couverture_deces_connue_declare', 'couverture_incapacite_gain_connue_declare',
+  'prevoyance_professionnelle_volontaire_connue_declare',
+];
 function runAndGetFindings(householdId, memberId, answers) {
   const sessionId = startedSession(householdId);
+  const touched = new Set();
   for (const [key, value] of answers) {
+    touched.add(key);
     if (value === 'unknown') answerUnknown(sessionId, memberId, key);
     else answer(sessionId, memberId, key, value);
+  }
+  for (const key of REQUIRED_COVERAGE_KEYS) {
+    if (!touched.has(key)) answer(sessionId, memberId, key, 'oui');
   }
   ensureCompleted(sessionId);
   E.executeRuleSetForSession(sessionId, 'life_pension', rev(sessionId), REQ, { rule_set_id: seedResult.ruleSetId });
@@ -238,7 +277,7 @@ test('Règle A — non-déclenchement : couverture décès connue (oui)', () => 
   assert.ok(!findings.some((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'gap'));
 });
 
-test('Règle A — réponse "inconnue" ou absence totale déclenche missing_information, jamais gap', () => {
+test('Règle A — réponse "inconnue" explicite à la couverture décès déclenche missing_information, jamais gap', () => {
   const { householdId, principalMemberId } = buildHousehold();
   const { findings: f1 } = runAndGetFindings(householdId, principalMemberId, [
     ['personnes_dependantes_financierement_declare', 'oui'],
@@ -246,12 +285,14 @@ test('Règle A — réponse "inconnue" ou absence totale déclenche missing_info
   ]);
   assert.ok(!f1.some((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'gap'));
   assert.ok(f1.some((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'missing_information'));
-
-  const { householdId: h2, principalMemberId: m2 } = buildHousehold();
-  const { findings: f2 } = runAndGetFindings(h2, m2, []);
-  assert.ok(!f2.some((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'gap'));
-  assert.ok(f2.some((f) => f.finding_type === 'missing_information'));
 });
+
+// L'ancien second cas de ce test (session finalisée avec `couverture_deces_
+// connue_declare` totalement absente, jamais posée) n'est plus atteignable
+// depuis la correction §5 du dossier d'approbation : voir la section
+// « Complétude » plus bas, qui prouve directement que cette absence bloque
+// désormais la finalisation au lieu de produire un missing_information a
+// posteriori.
 
 test('Règle B (incapacité de gain) — déclenchement : dépendance revenu oui + couverture non connue', () => {
   const { householdId, principalMemberId } = buildHousehold();
@@ -310,14 +351,24 @@ test('Règle C — non-déclenchement : salarié avec une couverture inconnue (s
   assert.ok(!findings.some((f) => f.stable_key === 'independant-couverture-incertaine-01'));
 });
 
-test('Règle C — non-déclenchement : indépendant, les trois couvertures jamais répondues du tout (absentes, pas "inconnue" explicite)', () => {
+test('Règle C — le cas autrefois silencieux (indépendant, les trois couvertures jamais répondues du tout) est désormais bloqué à la finalisation, jamais un déclenchement manqué en silence', () => {
+  // Correction §5 du dossier d'approbation : avant cette correction, ce
+  // scénario finalisait normalement une session sans jamais déclencher la
+  // règle C ni aucun missing_information la concernant — un trou d'analyse
+  // silencieux. Reproduit ici SANS passer par runAndGetFindings (qui
+  // complète désormais automatiquement ces 3 questions pour les autres
+  // tests) : construit délibérément la session avec le statut indépendant
+  // seul, les 3 questions de couverture jamais posées.
   const { householdId, principalMemberId } = buildHousehold();
-  const { findings } = runAndGetFindings(householdId, principalMemberId, [
-    ['statut_professionnel_declare', 'independant'],
-  ]);
-  // Absence pure (jamais posée/répondue) != incertitude explicite -- la
-  // règle C ne se déclenche que sur un statut de réponse "unknown" réel.
-  assert.ok(!findings.some((f) => f.stable_key === 'independant-couverture-incertaine-01'));
+  const sessionId = startedSession(householdId);
+  answer(sessionId, principalMemberId, 'statut_professionnel_declare', 'independant');
+  assert.throws(
+    () => S.completeSession(sessionId, rev(sessionId), REQ),
+    (err) => err.status === 409,
+    'la session ne doit plus jamais pouvoir être finalisée avec ces 3 questions de couverture jamais répondues'
+  );
+  const status = db.prepare('SELECT status FROM advisory_sessions WHERE id = ?').get(sessionId).status;
+  assert.equal(status, 'in_progress', 'la session reste non finalisée — aucune exécution du moteur n’a pu avoir lieu');
 });
 
 test('Règle C — statut professionnel lui-même absent déclenche missing_information pour C', () => {
@@ -326,6 +377,52 @@ test('Règle C — statut professionnel lui-même absent déclenche missing_info
     ['couverture_deces_connue_declare', 'unknown'],
   ]);
   assert.ok(findings.some((f) => f.stable_key === 'independant-couverture-incertaine-01' && f.finding_type === 'missing_information'));
+});
+
+// --- Complétude (correction §5 du dossier d'approbation) ---
+// required: true s'applique à la QUESTION, jamais conditionnellement au
+// statut professionnel — vérifié ici pour un membre salarié, pour prouver
+// que ce n'est pas une règle réservée aux indépendants.
+
+test('Complétude — une réponse absente à l’une des 3 questions de couverture bloque la finalisation, quel que soit le statut professionnel', () => {
+  const { householdId, principalMemberId } = buildHousehold();
+  const sessionId = startedSession(householdId);
+  answer(sessionId, principalMemberId, 'statut_professionnel_declare', 'salarie');
+  answer(sessionId, principalMemberId, 'couverture_deces_connue_declare', 'oui');
+  answer(sessionId, principalMemberId, 'couverture_incapacite_gain_connue_declare', 'non');
+  // prevoyance_professionnelle_volontaire_connue_declare jamais répondue.
+  assert.throws(
+    () => S.completeSession(sessionId, rev(sessionId), REQ),
+    (err) => err.status === 409,
+  );
+});
+
+test('Complétude — une réponse "unknown" explicite aux 3 questions de couverture satisfait la finalisation (allows_unknown reste vrai)', () => {
+  const { householdId, principalMemberId } = buildHousehold();
+  const sessionId = startedSession(householdId);
+  answerUnknown(sessionId, principalMemberId, 'couverture_deces_connue_declare');
+  answerUnknown(sessionId, principalMemberId, 'couverture_incapacite_gain_connue_declare');
+  answerUnknown(sessionId, principalMemberId, 'prevoyance_professionnelle_volontaire_connue_declare');
+  const result = S.completeSession(sessionId, rev(sessionId), REQ);
+  assert.equal(result.ok, true);
+  const status = db.prepare('SELECT status FROM advisory_sessions WHERE id = ?').get(sessionId).status;
+  assert.equal(status, 'completed');
+});
+
+test('Complétude — foyer à deux membres : la réponse manquante d’UN SEUL membre suffit à bloquer la finalisation de toute la session', () => {
+  const { householdId, principalMemberId, secondMemberId } = buildHousehold({ withSecondMember: true });
+  const sessionId = startedSession(householdId);
+  for (const key of REQUIRED_COVERAGE_KEYS) answer(sessionId, principalMemberId, key, 'oui');
+  // Le second membre ne répond à aucune des 3 questions requises.
+  assert.throws(
+    () => S.completeSession(sessionId, rev(sessionId), REQ),
+    (err) => {
+      assert.equal(err.status, 409);
+      const missingForSecondMember = err.missing.some((link) => link.missing.some((m) => m.household_member_id === secondMemberId));
+      assert.ok(missingForSecondMember, 'le second membre doit bien être identifié comme la cause du blocage');
+      return true;
+    },
+  );
 });
 
 test('Règle D (épargne retraite) — déclenchement : aucune épargne + souhait d’amélioration', () => {
@@ -375,6 +472,12 @@ test('Portée membre — fan-out correct sur un foyer à deux membres (un seul m
   answer(sessionId, principalMemberId, 'couverture_deces_connue_declare', 'non');
   answer(sessionId, secondMemberId, 'personnes_dependantes_financierement_declare', 'oui');
   answer(sessionId, secondMemberId, 'couverture_deces_connue_declare', 'oui');
+  // required: true (correction §5) sur les 2 autres questions de couverture
+  // — nécessaire aux DEUX membres pour que la session puisse se finaliser.
+  for (const member of [principalMemberId, secondMemberId]) {
+    answer(sessionId, member, 'couverture_incapacite_gain_connue_declare', 'oui');
+    answer(sessionId, member, 'prevoyance_professionnelle_volontaire_connue_declare', 'oui');
+  }
   ensureCompleted(sessionId);
   E.executeRuleSetForSession(sessionId, 'life_pension', rev(sessionId), REQ, { rule_set_id: seedResult.ruleSetId });
   const findings = E.listActiveFindings(sessionId, {}, REQ);

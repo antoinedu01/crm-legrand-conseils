@@ -17,22 +17,46 @@
   statut **brouillon**.
 - Une section, portée `member` (« Protection et prévoyance déclarées »).
 - 10 questions, toutes `single_choice`, portée `member`, `allows_unknown:
-  true`, `required: false` (même rationale que le LOT 5 : tolérer des
-  réponses partielles, le mécanisme `missing_information` signale déjà
-  correctement, par règle, ce qui manque).
+  true`. `required: false` reste la règle générale (même rationale que le
+  LOT 5 : tolérer des réponses partielles, le mécanisme `missing_information`
+  signale déjà correctement, par règle, ce qui manque) — **à l'exception des
+  3 questions de couverture (Q4/Q5/Q6, `required: true`), corrigée lors de
+  la validation humaine du dossier d'approbation, voir §3.**
 
-| # | `stable_key` | Options | Sensible |
-|---|---|---|---|
-| 1 | `statut_professionnel_declare` | salarie / independant / sans_emploi / autre | non |
-| 2 | `dependance_revenu_professionnel_declare` | oui / non | non |
-| 3 | `personnes_dependantes_financierement_declare` | oui / non | **oui** |
-| 4 | `couverture_deces_connue_declare` | oui / non | **oui** |
-| 5 | `couverture_incapacite_gain_connue_declare` | oui / non | **oui** |
-| 6 | `prevoyance_professionnelle_volontaire_connue_declare` | oui / non | non |
-| 7 | `epargne_retraite_volontaire_existante_declare` | oui / non | non |
-| 8 | `souhait_ameliorer_preparation_retraite_declare` | oui / non | non |
-| 9 | `changement_familial_patrimonial_recent_declare` | oui / non | **oui** |
-| 10 | `revision_recente_beneficiaires_protections_declare` | oui / non | **oui** |
+| # | `stable_key` | Options | Sensible | Requise |
+|---|---|---|---|---|
+| 1 | `statut_professionnel_declare` | salarie / independant / sans_emploi / autre | non | non |
+| 2 | `dependance_revenu_professionnel_declare` | oui / non | non | non |
+| 3 | `personnes_dependantes_financierement_declare` | oui / non | **oui** | non |
+| 4 | `couverture_deces_connue_declare` | oui / non | **oui** | **oui** |
+| 5 | `couverture_incapacite_gain_connue_declare` | oui / non | **oui** | **oui** |
+| 6 | `prevoyance_professionnelle_volontaire_connue_declare` | oui / non | non | **oui** |
+| 7 | `epargne_retraite_volontaire_existante_declare` | oui / non | non | non |
+| 8 | `souhait_ameliorer_preparation_retraite_declare` | oui / non | non | non |
+| 9 | `changement_familial_patrimonial_recent_declare` | oui / non | **oui** | non |
+| 10 | `revision_recente_beneficiaires_protections_declare` | oui / non | **oui** | non |
+
+**Q6 — correction de fond apportée lors de la validation humaine du dossier
+d'approbation** : le texte interrogeait initialement un **rachat volontaire**
+(un versement ponctuel dans une prévoyance professionnelle déjà existante),
+alors que la règle C a besoin de savoir si une personne indépendante dispose
+ne serait-ce que d'une **affiliation facultative** au 2e pilier — une notion
+antérieure et distincte du rachat (on ne peut racheter que dans une
+institution à laquelle on est déjà affilié). Reformulé :
+*« L'existence d'une affiliation facultative à une institution de
+prévoyance professionnelle est-elle connue — posée à chaque membre,
+particulièrement déterminante pour un statut indépendant ? »*
+(texte conseiller) / *« Êtes-vous actuellement affilié(e), à titre
+volontaire, à une caisse de pension ou à une institution de prévoyance
+professionnelle ? »* (texte client). `stable_key`, options (oui/non) et
+`allows_unknown: true` inchangés. **Correction supplémentaire (revue
+`life-pension-domain`)** : la première formulation du texte conseiller
+(« Pour la personne indépendante, … ») laissait à tort penser que la
+question restait sautable pour un membre non indépendant, alors que
+`required: true` (§1) s'applique à CHAQUE membre actif — corrigé pour ne
+plus jamais suggérer une portée conditionnelle qui n'existe pas dans le
+mécanisme réel. Ne jamais réintroduire le terme « rachat » pour cette
+question dans ce document ou dans le code.
 
 **Classification conservatrice** : les questions révélant une structure
 familiale/de dépendance (Q3), une lacune de couverture décès/incapacité
@@ -93,18 +117,71 @@ résout `answer_status` à `absent`, distinct de `unknown` — la règle ne se
 déclenche donc que sur une incertitude **explicitement exprimée par le
 client**, jamais sur une question simplement non atteinte.
 
-**Limite connue, signalée par la revue `life-pension-domain`** : un
-indépendant dont les 3 questions de couverture n'ont **jamais été posées ni
-répondues** (`answer_status = absent`, jamais `unknown`) ne déclenche pas
-la règle C — ce cas résiduel n'est que partiellement rattrapé par le
-`missing_information` des règles A/B (qui référencent les deux mêmes
-questions), et uniquement si les conditions de A/B sont elles-mêmes
-pertinentes pour cette personne. Décision assumée pour cette phase 1
-(cohérent avec l'intention du brief : détecter une incertitude **exprimée**,
-pas une simple lacune de collecte) — **à confirmer explicitement par une
-validation métier humaine avant publication** : soit accepter ce trou de
-message spécifique aux indépendants, soit élargir la règle C au cas
-« jamais répondu » dans une itération future.
+**Correction du cas silencieux (décision humaine du dossier d'approbation,
+logique à modifier → appliquée)** : la version initiale de cette phase 1
+laissait un indépendant dont les 3 questions de couverture n'auraient
+**jamais été posées ni répondues** (`answer_status = absent`, jamais
+`unknown`) sans jamais déclencher la règle C, ni aucun
+`missing_information` la concernant — un trou d'analyse silencieux. Corrigé
+en rendant les 3 questions de couverture `required: true` sur le
+QUESTIONNAIRE (§1 ci-dessus, `allows_unknown: true` conservé) — un
+mécanisme **déjà existant** (`validateSessionForCompletion`,
+`server/advisorySessions.js`), distinct et complémentaire du `required_data`
+d'une règle : il gouverne la finalisation de la SESSION, jamais
+l'évaluation d'une règle précise. Aucune nouvelle règle
+`missing_information` n'a été créée pour autant — `required_data` de la
+règle C reste inchangé (`{"answer": "statut_professionnel_declare"}`
+uniquement).
+
+**Comportement résultant, les trois cas distingués** :
+1. **Indépendant + au moins une des 3 couvertures explicitement répondue
+   « inconnue »** → la règle C se déclenche normalement (inchangé).
+2. **L'une des 3 questions de couverture jamais répondue** (pour n'importe
+   quel membre, indépendant ou non) → la session ne peut plus atteindre le
+   statut `completed` (`409`, `validateSessionForCompletion`) tant que la
+   question reste sans réponse — une réponse `unknown` explicite suffit à
+   satisfier cette exigence, seule une absence totale la bloque.
+3. **Indépendant, les 3 couvertures répondues clairement (oui/non, aucune
+   « inconnue »)** → la règle C ne se déclenche pas à cause de ces seules
+   réponses (inchangé).
+
+Conséquence directe du point 2 : aucun indépendant ne peut plus rester
+silencieusement sans analyse par la règle C parce que ces 3 questions
+n'auraient jamais été abordées — la session elle-même ne peut plus être
+finalisée dans cet état, quel que soit le statut professionnel du membre
+concerné (le mécanisme `required` s'applique à la question, pas
+conditionnellement au statut indépendant).
+
+**Deux limites résiduelles du correctif, identifiées par la revue
+`rules-engine-auditor` — non corrigées dans cette tâche (portée volontairement
+limitée aux 4 décisions du dossier d'approbation), signalées pour une
+décision architecturale séparée, hors périmètre d'une simple correction de
+contenu** :
+1. **Contournement possible après finalisation** : `amendAnswer`
+   (`server/advisorySessions.js`) permet, sur une session déjà `completed`,
+   de repasser une réponse à `status: 'cleared'` sur l'une des 3 questions
+   requises, sans jamais revalider la complétude ni ré-exécuter le moteur
+   automatiquement — le gate de finalisation ne protège que la première
+   entrée en statut `completed`, jamais un état post-finalisation. Ceci
+   exige néanmoins deux actions humaines déliberées et tracées (motif de
+   correction obligatoire, entrée d'audit « réponse amendée », puis une
+   ré-exécution manuelle distincte du moteur) — jamais une régression
+   automatique ou invisible.
+2. **Membre historisé avant d'avoir répondu** : `validateSessionForCompletion`
+   inclut délibérément les membres historisés du foyer (`can_answer: false`,
+   politique actée au GATE LOT 3B §5 : ne jamais réduire silencieusement une
+   exigence déjà en vigueur au démarrage) sans les exempter des 3 questions
+   désormais requises — alors qu'un membre retiré du foyer ne peut plus lui
+   répondre (`assertMemberCanAnswer` refuse toute nouvelle réponse pour un
+   membre non actif). Une session ayant démarré avec un membre ensuite
+   retiré, avant que ce membre n'ait répondu à l'une de ces 3 questions, ne
+   peut donc plus jamais atteindre `completed`. **Mitigation déjà
+   disponible** : `cancelSession` reste inconditionnel depuis `in_progress`
+   (jamais soumis à `validateSessionForCompletion`) — la session peut être
+   annulée et une nouvelle session redémarrée, qui n'inclura alors plus ce
+   membre dans son propre instantané. Ce n'était jamais observable avant ce
+   correctif : c'est la toute première fois qu'une question LOT 5/LOT 6 est
+   `required: true` (tout le reste du contenu métier reste `required: false`).
 
 **Thème identifié comme manquant pour une itération future** (signalé par
 la revue `life-pension-domain`) : la réserve de sécurité / fonds d'urgence,
@@ -133,7 +210,11 @@ Avant tout passage `brouillon → publié` : confirmation par
 5 questions sensibles ; revue finale par un rôle spécialisé Vie et
 Prévoyance du contenu réel des 5 règles ; aucune source réglementaire
 externe n'est citée par ce noyau (toutes les 5 règles reposent sur une
-référence méthodologique interne, non une loi).
+référence méthodologique interne, non une loi). La logique de la règle C a
+été corrigée (§3, 3 questions de couverture `required: true`) sur décision
+humaine du dossier d'approbation — **validation nLPD de la durée de
+conservation toujours en attente** (aucune durée n'est fixée par cette
+correction, hors périmètre, voir `SECURITY_PRIVACY.md` §9).
 
 ## 6. Articulation avec les recommandations humaines (LOT 7A/7B, inchangée)
 

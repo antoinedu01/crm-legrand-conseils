@@ -18,17 +18,30 @@ const SOURCE_INTERNAL = 'Référence interne — méthodologie de conseil Legran
 const SOURCE_REF_INTERNAL = 'Note méthodologique interne — non une source légale, non une donnée actuarielle.';
 const EFFECTIVE_FROM = '2026-08-04';
 
-function questionSpec({ stable_key, advisor_text, client_text, type, options, sensitive, sort_order }) {
+function questionSpec({ stable_key, advisor_text, client_text, type, options, sensitive, sort_order, required = false }) {
   return {
     stable_key,
     advisor_text,
     client_text,
     type: type || 'single_choice',
     scope: 'member',
-    // required: false — même rationale que LOT 5 : ce noyau tolère des
-    // réponses partielles, le mécanisme missing_information du moteur
-    // signale déjà correctement, par règle, ce qui manque pour conclure.
-    required: false,
+    // required: false par défaut — même rationale que LOT 5 : ce noyau
+    // tolère des réponses partielles, le mécanisme missing_information du
+    // moteur signale déjà correctement, par règle, ce qui manque pour
+    // conclure. Exception délibérée (correction du dossier d'approbation,
+    // voir les 3 questions de couverture ci-dessous, `required: true`
+    // explicite) : le mécanisme `required` du QUESTIONNAIRE (bloque la
+    // finalisation de session tant qu'une réponse — y compris `unknown` —
+    // n'a pas été apportée, voir `validateSessionForCompletion`,
+    // `server/advisorySessions.js`) est distinct du `required_data` d'une
+    // RÈGLE (gouverne uniquement si CETTE règle produit missing_information)
+    // — les deux mécanismes existants sont combinés ici sans en créer un
+    // nouveau : une session ne peut plus jamais atteindre `completed` avec
+    // l'une de ces 3 questions jamais posée à un membre actif, ce qui
+    // garantit qu'aucune exécution du moteur (réservée aux sessions
+    // `completed`) ne peut avoir lieu sur un foyer où ces questions
+    // n'auraient jamais été abordées.
+    required,
     allows_unknown: true,
     sensitive,
     sort_order,
@@ -91,12 +104,22 @@ const QUESTIONS = [
   // « non, je n'en ai pas » et « non, je ne sais pas », faisant doublon
   // avec le mécanisme natif allows_unknown/is_unknown déjà prévu pour
   // l'incertitude — revue life-pension-domain, correction appliquée.
+  // Correction apportée lors de la validation humaine du dossier
+  // d'approbation (règle C, §5) : ces 3 questions de couverture deviennent
+  // `required: true` — sans quoi un indépendant chez qui elles ne sont
+  // JAMAIS posées ne déclenchait ni la règle C ni aucun missing_information
+  // (cas silencieux, voir docs/advisory/LIFE_PENSION_LOT6_CONTENT.md §3).
+  // `allows_unknown: true` reste inchangé : la personne garde le droit de
+  // répondre explicitement « je ne sais pas », ce qui satisfait la
+  // finalisation de session tout en laissant la règle C se déclencher sur
+  // ce statut `unknown`.
   questionSpec({
     stable_key: 'couverture_deces_connue_declare',
     advisor_text: 'La personne dispose-t-elle actuellement d’une couverture décès la concernant ?',
     client_text: 'Disposez-vous actuellement d’une couverture en cas de décès ?',
     sensitive: true,
     sort_order: 4,
+    required: true,
   }),
   questionSpec({
     stable_key: 'couverture_incapacite_gain_connue_declare',
@@ -104,13 +127,34 @@ const QUESTIONS = [
     client_text: 'Disposez-vous actuellement d’une couverture suffisante en cas d’incapacité de travailler ?',
     sensitive: true,
     sort_order: 5,
+    required: true,
   }),
+  // Correction apportée lors de la validation humaine du dossier
+  // d'approbation : le texte précédent portait à tort sur un « rachat
+  // volontaire » (un versement ponctuel dans une prévoyance déjà existante),
+  // alors que la règle C (`independant-couverture-incertaine-01`) a besoin
+  // de savoir si une personne INDÉPENDANTE dispose ne serait-ce que d'une
+  // AFFILIATION facultative au 2e pilier — une notion antérieure et
+  // distincte du rachat (on ne peut racheter que dans une institution à
+  // laquelle on est déjà affilié). Jamais confondre les deux notions dans ce
+  // contenu ni dans sa documentation.
+  // required: true — même correction que les 2 questions de couverture
+  // ci-dessus (règle C, §5 du dossier d'approbation) : cette question fait
+  // elle aussi partie des 3 couvertures dont l'incertitude explicite peut
+  // déclencher la règle C ; la laisser facultative aurait permis le même cas
+  // silencieux (indépendant jamais interrogé sur ce point, ni finding ni
+  // missing_information).
   questionSpec({
     stable_key: 'prevoyance_professionnelle_volontaire_connue_declare',
-    advisor_text: 'La personne a-t-elle effectué un rachat volontaire dans sa prévoyance professionnelle (LPP ou équivalent) ?',
-    client_text: 'Avez-vous déjà effectué un rachat volontaire dans votre prévoyance professionnelle ?',
+    // « Pour la personne indépendante » retiré du texte conseiller (revue
+    // life-pension-domain) : formulation trompeuse depuis que required:true
+    // s'applique à CHAQUE membre actif, indépendant ou non — laissait
+    // penser à tort que la question restait sautable pour un salarié.
+    advisor_text: 'L’existence d’une affiliation facultative à une institution de prévoyance professionnelle est-elle connue — posée à chaque membre, particulièrement déterminante pour un statut indépendant ?',
+    client_text: 'Êtes-vous actuellement affilié(e), à titre volontaire, à une caisse de pension ou à une institution de prévoyance professionnelle ?',
     sensitive: false,
     sort_order: 6,
+    required: true,
   }),
   questionSpec({
     stable_key: 'epargne_retraite_volontaire_existante_declare',

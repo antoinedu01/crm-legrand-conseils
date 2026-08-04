@@ -103,6 +103,19 @@ test('seedAdvisoryHealthContent — questionnaire créé en brouillon avec les 9
   }
 });
 
+// --- Correction §3 du dossier d'approbation : tolerance_risque_financier ---
+
+test('tolerance_risque_financier — texte client compatible avec les 3 niveaux (faible/moyenne/élevée), plus l’ancienne alternative binaire', () => {
+  const detail = Q.getVersionDetail(seedResult.versionId);
+  const q = detail.sections[0].questions.find((x) => x.stable_key === 'tolerance_risque_financier');
+  assert.ok(q);
+  assert.match(q.client_text, /niveau/i, 'le texte doit interroger directement un NIVEAU, cohérent avec les 3 options');
+  assert.doesNotMatch(q.client_text, /prime plus stable/i, 'l’ancienne formulation binaire ne doit plus être présente');
+  assert.deepEqual(q.options.map((o) => o.value), ['faible', 'moyenne', 'elevee']);
+  assert.equal(q.allows_unknown, 1);
+  assert.equal(q.required, 0, 'cette question reste required: false, seule la logique de la règle C (LOT 6) est concernée par la correction §5');
+});
+
 test('seedAdvisoryHealthContent — ensemble de règles créé en brouillon avec les 5 règles exactes', () => {
   const ruleSet = db.prepare('SELECT * FROM advisory_rule_sets WHERE stable_key = ?').get(RULE_SET_STABLE_KEY);
   assert.ok(ruleSet);
@@ -147,6 +160,30 @@ test('seedAdvisoryHealthContent — ensemble de règles créé en brouillon avec
   for (const r of detail.rules) {
     assert.ok(!forbidden.test(r.advisor_explanation), `${r.stable_key} : texte conseiller contient un terme interdit`);
     assert.ok(!forbidden.test(r.client_explanation || ''), `${r.stable_key} : texte client contient un terme interdit`);
+  }
+});
+
+// --- Correction §2 du dossier d'approbation : source OFSP corrigée ---
+
+test('accident-coordination-doublon-01 / accident-coverage-gap-01 — source OFSP corrigée : art. 8 al. 1 LAMal + art. 11 OAMal, jamais art. 3 al. 2 LAMal, date de consultation présente', () => {
+  const detail = R.getRuleSetDetail(seedResult.ruleSetId);
+  const byKey = Object.fromEntries(detail.rules.map((r) => [r.stable_key, r]));
+  for (const key of ['accident-coordination-doublon-01', 'accident-coverage-gap-01']) {
+    const r = byKey[key];
+    assert.match(r.source, /art\.\s*8 al\.\s*1 LAMal/, `${key} : doit citer l'art. 8 al. 1 LAMal`);
+    assert.match(r.source_reference, /art\.\s*11 OAMal/, `${key} : doit citer l'art. 11 OAMal`);
+    assert.doesNotMatch(r.source, /art\.\s*3 al\.\s*2 LAMal/, `${key} : ne doit plus citer l'art. 3 al. 2 LAMal`);
+    assert.doesNotMatch(r.source_reference, /art\.\s*3 al\.\s*2 LAMal/, `${key} : ne doit plus citer l'art. 3 al. 2 LAMal`);
+    // Date de consultation portée par source_reference, jamais par effective_from
+    // (qui reste la date d'entrée en vigueur du contenu, une notion distincte).
+    assert.match(r.source_reference, /Consultée le 2026-08-04/, `${key} : date de consultation attendue`);
+    assert.notEqual(r.effective_from, '2026-08-04', `${key} : effective_from ne doit pas être détourné pour porter la date de consultation`);
+    // Formulation prudente conservée : suspension sur demande, preuve LAA, décision de l'assureur, jamais automatique.
+    assert.match(r.source, /demande/i);
+    assert.match(r.source, /LAA/);
+    assert.match(r.source, /assureur/i);
+    assert.match(r.source, /[Jj]amais automatique/);
+    assert.ok(r.source.length <= 300, `${key} : source dépasse la limite de 300 caractères`);
   }
 });
 
