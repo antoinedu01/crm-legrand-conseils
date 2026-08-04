@@ -511,3 +511,123 @@ assureur/`advisory_consents`/`advisory_reports`), les colonnes attendues
 l'index unique partiel (présence/unicité/caractère partiel/SQL exact du
 WHERE/matrice complète des statuts), deux connexions `better-sqlite3`
 réelles. Cette migration s'exécute dans une transaction SQLite unique.)*
+
+## Version 13
+
+**Objectif** : correctif d'une **dérive de schéma réelle** constatée sur au
+moins une instance de base (GATE de préactivation LOT 5/LOT 6, avant toute
+activation) — aucune nouvelle table, aucun nouveau contenu métier.
+
+**Constat** : `advisory_rules.finding_scope`, `advisory_findings.
+finding_scope`, `advisory_findings.conflicts_detected_at_execution` et
+l'index `idx_advisory_rule_sets_one_published_per_domain` font tous partie
+de la définition committée de la migration 11 (voir Version 11 ci-dessus) —
+mais une instance réelle avait atteint `user_version = 12` sans jamais les
+posséder. Explication la plus cohérente avec les preuves disponibles
+(horodatage du fichier, historique Git linéaire sans second commit modifiant
+la migration 11) : le fichier de base a été généré par un processus exécuté
+contre un état de travail intermédiaire de `server/db.js`, avant l'ajout de
+ces éléments au corps de la migration 11 ; la migration 12, indépendante,
+s'est ensuite appliquée normalement sans jamais rouvrir la migration 11.
+
+**RÈGLE générale retenue** (documentée dans le code, `server/db.js`, juste
+avant le bloc `if (version < 13)`) : une migration déjà considérée comme
+appliquée par au moins une base réelle ou de développement ne doit plus
+jamais être modifiée comme mécanisme d'évolution des bases existantes —
+`CREATE TABLE IF NOT EXISTS`/`CREATE INDEX IF NOT EXISTS` deviennent des
+no-op silencieux dès qu'une base a exécuté l'instruction une première fois,
+quel que soit le texte ultérieur de la migration. Toute évolution future du
+schéma exige une nouvelle migration additive gated par un nouveau numéro de
+version, jamais une réécriture en place d'une migration antérieure.
+
+**Colonnes/index ajoutés (uniquement si absents — `hasColumn`/
+`IF NOT EXISTS`, sans effet sur une base déjà conforme, y compris une base
+neuve qui les possède déjà depuis la migration 11)** :
+- `advisory_rules.finding_scope TEXT NOT NULL DEFAULT 'household'` — aucune
+  base historique ne pouvait exprimer de portée par membre avant
+  l'existence même de cette capacité (constat GATE LOT 4A) : `'household'`
+  est la valeur réelle de comportement historique, jamais une valeur
+  arbitraire.
+- `advisory_findings.finding_scope TEXT NOT NULL DEFAULT 'household'`, puis
+  **backfill** explicite depuis la règle source de chaque finding
+  (`UPDATE ... SET finding_scope = (SELECT r.finding_scope FROM
+  advisory_rules r WHERE r.id = advisory_findings.rule_id)`) — un finding
+  hérite structurellement de la portée de la règle qui l'a produit, jamais
+  une valeur générique attribuée en aveugle. Si un finding historique
+  référence une règle introuvable (`rule_id` orphelin — normalement
+  impossible sous `foreign_keys = ON`), la migration **échoue et annule
+  intégralement la transaction** plutôt que de deviner une valeur.
+- `advisory_findings.conflicts_detected_at_execution TEXT` (nullable, sans
+  défaut, **aucun backfill**) — colonne historique et immuable par
+  conception ; `NULL` est la seule valeur honnête pour un finding antérieur
+  à son existence (le recoupement n'a jamais été calculé ni persisté pour
+  ces exécutions passées). Jamais une liste vide écrite en base, qui
+  affirmerait à tort « aucun conflit constaté ». Ceci reste cohérent avec le
+  code d'écriture existant : `executeRuleSetForSession`
+  (`server/advisoryRuleExecutions.js`) n'écrit lui non plus jamais `'[]'`
+  explicitement — une exécution moderne sans conflit laisse déjà la colonne
+  à `NULL`. Le code de lecture (`parseFinding`) ne distingue donc, à ce
+  jour, jamais « jamais vérifié » de « vérifié et rien trouvé » : les deux
+  cas donnent `NULL` en base et `[]` côté API, sans régression introduite
+  par ce correctif.
+- `idx_advisory_rule_sets_one_published_per_domain` (index unique partiel,
+  même définition qu'à sa création en migration 11) — recréé explicitement
+  plutôt que supposé présent. **Vérifié explicitement AVANT sa création**
+  (revue technique ciblée) : sur une base héritée dépourvue de cet index
+  depuis le départ — précisément le cas constaté par le GATE de
+  préactivation —, seul le contrôle applicatif
+  (`assertNoOtherPublishedFamilyForDomain`) protégeait contre plusieurs
+  `advisory_rule_sets` publiés pour un même domaine, contrôle qui ne résiste
+  pas à deux publications concurrentes (voir Version 11 ci-dessus). Si une
+  telle violation existe déjà, la migration échoue avec un message
+  actionnable listant les domaines et `id` de rule_sets concernés, plutôt
+  que de laisser échouer nativement `CREATE UNIQUE INDEX` (qui aurait
+  bloqué `user_version` à 12 de façon permanente, avec une erreur SQLite
+  brute non actionnable, à chaque redémarrage).
+
+**Compatibilité** : migration strictement additive. Aucune colonne ni table
+existante n'est supprimée ou redéfinie ; le seul contenu réécrit est le
+backfill ciblé de `advisory_findings.finding_scope`, dérivé sans exception
+de données déjà présentes (jamais une valeur devinée).
+
+**Réversibilité** : partiellement réversible techniquement (`ALTER TABLE ...
+DROP COLUMN`/`DROP INDEX`), mais sans utilité pratique — les colonnes
+rétablissent un schéma qui aurait toujours dû exister depuis la migration
+11 ; les supprimer réintroduirait la dérive corrigée ici.
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire (voir
+procédure en tête de ce document). Cette migration a été développée et
+testée exclusivement sur une copie neuve et sur des copies de sauvegarde
+isolées — **jamais exécutée contre `data/crm.sqlite`** au moment de son
+intégration ; son application à la base réelle reste une action humaine
+distincte et future, hors périmètre de ce correctif.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 13)`. Testée dans `test/migrations.test.js` (80 tests dédiés
+à la famille de migrations, dont 14 nouveaux pour la migration 13) : base
+neuve (colonnes/version/index/`integrity_check`), base historique dérivée
+d'une copie de sauvegarde réelle reproduisant exactement la dérive
+constatée (backfill correct par ligne, y compris avec plusieurs membres du
+foyer, `conflicts_detected_at_execution` restant `NULL` et non `[]`,
+aucune donnée supprimée sur l'ENSEMBLE des tables — pas seulement les deux
+tables modifiées), backfill différencié (deux règles à `finding_scope`
+réellement distincts, `member`/`session`, prouvant que chaque finding
+hérite de sa propre règle via le `SELECT` corrélé et non de la valeur
+`DEFAULT`), scénarios partiels (une seule colonne manquante, deux colonnes
+manquantes, aucune colonne manquante mais version obsolète), idempotence,
+et deux échecs contrôlés avec vérification complète du rollback (les 4
+éléments de la migration restent absents, pas seulement celui touché en
+dernier) : finding orphelin construit explicitement, et deux rule_sets déjà
+`published` pour le même domaine (violerait l'index avant sa création —
+message d'erreur actionnable listant domaine et `id` concernés, plutôt
+qu'une erreur SQLite brute bloquant `user_version` à 12 de façon
+permanente). Cette migration s'exécute dans une transaction SQLite unique.
+Répétée intégralement sur une copie fraîche de la sauvegarde de
+préactivation — conservée **hors du dépôt Git**, sous
+`/home/user/backups/crm-legrand-conseils/pre-activation-advisory/` (jamais
+`data/crm.sqlite`, jamais le fichier de sauvegarde original directement,
+toujours une copie jetable de cette sauvegarde) : migration officielle via
+`server/db.js`, aucune perte de donnée préexistante, provisioning et
+publication LOT 5/LOT 6 x2 chacun (idempotence confirmée) sur cette copie
+uniquement, dix règles exécutées avec l'attribution par membre attendue,
+aucune recommandation créée automatiquement.)*

@@ -1096,6 +1096,142 @@ if (version < 12) {
   migrate();
 }
 
+// Migration 13 — correctif de dérive de schéma (constat GATE de
+// préactivation LOT 5/LOT 6) : `advisory_rules.finding_scope`,
+// `advisory_findings.finding_scope` et `advisory_findings.
+// conflicts_detected_at_execution` font partie de la définition de table
+// committée dès la migration 11 (commit historique unique introduisant ces
+// trois éléments avec la table elle-même — jamais un ajout après coup dans
+// l'historique Git), mais au moins une instance réelle de la base a atteint
+// `user_version = 12` sans jamais posséder ces colonnes ni l'index unique
+// partiel `idx_advisory_rule_sets_one_published_per_domain`. Explication la
+// plus cohérente avec les preuves (horodatage du fichier postérieur aux deux
+// commits concernés, historique Git propre et linéaire sans trace d'un
+// second commit modifiant la migration 11) : le fichier a été généré par un
+// processus serveur exécuté contre un état de travail intermédiaire de
+// `server/db.js`, avant que ces éléments ne soient ajoutés au corps de la
+// migration 11, cette base ayant alors figé `user_version = 11` avec un
+// schéma incomplet ; la migration 12 (table indépendante, sans lien avec
+// advisory_rules/advisory_findings) a ensuite pu s'appliquer normalement et
+// faire progresser `user_version` à 12 sans jamais rouvrir la migration 11.
+//
+// RÈGLE retenue (à respecter pour toute évolution future) : une migration
+// déjà considérée comme appliquée par au moins une base réelle ou de
+// développement ne doit plus jamais être modifiée comme mécanisme
+// d'évolution des bases existantes — `CREATE TABLE IF NOT EXISTS` et
+// `CREATE INDEX IF NOT EXISTS` sont des no-op silencieux dès qu'une base a
+// déjà exécuté cette instruction une première fois, quelle que soit la
+// façon dont son texte évolue ensuite (y compris avant un commit final).
+// Toute évolution ultérieure du schéma exige une nouvelle migration
+// additive, gated par un nouveau numéro de version, jamais une réécriture
+// en place d'une migration antérieure.
+if (version < 13) {
+  const migrate = db.transaction(() => {
+    function hasColumn(table, column) {
+      return db.prepare(`PRAGMA table_info("${table}")`).all().some((c) => c.name === column);
+    }
+
+    // advisory_rules.finding_scope — aucune base historique (avant ce
+    // correctif) ne pouvait exprimer de portée par membre : le moteur
+    // n'avait pas encore cette capacité (constat GATE LOT 4A). 'household'
+    // est donc la valeur RÉELLE de comportement historique, jamais une
+    // valeur arbitraire choisie a posteriori — DEFAULT l'applique à toute
+    // ligne préexistante au moment même de l'ALTER TABLE.
+    if (!hasColumn('advisory_rules', 'finding_scope')) {
+      db.exec(`ALTER TABLE advisory_rules ADD COLUMN finding_scope TEXT NOT NULL DEFAULT 'household'`);
+    }
+
+    // advisory_findings.finding_scope — même rationale, mais dérivée
+    // explicitement de la RÈGLE SOURCE de chaque finding historique
+    // (jamais une valeur générique attribuée en aveugle) : un finding
+    // hérite structurellement de la portée de la règle qui l'a produit.
+    if (!hasColumn('advisory_findings', 'finding_scope')) {
+      db.exec(`ALTER TABLE advisory_findings ADD COLUMN finding_scope TEXT NOT NULL DEFAULT 'household'`);
+      db.exec(`
+        UPDATE advisory_findings
+        SET finding_scope = (SELECT r.finding_scope FROM advisory_rules r WHERE r.id = advisory_findings.rule_id)
+        WHERE EXISTS (SELECT 1 FROM advisory_rules r WHERE r.id = advisory_findings.rule_id)
+      `);
+      // Cas bloquant explicite (jamais une donnée devinée en silence) : un
+      // finding historique dont la règle source n'existe plus ne peut pas
+      // hériter une portée dérivée — situation normalement impossible sous
+      // foreign_keys=ON (activé dès l'ouverture de la connexion, ligne 12),
+      // mais vérifiée explicitement plutôt que supposée.
+      const orphaned = db.prepare(`
+        SELECT COUNT(*) AS n FROM advisory_findings f
+        WHERE NOT EXISTS (SELECT 1 FROM advisory_rules r WHERE r.id = f.rule_id)
+      `).get().n;
+      if (orphaned > 0) {
+        throw new Error(
+          `Migration 13 bloquée : ${orphaned} finding(s) historique(s) référencent une règle introuvable ` +
+          `(advisory_findings.rule_id orphelin) — impossible de dériver finding_scope depuis la règle source ` +
+          `sans deviner une valeur. Correction manuelle des données requise avant de rejouer cette migration.`
+        );
+      }
+    }
+
+    // advisory_findings.conflicts_detected_at_execution — HISTORIQUE et
+    // IMMUABLE par conception (le recoupement était calculé en mémoire au
+    // moment de chaque exécution passée, jamais persisté avant ce
+    // correctif) : NULL est la seule valeur honnête pour tout finding
+    // antérieur à cette colonne — jamais une liste vide écrite en base pour
+    // signifier « aucun conflit constaté » (qui affirmerait une preuve
+    // inexistante). C'est déjà la sémantique native de la colonne (nullable,
+    // sans défaut) ET déjà le comportement du code d'écriture pour toute
+    // exécution MODERNE sans conflit (`executeRuleSetForSession`,
+    // server/advisoryRuleExecutions.js, n'écrit jamais explicitement '[]' —
+    // la colonne reste NULL tant qu'aucun conflit n'est détecté). Le code de
+    // lecture (`parseFinding`) ne distingue donc, à ce jour, jamais « jamais
+    // vérifié » de « vérifié et rien trouvé » : les deux cas produisent NULL
+    // en base et `[]` côté API — cohérent avec les findings historiques
+    // rétablis par cette migration, sans régression introduite ici.
+    if (!hasColumn('advisory_findings', 'conflicts_detected_at_execution')) {
+      db.exec(`ALTER TABLE advisory_findings ADD COLUMN conflicts_detected_at_execution TEXT`);
+    }
+
+    // Index unique partiel « un seul rule_set publié par domaine » — même
+    // garantie que documentée à la création (migration 11). Recréé ici
+    // explicitement plutôt que supposé présent. Vérifié explicitement AVANT
+    // la création plutôt que laissé échouer nativement (revue technique) :
+    // sur une base héritée dépourvue de cet index depuis le départ — le cas
+    // même du GATE de préactivation — seul le contrôle applicatif
+    // (`assertNoOtherPublishedFamilyForDomain`) protégeait contre plusieurs
+    // rule_sets publiés pour un même domaine, et ce contrôle ne résiste pas
+    // à deux publications concurrentes. Un `CREATE UNIQUE INDEX` qui
+    // échouerait nativement laisserait `user_version` bloqué à 12 de façon
+    // permanente (la migration échouerait identiquement à chaque
+    // redémarrage) avec une erreur SQLite brute, non actionnable — la
+    // vérification explicite ci-dessous produit à la place un message
+    // décrivant précisément quels rule_sets doivent être archivés avant de
+    // rejouer cette migration.
+    const duplicatePublishedDomains = db.prepare(`
+      SELECT domain, COUNT(*) AS n, GROUP_CONCAT(id) AS rule_set_ids
+      FROM advisory_rule_sets
+      WHERE status = 'published'
+      GROUP BY domain
+      HAVING COUNT(*) > 1
+    `).all();
+    if (duplicatePublishedDomains.length > 0) {
+      const detail = duplicatePublishedDomains
+        .map((d) => `domaine "${d.domain}" : rule_sets publiés ${d.rule_set_ids} (${d.n})`)
+        .join(' ; ');
+      throw new Error(
+        `Migration 13 bloquée : plusieurs advisory_rule_sets déjà "published" pour un même domaine ` +
+        `(${detail}) — l'index unique partiel idx_advisory_rule_sets_one_published_per_domain ne peut ` +
+        `pas être créé sans violer les données existantes. Archiver manuellement (status = 'archived') ` +
+        `tous les rule_sets sauf un par domaine concerné avant de rejouer cette migration.`
+      );
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_rule_sets_one_published_per_domain
+        ON advisory_rule_sets(domain) WHERE status = 'published'
+    `);
+
+    db.pragma('user_version = 13');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
