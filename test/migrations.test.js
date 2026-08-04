@@ -752,17 +752,17 @@ test('migration v11 — index unique partiel : redémarrages répétés (3x) res
   }
 });
 
-// Rescopé à la migration 13 (correctif de dérive de schéma advisory_rules/
-// advisory_findings, GATE de préactivation LOT 5/LOT 6) : la frontière
-// « aucun bloc ultérieur » se déplace mécaniquement à chaque nouvelle
-// migration ajoutée — même précédent que le déplacement 11→12, puis 12→13
-// documenté ici.
-test('migration v13 — absence de migration 14 : la dernière version de schéma reste 13, aucun bloc de migration ultérieur', async () => {
+// Rescopé à la migration 14 (contrôles de conservation/anonymisation/
+// effacement, chantier préalable à l'activation) : la frontière « aucun bloc
+// ultérieur » se déplace mécaniquement à chaque nouvelle migration ajoutée —
+// même précédent que le déplacement 11→12, puis 12→13, puis 13→14 documenté
+// ici.
+test('migration v14 — absence de migration 15 : la dernière version de schéma reste 14, aucun bloc de migration ultérieur', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 13, 'la base neuve doit culminer exactement à la version 13, pas au-delà');
+  assert.equal(db.pragma('user_version', { simple: true }), 14, 'la base neuve doit culminer exactement à la version 14, pas au-delà');
   const dbJsSource = fs.readFileSync(dbModulePath, 'utf8');
-  assert.ok(!/version\s*<\s*14/.test(dbJsSource), 'aucun bloc "if (version < 14)" ne doit exister');
-  assert.ok(!/user_version\s*=\s*14/.test(dbJsSource), 'aucun "user_version = 14" ne doit exister dans server/db.js');
+  assert.ok(!/version\s*<\s*15/.test(dbJsSource), 'aucun bloc "if (version < 15)" ne doit exister');
+  assert.ok(!/user_version\s*=\s*15/.test(dbJsSource), 'aucun "user_version = 15" ne doit exister dans server/db.js');
 });
 
 // Correctif SQL ciblé (second GATE, avant commit) : garantie SQLite
@@ -996,16 +996,113 @@ test('migration v12 — une base neuve atteint au moins user_version = 12', asyn
   assert.ok(db.pragma('user_version', { simple: true }) >= 12);
 });
 
-test('migration v13 — une base neuve atteint exactement user_version = 13', async () => {
+test('migration v13 — une base neuve atteint au moins user_version = 13', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 13);
 });
 
-test('migration v13 — idempotence : un second import de la même base n’échoue pas et reste en v13', async () => {
+test("migration v13 — idempotence : un second import de la même base n'échoue pas et reste au moins en v13", async () => {
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 13);
+});
+
+test('migration v14 — une base neuve atteint exactement user_version = 14', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
+});
+
+test('migration v14 — idempotence : un second import de la même base n’échoue pas et reste en v14', async () => {
+  const dir = tempDir();
+  await importFreshDb(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
+});
+
+// --- Migration 14 (contrôles de conservation) — base neuve -----------------
+
+test('migration v14 — base neuve : les 4 tables de rétention existent, 5 politiques semées, toutes désactivées, purge globale désactivée', async () => {
+  const db = await importFreshDb(tempDir());
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
+  for (const t of [
+    'advisory_retention_policies', 'advisory_retention_config',
+    'advisory_retention_legal_holds', 'advisory_retention_purge_runs', 'advisory_retention_purge_run_items',
+  ]) {
+    assert.ok(tables.includes(t), `table ${t} manquante`);
+  }
+  const policies = db.prepare('SELECT category, enabled, duration_days FROM advisory_retention_policies ORDER BY category').all();
+  assert.equal(policies.length, 5);
+  assert.ok(policies.every((p) => p.enabled === 0), 'aucune catégorie ne doit être activée par défaut');
+  const byCategory = Object.fromEntries(policies.map((p) => [p.category, p.duration_days]));
+  assert.deepEqual(byCategory, {
+    abandoned_diagnostic: 90, audit_log: 3650, backups: 90, finalized_advice: 3650, prospect_no_mandate: 365,
+  });
+  const config = db.prepare('SELECT real_purge_enabled FROM advisory_retention_config WHERE id = 1').get();
+  assert.equal(config.real_purge_enabled, 0, 'la purge réelle doit rester désactivée par défaut');
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+});
+
+// --- Migration 14 — base historique dérivée d'une v13 réelle ---------------
+
+async function buildLegacyV13Database(dataDir) {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-migration-v13-scratch-'));
+  const scratchDb = await importFreshDb(scratchDir);
+  const scratchFile = path.join(scratchDir, 'crm.sqlite');
+  scratchDb.close();
+
+  const file = path.join(dataDir, 'crm.sqlite');
+  fs.copyFileSync(scratchFile, file);
+  const db = new Database(file);
+  db.exec(`
+    DROP TABLE advisory_retention_purge_run_items;
+    DROP TABLE advisory_retention_purge_runs;
+    DROP TABLE advisory_retention_legal_holds;
+    DROP TABLE advisory_retention_config;
+    DROP TABLE advisory_retention_policies;
+  `);
+  db.pragma('user_version = 13');
+  db.close();
+}
+
+test('migration v14 — base historique v13 réelle : tables créées, politiques semées, aucune donnée applicative perdue', async () => {
+  const dir = tempDir();
+  await buildLegacyV13Database(dir);
+  const legacyCheck = new Database(path.join(dir, 'crm.sqlite'));
+  assert.equal(legacyCheck.pragma('user_version', { simple: true }), 13);
+  const countsBefore = allTableCounts(legacyCheck);
+  legacyCheck.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
+  const policies = db.prepare('SELECT COUNT(*) AS n FROM advisory_retention_policies').get();
+  assert.equal(policies.n, 5);
+  const config = db.prepare('SELECT real_purge_enabled FROM advisory_retention_config WHERE id = 1').get();
+  assert.equal(config.real_purge_enabled, 0);
+
+  // Aucune ligne perdue sur les tables déjà existantes en v13 (les 5 nouvelles
+  // tables de ce lot n'apparaissent, elles, jamais dans countsBefore).
+  const countsAfter = allTableCounts(db);
+  for (const [table, count] of Object.entries(countsBefore)) {
+    assert.equal(countsAfter[table], count, `perte de données détectée sur ${table}`);
+  }
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+  assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
+});
+
+test('migration v14 — idempotence du seed des politiques : un second import ne duplique ni ne réinitialise une politique déjà modifiée', async () => {
+  const dir = tempDir();
+  const first = await importFreshDb(dir);
+  // Simule une modification humaine ultérieure d'une politique (ex. durée
+  // ajustée) -- un second import ne doit jamais l'écraser silencieusement
+  // (INSERT OR IGNORE, jamais un UPSERT qui réécrirait une ligne existante).
+  first.prepare("UPDATE advisory_retention_policies SET duration_days = 120 WHERE category = 'abandoned_diagnostic'").run();
+
+  const second = await importFreshDb(dir);
+  const policies = second.prepare('SELECT COUNT(*) AS n FROM advisory_retention_policies').get();
+  assert.equal(policies.n, 5, 'aucune ligne dupliquée par le second import');
+  const modified = second.prepare("SELECT duration_days FROM advisory_retention_policies WHERE category = 'abandoned_diagnostic'").get();
+  assert.equal(modified.duration_days, 120, 'une politique déjà modifiée ne doit jamais être réinitialisée par un import ultérieur');
 });
 
 test('migration v12 — advisory_recommendations : colonnes attendues présentes avec les bons types/défauts', async () => {
@@ -1316,7 +1413,7 @@ function allTableCounts(db) {
 
 test('migration v13 — base neuve : colonnes présentes, user_version 13, suite fonctionnelle intacte', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
   assert.ok(db.prepare('PRAGMA table_info(advisory_rules)').all().some((c) => c.name === 'finding_scope'));
   assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
   assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
@@ -1344,7 +1441,7 @@ test('migration v13 — base historique dérivée : colonnes ajoutées, données
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
 
   // Données préservées sur TOUTES les tables (aucune ligne perdue nulle part,
   // pas seulement dans les 2 tables directement modifiées par la migration).
@@ -1387,7 +1484,7 @@ test('migration v13 — base historique avec plusieurs règles/findings sur deux
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
   for (const fid of [f1, f2]) {
     const finding = db.prepare('SELECT finding_scope FROM advisory_findings WHERE id = ?').get(fid);
     assert.equal(finding.finding_scope, 'household');
@@ -1406,7 +1503,7 @@ test('migration v13 — une seule colonne manquante (finding_scope sur advisory_
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
   assert.equal(db.prepare('PRAGMA table_info(advisory_rules)').all().filter((c) => c.name === 'finding_scope').length, 1, 'jamais de colonne dupliquée');
   assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
   assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
@@ -1419,7 +1516,7 @@ test('migration v13 — deux colonnes manquantes (advisory_findings uniquement) 
   legacy.exec(`ALTER TABLE advisory_rules ADD COLUMN finding_scope TEXT NOT NULL DEFAULT 'household'`);
   legacy.close();
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
   assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
   assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
 });
@@ -1438,7 +1535,7 @@ test('migration v13 — aucune colonne manquante mais user_version encore 12 : m
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
   assert.equal(db.prepare('PRAGMA table_info(advisory_rules)').all().filter((c) => c.name === 'finding_scope').length, 1);
   assert.equal(db.prepare('PRAGMA table_info(advisory_findings)').all().filter((c) => c.name === 'finding_scope').length, 1);
   assert.equal(db.prepare('PRAGMA table_info(advisory_findings)').all().filter((c) => c.name === 'conflicts_detected_at_execution').length, 1);
@@ -1470,7 +1567,7 @@ test('migration v13 — backfill différencié : deux règles à finding_scope R
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.pragma('user_version', { simple: true }), 14);
   assert.equal(db.prepare('SELECT finding_scope FROM advisory_findings WHERE id = ?').get(memberFindingId).finding_scope, 'member');
   assert.equal(db.prepare('SELECT finding_scope FROM advisory_findings WHERE id = ?').get(sessionFindingId).finding_scope, 'session');
   assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');

@@ -702,30 +702,45 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
 
 ## 8. Anonymisation et suppression
 
-- Suit le mécanisme existant de `clients.anonymize` pour les personnes.
-- Extension nécessaire (Lot 10) : quand un membre de foyer est anonymisé,
-  les `advisory_answers`/`advisory_findings` qui le concernent doivent être
-  traités cohérence avec l'anonymisation (contenu personnel supprimé,
-  structure/traçabilité d'audit conservée) — à concevoir précisément en Lot
-  10, pas dans ce document (dépend du modèle définitif validé en Lot 2/3).
-  Point d'attention ajouté par la décision d'appartenance à plusieurs foyers
-  (GATE LOT 1, décision 1) : `clients.anonymize` s'applique à la personne
-  (une seule ligne `clients`), donc son effet touche **automatiquement
-  toutes** les lignes `household_members` de tous les foyers où elle
-  apparaît — à vérifier explicitement en Lot 10 pour éviter qu'un foyer
-  actif ne conserve une référence à une personne déjà anonymisée sans le
-  signaler.
+- **Contrôles de conservation des données de diagnostic implémentés**
+  (chantier annoncé « Lot 10 » ci-dessous) : `server/advisoryRetention.js`,
+  migration 14, détaillés intégralement dans
+  `docs/advisory/DATA_RETENTION.md` — **politique proposée, désactivée par
+  défaut, validation juridique requise avant toute activation réelle**
+  (aucune catégorie activée, purge réelle jamais atteignable par une route
+  HTTP). Couvre : diagnostic abandonné, prospect sans mandat, conseil
+  finalisé, journaux d'audit (déclaratif), sauvegardes (déclaratif) ; legal
+  hold bloquant explicite ; simulation (dry-run) seule voie exposée par
+  l'API ; moteur de purge réelle entièrement implémenté et testé sur bases
+  temporaires mais non exposé par aucune route dans cette livraison.
+- Le mécanisme d'anonymisation des personnes (`clients.status = 'anonymise'`)
+  reste, lui, non implémenté à ce jour (aucune fonction `anonymize()`
+  existante dans le code malgré la mention historique de ce document) —
+  **hors périmètre du lot ci-dessus**, qui porte exclusivement sur le
+  contenu de diagnostic (`advisory_sessions`/`advisory_answers`/
+  `advisory_findings`/`advisory_recommendations`), jamais sur les lignes
+  `clients`/`households`/`household_members` elles-mêmes. Quand ce
+  mécanisme sera implémenté, l'articulation avec `advisory_retention_legal_holds`
+  et avec l'anonymisation déjà en place côté sessions (`DATA_RETENTION.md`
+  §8) devra être revue explicitement — point d'attention ajouté par la
+  décision d'appartenance à plusieurs foyers (GATE LOT 1, décision 1).
 - `advisory_consents` et `advisory_report_versions` ne sont jamais supprimés
   physiquement (valeur probante), seulement révoqués/remplacés par une
   version plus récente.
 
 ## 9. Rétention
 
-- **Validation juridique requise** : durée de conservation propre aux
-  données de diagnostic. Distincte des 10 ans comptables déjà appliqués aux
-  contrats/commissions (art. 958f CO) — un diagnostic qui ne débouche sur
-  aucun contrat n'a pas la même justification de rétention longue. Point à
-  trancher avant Lot 10.
+- **Politique complètement cadrée et implémentée, voir
+  `docs/advisory/DATA_RETENTION.md`** — 5 catégories (diagnostic abandonné
+  90 jours, prospect sans mandat 12 mois, conseil finalisé 10 ans, journaux
+  d'audit 10 ans, sauvegardes 90 jours), toutes **désactivées par défaut**.
+  **Validation juridique toujours requise avant toute activation** :
+  aucune des durées proposées n'est présentée comme juridiquement validée
+  dans ce document ni dans `DATA_RETENTION.md`. Distincte des 10 ans
+  comptables déjà appliqués aux contrats/commissions (art. 958f CO) — un
+  diagnostic qui ne débouche sur aucun contrat n'a pas la même
+  justification de rétention longue (catégorie « prospect sans mandat »,
+  durée volontairement plus courte).
 
 ## 10. Export
 
@@ -834,7 +849,12 @@ implémenté avant le Lot 2**, voir `IMPLEMENTATION_ROADMAP.md`).
 
 1. Contenu exact et base légale précise de chaque texte de consentement par
    finalité (§3).
-2. Durée de conservation propre aux données de diagnostic (§9).
+2. Durée de conservation propre aux données de diagnostic (§9) — 6 points
+   détaillés distincts dans `docs/advisory/DATA_RETENTION.md` §11 (durées
+   par catégorie, approximation calendaire, date de référence de la
+   catégorie « conseil finalisé », action réelle applicable à cette même
+   catégorie, inclusion dans l'export nLPD existant, propagation aux
+   sauvegardes).
 3. Modalités exactes d'une éventuelle notification d'incident (§18).
 4. Statut juridique/probant exact du rapport final et de ses versions
    corrigées (voir aussi `REPORT_SPECIFICATION.md`).

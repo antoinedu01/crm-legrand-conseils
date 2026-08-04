@@ -1232,6 +1232,169 @@ if (version < 13) {
   migrate();
 }
 
+// Migration 14 — Legrand Diagnostic 360 : contrôles de conservation,
+// d'anonymisation et d'effacement des données de diagnostic (chantier
+// préalable à l'activation, annoncé comme Lot 10 dans
+// `docs/advisory/IMPLEMENTATION_ROADMAP.md` et `SECURITY_PRIVACY.md` §8-9).
+// Purement additive : aucune table existante modifiée, aucune donnée
+// existante réécrite, AUCUN traitement de purge n'est jamais déclenché par
+// cette migration elle-même -- seulement les structures nécessaires pour
+// configurer, simuler et (plus tard, sous réserve d'activation humaine
+// explicite hors de cette livraison) exécuter une politique de rétention.
+// Toute la politique reste DÉSACTIVÉE PAR DÉFAUT (voir seed ci-dessous,
+// `enabled = 0` pour toutes les catégories) : cette migration ne rend
+// active aucune suppression, aucune anonymisation.
+if (version < 14) {
+  const migrate = db.transaction(() => {
+    db.exec(`
+      -- Politique de conservation, une ligne par CATÉGORIE (jamais un JSON de
+      -- configuration opaque -- même choix que advisory_rule_sets/advisory_rules
+      -- : une ligne par entité nommée, interrogeable et modifiable
+      -- individuellement). Cinq catégories fixes (jamais une table libre de
+      -- catégories : la taxonomie elle-même est une décision humaine/juridique,
+      -- pas une donnée modifiable en exploitation) : 'abandoned_diagnostic'
+      -- (§A), 'prospect_no_mandate' (§B), 'finalized_advice' (§C),
+      -- 'audit_log' (§D) et 'backups' (§E). Seules les trois premières sont
+      -- effectivement EXPLOITÉES par le moteur d'éligibilité/de purge de ce
+      -- lot (server/advisoryRetention.js) : 'audit_log' et 'backups' restent
+      -- des paramètres DÉCLARATIFS, consultables pour la transparence nLPD,
+      -- mais aucun code de ce lot ne supprime jamais une ligne audit_log ni
+      -- ne touche à une sauvegarde -- décision explicite, jamais une omission
+      -- (voir docs/advisory/DATA_RETENTION.md).
+      CREATE TABLE IF NOT EXISTS advisory_retention_policies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL UNIQUE,           -- abandoned_diagnostic | prospect_no_mandate | finalized_advice | audit_log | backups
+        enabled INTEGER NOT NULL DEFAULT 0,       -- DÉSACTIVÉ par défaut -- une catégorie non activée n'est jamais proposée à la purge, même en dry-run
+        duration_days INTEGER NOT NULL,           -- durée de conservation en jours -- approximation documentée pour 12 mois/10 ans (voir DATA_RETENTION.md), jamais présentée comme juridiquement validée
+        description TEXT,
+        updated_by_user_id INTEGER REFERENCES users(id),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      -- Interrupteur GLOBAL, distinct de l'activation par catégorie ci-dessus
+      -- : même quand une catégorie est 'enabled', aucune purge RÉELLE
+      -- (jamais le dry-run, toujours autorisé) ne peut avoir lieu tant que
+      -- ce commutateur global reste à 0 -- une des conditions cumulatives
+      -- exigées avant toute exécution réelle (server/advisoryRetention.js,
+      -- assertPurgeAuthorized). Ligne UNIQUE figée (id = 1), même motif
+      -- qu'un singleton applicatif : jamais une seconde ligne de
+      -- configuration globale concurrente.
+      CREATE TABLE IF NOT EXISTS advisory_retention_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        real_purge_enabled INTEGER NOT NULL DEFAULT 0,
+        updated_by_user_id INTEGER REFERENCES users(id),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      -- Legal hold : empêche toute suppression/anonymisation pour TOUT le
+      -- dossier (foyer) concerné, quelle que soit la catégorie ou
+      -- l'échéance calculée. Jamais une ligne réécrite en place pour la
+      -- lever (motif/auteur/date de création immuables une fois posés,
+      -- même convention que household_members/advisory_answers) : lever un
+      -- hold renseigne ended_at/ended_by_user_id/ended_reason SUR LA MÊME
+      -- ligne (un hold est une période continue unique, contrairement à une
+      -- réponse) ; réactiver un hold après levée insère une NOUVELLE ligne
+      -- -- l'historique complet reste donc toujours la liste des lignes de
+      -- ce foyer, jamais une seule ligne mutée sans trace.
+      CREATE TABLE IF NOT EXISTS advisory_retention_legal_holds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        household_id INTEGER NOT NULL REFERENCES households(id),
+        active INTEGER NOT NULL DEFAULT 1,
+        reason TEXT NOT NULL,
+        created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        ended_by_user_id INTEGER REFERENCES users(id),
+        ended_at TEXT,
+        ended_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_retention_legal_holds_household
+        ON advisory_retention_legal_holds(household_id);
+      -- Au plus UN hold actif par foyer à la fois (jamais deux motifs actifs
+      -- concurrents pour le même dossier -- lever explicitement le premier
+      -- avant d'en poser un second, toujours une action humaine tracée).
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_advisory_retention_legal_holds_one_active_per_household
+        ON advisory_retention_legal_holds(household_id) WHERE active = 1;
+
+      -- Une exécution du moteur (simulation dry-run, ou -- plus tard,
+      -- jamais dans cette livraison -- purge réelle), même principe que
+      -- advisory_rule_executions : un en-tête d'exécution, jamais un simple
+      -- log texte. mode reste TOUJOURS 'dry_run' dans cette livraison (voir
+      -- server/advisoryRetention.js, executePurge n'est jamais atteignable
+      -- depuis aucune route) -- la colonne existe pour ne pas exiger de
+      -- nouvelle migration le jour où une activation humaine explicite,
+      -- hors de ce lot, ouvrirait la voie à une exécution réelle.
+      CREATE TABLE IF NOT EXISTS advisory_retention_purge_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_type TEXT NOT NULL DEFAULT 'dry_run',   -- dry_run | purge (purge jamais atteint par une route dans cette livraison)
+        status TEXT NOT NULL DEFAULT 'running',     -- running | completed | failed
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        ended_at TEXT,
+        executed_by_user_id INTEGER REFERENCES users(id),
+        total_dossiers_scanned INTEGER NOT NULL DEFAULT 0,
+        total_eligible INTEGER NOT NULL DEFAULT 0,
+        total_legal_hold_excluded INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_retention_purge_runs_status ON advisory_retention_purge_runs(status);
+
+      -- Un dossier (session) concerné par une exécution -- jamais de valeur
+      -- de réponse, de donnée de santé/financière ou de justification
+      -- humaine ici (rows_affected_summary est un JSON de COMPTEURS par
+      -- table, jamais un contenu). C'est la structure même du rapport
+      -- dry-run exigé par ce lot (§5).
+      CREATE TABLE IF NOT EXISTS advisory_retention_purge_run_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purge_run_id INTEGER NOT NULL REFERENCES advisory_retention_purge_runs(id),
+        household_id INTEGER NOT NULL REFERENCES households(id),
+        session_id INTEGER NOT NULL REFERENCES advisory_sessions(id),
+        category TEXT NOT NULL,                     -- abandoned_diagnostic | prospect_no_mandate | finalized_advice
+        eligibility_reason TEXT NOT NULL,            -- identifiant technique court, jamais une phrase citant une réponse
+        due_date TEXT,
+        legal_hold_blocking INTEGER NOT NULL DEFAULT 0,
+        action_planned TEXT NOT NULL,                -- delete | anonymize | retain
+        rows_affected_summary TEXT,                  -- JSON {table: count}, jamais de valeur
+        executed INTEGER NOT NULL DEFAULT 0,         -- reste 0 pour tout run_type='dry_run' par construction
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_advisory_retention_purge_run_items_run ON advisory_retention_purge_run_items(purge_run_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_retention_purge_run_items_household ON advisory_retention_purge_run_items(household_id);
+      CREATE INDEX IF NOT EXISTS idx_advisory_retention_purge_run_items_session ON advisory_retention_purge_run_items(session_id);
+    `);
+
+    // Seed des 5 catégories, TOUTES désactivées par défaut (enabled = 0) --
+    // les durées ci-dessous sont celles PROPOSÉES par le cadrage humain de ce
+    // lot, jamais présentées comme juridiquement validées (voir
+    // docs/advisory/DATA_RETENTION.md, bandeau obligatoire). Les valeurs
+    // 365/3650 ci-dessous pour 'prospect_no_mandate'/'finalized_advice'
+    // restent des ordres de grandeur affichés dans l'interface -- décision
+    // humaine du 2026-08-04 : le calcul d'éligibilité RÉEL de ces deux
+    // catégories utilise une arithmétique CALENDAIRE exacte (12 mois civils
+    // / 10 années civiles, `addCalendarMonths`, `server/advisoryRetention.js`),
+    // jamais cette colonne `duration_days` -- aucune nouvelle colonne
+    // requise, la précision calendaire s'obtient par calcul sur les dates
+    // ISO déjà existantes. Seule la catégorie 'abandoned_diagnostic' (90
+    // jours) utilise réellement `duration_days` pour son calcul, par
+    // décision humaine explicite (délai exprimé en jours, pas en mois).
+    const seedPolicy = db.prepare(`
+      INSERT OR IGNORE INTO advisory_retention_policies (category, enabled, duration_days, description)
+      VALUES (?, 0, ?, ?)
+    `);
+    seedPolicy.run('abandoned_diagnostic', 90, 'Diagnostic jamais complété, aucune recommandation validée, dernière activité de plus de 90 jours.');
+    seedPolicy.run('prospect_no_mandate', 365, 'Prospect sans contrat ni relation active ni recommandation validée nécessaire à la preuve d’un conseil, dernière activité de plus de 12 mois.');
+    seedPolicy.run('finalized_advice', 3650, 'Conseil finalisé (session complétée, recommandation validée) -- conservation 10 ans après la clôture du mandat ou de la relation client.');
+    seedPolicy.run('audit_log', 3650, 'Journaux d’audit -- conservation 10 ans (déclaratif : aucune purge d’audit_log n’est implémentée par ce lot).');
+    seedPolicy.run('backups', 90, 'Sauvegardes roulantes -- durée maximale 90 jours (déclaratif : ce lot ne gère ni ne supprime aucune sauvegarde).');
+
+    // Ligne de configuration globale unique, purge réelle désactivée.
+    db.prepare(`INSERT OR IGNORE INTO advisory_retention_config (id, real_purge_enabled) VALUES (1, 0)`).run();
+
+    db.pragma('user_version = 14');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

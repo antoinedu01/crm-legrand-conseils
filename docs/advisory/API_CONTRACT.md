@@ -1362,7 +1362,63 @@ client, produit, assureur, rapport, catégorie de conseil (`category`).
 
 ---
 
-## 11. Ce que ce contrat exclut explicitement
+## 12. Rétention des données (Legrand Diagnostic 360)
+
+Voir `DATA_RETENTION.md` pour le détail complet des catégories, critères
+d'éligibilité et conditions d'activation. Toutes les routes ci-dessous sont
+montées sous `/api/advisory/retention` et protégées par `requireAuth`.
+
+### `GET /api/advisory/retention/policies`
+- Liste des 5 politiques de conservation (catégorie, état actif/inactif,
+  durée proposée, description). Réponse jamais mise en cache (`no-store`).
+
+### `GET /api/advisory/retention/config`
+- Configuration globale (`real_purge_enabled`) — désactivée par défaut.
+
+### `GET /api/advisory/retention/households/:householdId/legal-holds`
+- Historique complet des legal holds du foyer (actifs et levés).
+
+### `POST /api/advisory/retention/households/:householdId/legal-holds`
+- **Corps** : `{ reason }`, obligatoire et non vide.
+- **Erreurs** : `404` si le foyer n'existe pas ; `409` si un hold est déjà
+  actif pour ce foyer (un seul hold actif à la fois, en poser un second
+  exige de lever explicitement le premier).
+- **Audit** : `legal hold posé` (jamais le motif en clair dans l'entrée
+  d'audit elle-même, uniquement l'identifiant du hold).
+
+### `POST /api/advisory/retention/households/:householdId/legal-holds/:holdId/lift`
+- **Corps** : `{ ended_reason }`, obligatoire et non vide.
+- **Erreurs** : `404` si le hold n'existe pas pour ce foyer ; `409` s'il est
+  déjà levé.
+- **Comportement** : renseigne `ended_at`/`ended_by_user_id`/`ended_reason`
+  sur la même ligne — origine (motif/auteur/date de création) jamais
+  réécrite.
+- **Audit** : `legal hold levé`.
+
+### `POST /api/advisory/retention/dry-run`
+- **Simulation uniquement** — calcule l'éligibilité de chaque dossier,
+  écrit exclusivement dans les tables de rapport
+  (`advisory_retention_purge_runs`/`_purge_run_items`), **jamais** dans le
+  contenu de diagnostic. Réponse `201` avec le rapport complet.
+- **Audit** : `simulation de rétention exécutée (dry-run)`.
+- **Interdiction explicite** : aucune route de purge réelle n'existe dans
+  ce lot — `executePurge` (`server/advisoryRetention.js`) n'est appelé par
+  aucun chemin HTTP, uniquement par les tests dédiés sur base temporaire.
+
+### `GET /api/advisory/retention/purge-runs`
+- Historique des simulations, filtrable par `?run_type=dry_run` (seule
+  valeur jamais produite par une route de ce lot).
+
+### `GET /api/advisory/retention/purge-runs/:runId`
+- Détail d'une simulation : identifiants technique par dossier, catégorie,
+  raison d'éligibilité, échéance, statut legal hold, action envisagée,
+  compteurs de lignes par table (`rows_affected_summary`) — jamais de
+  valeur de réponse, donnée de santé/financière ou nom complet.
+- **Erreurs** : `404` si l'exécution n'existe pas.
+
+---
+
+## 13. Ce que ce contrat exclut explicitement
 
 - Aucune route ne permet à l'intelligence artificielle de créer, modifier ou
   valider directement une `advisory_recommendation`.
@@ -1373,3 +1429,5 @@ client, produit, assureur, rapport, catégorie de conseil (`category`).
   session authentifiée courante (pas de fuite inter-foyers).
 - Aucune route de ce contrat ne configure ou n'appelle un serveur MCP — voir
   `MCP_STRATEGY.md` pour le futur point d'extension unique et distinct.
+- Aucune route de purge réelle des données de diagnostic (§12) — le moteur
+  existe et est testé, mais reste volontairement non exposé par ce lot.
