@@ -624,6 +624,14 @@
 
 ## Lot 5 — Parcours Assurance Maladie
 
+> **Statut (phase 1)** : contenu brouillon provisionné, **non publié**, voir
+> `HEALTH_LOT5_CONTENT.md` — questionnaire de 9 questions et 5 règles
+> déterministes (coordination accident, franchise/capacité, modèle de
+> soins, continuité LCA). Scindé en phase 1 (ce contenu, sans arithmétique
+> de date) et phase 2 (règles à délais légaux — non conçue, non
+> implémentée). Publication réelle conditionnée à une validation juridique
+> et métier séparée, non faite par ce lot.
+
 - **Objectif** : contenu réel du questionnaire maladie (`HEALTH_
   DIAGNOSTIC.md`) et premières règles réelles `valide` pour ce domaine,
   sourcées et validées humainement.
