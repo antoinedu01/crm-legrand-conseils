@@ -917,6 +917,46 @@ test('executeRuleSetForSession — required_data d\'une question de portée memb
   assert.equal(secondDetail.findings[0].finding_type, 'detected_need', 'any=true grâce au principal, la règle conclut normalement une fois toutes les réponses connues');
 });
 
+// Correctif d'intégrité de la complétude de session (§3) : angle mort de
+// test signalé indépendamment par les revues compliance-privacy-reviewer et
+// rules-engine-auditor -- ce test le comble. L'exclusion des membres
+// historisés du CONTRÔLE DE COMPLÉTUDE DE SESSION (validateLinkForCompletion,
+// server/advisorySessions.js) ne doit JAMAIS se propager au calcul
+// `required_data` DU MOTEUR DE RÈGLES (isRequiredDataPresent, ce fichier,
+// volontairement INCHANGÉ par ce correctif) -- deux contrôles distincts, à
+// des couches différentes. La session peut désormais se compléter malgré
+// l'absence de réponse du membre historisé, mais toute règle référençant sa
+// réponse doit continuer à signaler `missing_information`, jamais conclure
+// silencieusement à tort.
+test('membre historisé jamais répondu — la session se complète (correctif §3), mais le moteur de règles continue de signaler missing_information pour sa réponse absente', () => {
+  const { householdId: hh, principalMemberId: principal, childMemberId: child } = buildHouseholdWithChild();
+
+  const { id: qid } = Q.createQuestionnaire({ stable_key: uniqueKey('quest-required-member-historical'), domain: 'health', name: 'Démo membre historisé' }, REQ);
+  const { id: vidReq } = Q.createDraftVersion(qid, {}, REQ);
+  const { id: sectionId } = Q.upsertSection(vidReq, { stable_key: 's1', title: 'S', sort_order: 1, applies_to: 'member' }, REQ);
+  const { id: memberQId } = Q.upsertQuestion(sectionId, { stable_key: 'q-member-required-historical', advisor_text: 'Question membre requise fictive ?', type: 'boolean', scope: 'member', required: true, sort_order: 1 }, REQ);
+  Q.publishVersion(vidReq, REQ);
+
+  const sessionId = createAndStartSession(hh, 'health', { versionId: vidReq });
+  removeMember(hh, child, {}, REQ); // historisé AVANT d'avoir répondu (Cas A)
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: principal, status: 'answered', value: true }], rev(sessionId), REQ);
+
+  assert.equal(S.validateSessionForCompletion(sessionId).valid, true, 'précondition du test : le correctif §3 doit réellement exclure le membre historisé de la complétude');
+  ensureCompleted(sessionId);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-member-historical'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: uniqueKey('TEST-RULE-MEMBER-HISTORICAL'),
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: 'q-member-required-historical' }, value: true } },
+    required_data: [{ answer: 'q-member-required-historical' }],
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  assert.equal(detail.findings[0].finding_type, 'missing_information', 'la réponse absente du membre historisé reste signalée par le moteur, jamais silencieusement traitée comme présente');
+});
+
 test('executeRuleSetForSession — une première exécution échouée ne fige jamais le rule_set (le pin ne compte que les exécutions réussies)', () => {
   const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
   const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-fail-then-ok'), domain: 'health', name: 'X' }, REQ);
@@ -1034,6 +1074,60 @@ test('executeRuleSetForSession — reproductibilité : une session finalisée pu
   assert.equal(firstDetailAfter.content_hash, firstDetailBeforeAmend.content_hash);
   assert.equal(firstDetailAfter.findings.length, 1);
   assert.ok(firstDetailAfter.findings.every((f) => f.status === 'superseded'));
+});
+
+// Correctif d'intégrité de la complétude de session (§4/§5) : contrairement
+// au test ci-dessus (question NON requise, l'amendement ne rouvre jamais),
+// ce test couvre le chemin où l'amendement RETIRE la seule réponse à une
+// question REQUISE -- la session est alors automatiquement rouverte
+// (`completed` -> `in_progress`), toute exécution est bloquée entre-temps
+// (ELIGIBLE_SESSION_STATUSES exige `completed`, inchangé), et une fois
+// recomplétée, la ré-exécution manuelle reflète le nouvel état tout en
+// préservant intégralement l'historique de l'ancienne exécution.
+test('amendAnswer — réponse requise retirée -> réouverture -> recomplétion -> nouvelle exécution manuelle : l’ancienne exécution reste historisée, la nouvelle reflète le nouvel état', () => {
+  const { id: qid } = Q.createQuestionnaire({ stable_key: uniqueKey('quest-required-reopen'), domain: 'health', name: 'Démo réouverture' }, REQ);
+  const { id: vidReq } = Q.createDraftVersion(qid, {}, REQ);
+  const { id: sectionId } = Q.upsertSection(vidReq, { stable_key: 's1', title: 'S', sort_order: 1 }, REQ);
+  const { id: reqQId } = Q.upsertQuestion(sectionId, { stable_key: 'q-required-reopen', advisor_text: 'Question requise fictive ?', type: 'boolean', required: true, sort_order: 1 }, REQ);
+  Q.publishVersion(vidReq, REQ);
+  const { id: sessionId } = S.createSession({
+    household_id: householdId, domain: 'health',
+    questionnaire_versions: [{ questionnaire_version_id: vidReq, domain: 'health', module_role: 'domain', display_order: 1 }],
+  }, REQ);
+  S.startSession(sessionId, rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [{ question_id: reqQId, status: 'answered', value: true }], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-reopen'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: uniqueKey('TEST-RULE-REOPEN'),
+    conditions: { op: 'equals', ref: { answer: 'q-required-reopen' }, value: true },
+    required_data: [{ answer: 'q-required-reopen' }],
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const first = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  assert.equal(E.getExecutionDetail(sessionId, first.execution_id).findings.length, 1);
+
+  const amend = S.amendAnswer(sessionId, {
+    question_id: reqQId, status: 'cleared',
+    amendment_reason: 'Réponse retirée par erreur — test de réouverture.', expected_revision: rev(sessionId),
+  }, REQ);
+  assert.equal(amend.session_status, 'in_progress');
+  assert.equal(db.prepare('SELECT status FROM advisory_sessions WHERE id = ?').get(sessionId).status, 'in_progress');
+
+  // Aucune exécution possible tant que la session n'est pas de nouveau completed (régression GATE LOT 4A §9).
+  assert.throws(() => E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId }), (err) => err.status === 409);
+
+  S.recordAnswers(sessionId, [{ question_id: reqQId, status: 'answered', value: false }], rev(sessionId), REQ);
+  S.completeSession(sessionId, rev(sessionId), REQ);
+  const second = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const secondDetail = E.getExecutionDetail(sessionId, second.execution_id);
+  assert.equal(secondDetail.findings.length, 0, 'la nouvelle réponse (false) ne déclenche plus la règle');
+
+  const firstAfter = E.getExecutionDetail(sessionId, first.execution_id);
+  assert.equal(firstAfter.superseded_by_execution_id, second.execution_id);
+  assert.equal(firstAfter.findings.length, 1, 'l’ancienne exécution garde ses findings d’origine, jamais réécrits rétroactivement');
 });
 
 test('executeRuleSetForSession — foyer archivé : l\'historique reste pleinement lisible, mais toute NOUVELLE exécution est refusée (GATE LOT 4A §9, documenté précisément)', () => {
@@ -1771,9 +1865,12 @@ test('executeApplicableRuleSetsForSession — relance après amendement : le dom
 
   // Ré-amende la réponse pour simuler une correction du conseiller après le
   // premier passage -- `amendAnswer` reste utilisable DIRECTEMENT sur une
-  // session `completed` (jamais besoin de repasser par `in_progress`,
-  // TRANSITIONS.completed = {} : l'amendement est sa propre voie, distincte
-  // d'une réouverture de session).
+  // session `completed` (jamais besoin de repasser par `in_progress`) : ici
+  // la réponse amendée reste `status: 'answered'`, donc la complétude reste
+  // valide et aucune réouverture n'est déclenchée (correctif d'intégrité de
+  // la complétude de session, TRANSITIONS.completed.reopen -- voir
+  // server/advisorySessions.js -- qui ne s'active que si l'amendement rend
+  // une réponse requise absente).
   S.amendAnswer(sessionId, {
     question_id: healthQId, status: 'answered', value: true,
     amendment_reason: 'Correction technique fictive pour test de relance.',

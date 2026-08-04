@@ -486,14 +486,33 @@ test('getSessionWorkspace — membre ajouté APRÈS le démarrage n’apparaît 
   assert.equal(after.household.members.length, before, 'le nouveau membre ne doit pas apparaître');
 });
 
-test('validateSessionForCompletion (via missing) — utilise le même périmètre figé que le workspace : un membre historisé jamais répondu reste compté manquant', () => {
-  const { sessionId, questionId, householdId, conjointId } = createMemberScopedSession();
+// Correctif d'intégrité de la complétude de session (§3) : un membre
+// historisé (retiré du foyer APRÈS le démarrage) ne peut plus jamais
+// répondre (`assertMemberCanAnswer`) -- exiger indéfiniment sa réponse
+// bloquerait la session sans recours opérationnel. Avant ce correctif, ce
+// test documentait le comportement inverse (blocage permanent) ; il valide
+// désormais l'exclusion du membre historisé du calcul de complétude, tout
+// en vérifiant que le principal (toujours actif) continue, lui, de bloquer
+// normalement s'il n'a pas répondu.
+test('validateSessionForCompletion (via missing) — un membre historisé jamais répondu ne bloque plus la complétude, le membre actif reste lui pleinement exigé', () => {
+  const { sessionId, questionId, householdId, conjointId, principalId } = createMemberScopedSession();
   startSession(sessionId, rev(sessionId), REQ);
   removeMember(householdId, conjointId, {}, REQ); // jamais répondu, puis retiré
-  const ws = getSessionWorkspace(sessionId, REQ);
-  assert.equal(ws.progress.complete, false);
-  const missingForConjoint = ws.missing[0].missing.find((m) => m.household_member_id === conjointId && m.question_id === questionId);
-  assert.ok(missingForConjoint, 'le manquant du membre historisé reste comptabilisé, jamais silencieusement retiré du périmètre');
+
+  // Tant que le principal (toujours actif) n'a pas répondu, la session reste
+  // incomplète pour SA propre réponse -- l'exclusion du membre historisé ne
+  // doit jamais réduire la portée d'un membre réellement actif.
+  const wsBeforePrincipalAnswer = getSessionWorkspace(sessionId, REQ);
+  assert.equal(wsBeforePrincipalAnswer.progress.complete, false);
+  const missingForConjointBefore = wsBeforePrincipalAnswer.missing[0].missing.find((m) => m.household_member_id === conjointId && m.question_id === questionId);
+  assert.equal(missingForConjointBefore, undefined, 'le membre historisé ne doit plus jamais apparaître comme manquant');
+  const missingForPrincipal = wsBeforePrincipalAnswer.missing[0].missing.find((m) => m.household_member_id === principalId && m.question_id === questionId);
+  assert.ok(missingForPrincipal, 'le principal, lui, reste pleinement exigé');
+
+  recordAnswers(sessionId, [{ question_id: questionId, household_member_id: principalId, status: 'answered', value: true }], rev(sessionId), REQ);
+  const wsAfter = getSessionWorkspace(sessionId, REQ);
+  assert.equal(wsAfter.progress.complete, true, 'une fois le principal répondu, plus rien ne doit bloquer la finalisation malgré la réponse à jamais absente du membre historisé');
+  assert.doesNotThrow(() => completeSession(sessionId, rev(sessionId), REQ), 'la finalisation doit réellement réussir, jamais seulement le calcul de complétude');
 });
 
 test('getSessionWorkspace — session terminée : tous les membres du snapshot (y compris historisés) restent affichables et leurs réponses consultables', () => {

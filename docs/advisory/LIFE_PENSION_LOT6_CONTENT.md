@@ -153,35 +153,36 @@ concerné (le mécanisme `required` s'applique à la question, pas
 conditionnellement au statut indépendant).
 
 **Deux limites résiduelles du correctif, identifiées par la revue
-`rules-engine-auditor` — non corrigées dans cette tâche (portée volontairement
-limitée aux 4 décisions du dossier d'approbation), signalées pour une
-décision architecturale séparée, hors périmètre d'une simple correction de
-contenu** :
-1. **Contournement possible après finalisation** : `amendAnswer`
-   (`server/advisorySessions.js`) permet, sur une session déjà `completed`,
-   de repasser une réponse à `status: 'cleared'` sur l'une des 3 questions
-   requises, sans jamais revalider la complétude ni ré-exécuter le moteur
-   automatiquement — le gate de finalisation ne protège que la première
-   entrée en statut `completed`, jamais un état post-finalisation. Ceci
-   exige néanmoins deux actions humaines déliberées et tracées (motif de
-   correction obligatoire, entrée d'audit « réponse amendée », puis une
-   ré-exécution manuelle distincte du moteur) — jamais une régression
-   automatique ou invisible.
-2. **Membre historisé avant d'avoir répondu** : `validateSessionForCompletion`
-   inclut délibérément les membres historisés du foyer (`can_answer: false`,
-   politique actée au GATE LOT 3B §5 : ne jamais réduire silencieusement une
-   exigence déjà en vigueur au démarrage) sans les exempter des 3 questions
-   désormais requises — alors qu'un membre retiré du foyer ne peut plus lui
-   répondre (`assertMemberCanAnswer` refuse toute nouvelle réponse pour un
-   membre non actif). Une session ayant démarré avec un membre ensuite
-   retiré, avant que ce membre n'ait répondu à l'une de ces 3 questions, ne
-   peut donc plus jamais atteindre `completed`. **Mitigation déjà
-   disponible** : `cancelSession` reste inconditionnel depuis `in_progress`
-   (jamais soumis à `validateSessionForCompletion`) — la session peut être
-   annulée et une nouvelle session redémarrée, qui n'inclura alors plus ce
-   membre dans son propre instantané. Ce n'était jamais observable avant ce
-   correctif : c'est la toute première fois qu'une question LOT 5/LOT 6 est
-   `required: true` (tout le reste du contenu métier reste `required: false`).
+`rules-engine-auditor` lors de la correction du contenu — CORRIGÉES depuis
+par un correctif dédié et distinct, `fix/advisory-session-completion-integrity`
+(mécanisme de complétude des sessions, `server/advisorySessions.js`) : elles
+n'affectaient jamais spécifiquement ce contenu LOT 5/LOT 6, mais tout
+questionnaire comportant au moins une question `required: true` (ce noyau
+étant, comme noté ci-dessous, le premier concerné) :**
+1. **Contournement possible après finalisation (CORRIGÉ)** : `amendAnswer`
+   (`server/advisorySessions.js`) permettait, sur une session déjà
+   `completed`, de repasser une réponse à `status: 'cleared'` sur l'une des
+   3 questions requises, sans jamais revalider la complétude ni ré-exécuter
+   le moteur automatiquement. Corrigé : `amendAnswer` réévalue désormais la
+   complétude dans la même transaction que l'amendement et, si elle devient
+   invalide, ramène automatiquement la session à `in_progress` (nouvelle
+   transition `completed -> in_progress`, jamais atteignable autrement,
+   journalisée `session rouverte (amendement)`) — le mécanisme normal de
+   réponse manquante redevient alors la seule voie de re-complétion.
+2. **Membre historisé avant d'avoir répondu (CORRIGÉ)** : `validateSessionForCompletion`
+   incluait les membres historisés du foyer (`can_answer: false`) dans le
+   contrôle de complétude requise, alors qu'un membre retiré du foyer ne
+   peut plus lui répondre (`assertMemberCanAnswer` refuse toute nouvelle
+   réponse pour un membre non actif) — une session ayant démarré avec un
+   membre ensuite retiré, avant que ce membre n'ait répondu à l'une de ces
+   3 questions, ne pouvait donc plus jamais atteindre `completed`. Corrigé :
+   un membre historisé est désormais exclu du contrôle de complétude requise
+   (ses réponses déjà enregistrées, elles, restent intégralement conservées
+   et consultables ; un membre encore actif continue de bloquer
+   normalement). Ce n'était jamais observable avant le correctif de contenu
+   qui a introduit `required: true` sur ces 3 questions : c'était la toute
+   première fois qu'une question LOT 5/LOT 6 l'était (tout le reste du
+   contenu métier reste `required: false`).
 
 **Thème identifié comme manquant pour une itération future** (signalé par
 la revue `life-pension-domain`) : la réserve de sécurité / fonds d'urgence,

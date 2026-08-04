@@ -129,6 +129,13 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
   créée`/`modifiée`, `session créée`/`modifiée`/`démarrée`/`suspendue`/
   `reprise`/`finalisée`/`annulée`, `réponse
   enregistrée`/`remplacée`/`effacée`/`amendée`), toutes vérifiées par test
+  — **23ᵉ action ajoutée par le correctif d'intégrité de la complétude de
+  session** : `session rouverte (amendement)`, journalisée exclusivement par
+  `amendAnswer` (`server/advisorySessions.js`) quand un amendement retire la
+  seule réponse active à une question requise et que la session repasse en
+  conséquence de `completed` à `in_progress` — mêmes garanties que les 22
+  actions existantes (jamais la valeur d'une réponse, uniquement
+  l'identifiant de la question concernée).
   pour ne **jamais** contenir la valeur d'une réponse, une date de
   naissance, un montant ou une donnée médicale — uniquement des
   identifiants, énumérations et compteurs. Le rollback transactionnel de
