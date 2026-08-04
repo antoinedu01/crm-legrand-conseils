@@ -1172,16 +1172,38 @@
 
 ## Lot 10 — Sécurité renforcée et rétention
 
-- **Objectif** : extension de l'anonymisation/export existants aux données
-  `advisory_*` (`SECURITY_PRIVACY.md` §8, §10), politique de rétention
-  effective (après validation juridique du §9 de `SECURITY_PRIVACY.md`).
-- **Tables** : modifications d'usage, pas nécessairement de nouvelles
-  tables.
-- **Tests** : anonymisation d'un foyer entraîne bien l'effacement des
-  données personnelles `advisory_*` correspondantes sans casser
-  l'intégrité référentielle des sessions déjà terminées.
-- **Dépendances** : validation juridique préalable obligatoire (ne pas
-  démarrer sans elle).
+- **Groundwork livré** (`feat: add advisory data retention controls`,
+  `server/advisoryRetention.js`, migration 14,
+  `docs/advisory/DATA_RETENTION.md`) : politique de conservation
+  configurable (5 catégories), legal hold, moteur de simulation (dry-run,
+  seul mode exposé par l'API), moteur de purge réelle entièrement
+  implémenté et testé sur bases temporaires mais **désactivé par défaut et
+  non exposé par aucune route HTTP**. La dépendance « validation juridique
+  préalable obligatoire » ci-dessous s'applique à **l'activation** (activer
+  une catégorie, activer la purge réelle) — jamais respectée par
+  construction dans cette livraison (tout reste inactif), donc compatible
+  avec un développement du mécanisme lui-même avant cette validation.
+- **Reste hors périmètre de ce groundwork** : extension de
+  l'anonymisation/export des personnes (`clients.anonymize`, jamais
+  implémentée à ce jour malgré la mention historique de
+  `SECURITY_PRIVACY.md` §8) aux données `advisory_*` — un mécanisme
+  distinct, non couvert par `advisoryRetention.js` (qui n'agit que sur le
+  contenu de diagnostic, jamais sur les lignes `clients`/`households`/
+  `household_members`). Inclusion des données `advisory_*` dans l'export
+  nLPD existant (`SECURITY_PRIVACY.md` §10) — également non traitée.
+- **Tables** : 5 nouvelles tables additives (`advisory_retention_policies`,
+  `advisory_retention_config`, `advisory_retention_legal_holds`,
+  `advisory_retention_purge_runs`, `advisory_retention_purge_run_items`) —
+  migration 14.
+- **Tests** : `test/advisory-retention.test.js` (éligibilité par catégorie,
+  legal hold, dry-run, purge réelle sur base temporaire, intégrité
+  référentielle post-purge, non-suppression des contrats/commissions/
+  recommandations probantes) et `test/advisory-retention-api.test.js`
+  (authentification, CSRF, cycle complet des routes HTTP).
+- **Dépendances pour ACTIVER** (pas pour développer le mécanisme lui-même,
+  déjà livré) : validation juridique des durées et critères proposés
+  (`DATA_RETENTION.md` §11), décision explicite d'exposer une route
+  d'activation (aucune n'existe aujourd'hui).
 
 ## Lot 11 — Catalogue produits
 

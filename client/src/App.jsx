@@ -20,6 +20,7 @@ import SessionDetail from './pages/SessionDetail.jsx';
 import SessionWorkspace from './pages/SessionWorkspace.jsx';
 import SessionFindings from './pages/SessionFindings.jsx';
 import SessionRecommendations from './pages/SessionRecommendations.jsx';
+import DataRetention from './pages/DataRetention.jsx';
 
 const NAV = [
   ['/', '📊', 'Tableau de bord'],
@@ -31,6 +32,7 @@ const NAV = [
   ['/taches', '✅', 'Tâches'],
   ['/diagnostic-360/foyers', '🧭', 'Diagnostic 360'],
   ['/diagnostic-360/sessions', '🗓️', 'Sessions RDV'],
+  ['/diagnostic-360/retention', '🗄️', 'Rétention des données'],
   ['/conformite', '🛡️', 'Conformité'],
   ['/parametres', '⚙️', 'Paramètres'],
 ];
@@ -143,6 +145,7 @@ function AuthenticatedShell({ auth, refresh }) {
           <Route path="/diagnostic-360/sessions/:id/workspace" element={<SessionWorkspace />} />
           <Route path="/diagnostic-360/sessions/:id/findings" element={<SessionFindings />} />
           <Route path="/diagnostic-360/sessions/:id/recommendations" element={<SessionRecommendations />} />
+          <Route path="/diagnostic-360/retention" element={<DataRetention />} />
           <Route path="/conformite" element={<Compliance />} />
           <Route path="/parametres" element={<Settings user={auth.user} onSaved={refresh} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
