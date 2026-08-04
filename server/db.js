@@ -1366,10 +1366,17 @@ if (version < 14) {
     // Seed des 5 catégories, TOUTES désactivées par défaut (enabled = 0) --
     // les durées ci-dessous sont celles PROPOSÉES par le cadrage humain de ce
     // lot, jamais présentées comme juridiquement validées (voir
-    // docs/advisory/DATA_RETENTION.md, bandeau obligatoire). 12 mois et 10
-    // ans sont exprimés en jours par approximation (365 et 3650) faute de
-    // colonne de date calendaire dédiée dans le schéma actuel -- limite
-    // documentée, jamais silencieuse.
+    // docs/advisory/DATA_RETENTION.md, bandeau obligatoire). Les valeurs
+    // 365/3650 ci-dessous pour 'prospect_no_mandate'/'finalized_advice'
+    // restent des ordres de grandeur affichés dans l'interface -- décision
+    // humaine du 2026-08-04 : le calcul d'éligibilité RÉEL de ces deux
+    // catégories utilise une arithmétique CALENDAIRE exacte (12 mois civils
+    // / 10 années civiles, `addCalendarMonths`, `server/advisoryRetention.js`),
+    // jamais cette colonne `duration_days` -- aucune nouvelle colonne
+    // requise, la précision calendaire s'obtient par calcul sur les dates
+    // ISO déjà existantes. Seule la catégorie 'abandoned_diagnostic' (90
+    // jours) utilise réellement `duration_days` pour son calcul, par
+    // décision humaine explicite (délai exprimé en jours, pas en mois).
     const seedPolicy = db.prepare(`
       INSERT OR IGNORE INTO advisory_retention_policies (category, enabled, duration_days, description)
       VALUES (?, 0, ?, ?)

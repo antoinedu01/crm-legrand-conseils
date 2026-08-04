@@ -20,6 +20,22 @@ const CATEGORY_LABELS = {
 
 const ACTION_LABELS = { delete: 'Suppression', anonymize: 'Anonymisation', retain: 'Conservation (aucune action)' };
 
+// Catégories B/C : arithmétique CALENDAIRE exacte (décision humaine du
+// 2026-08-04, server/advisoryRetention.js, addCalendarMonths) -- jamais une
+// approximation en jours. `duration_days` (365/3650) reste seedé en base à
+// titre d'ordre de grandeur, mais n'est plus la source du calcul pour ces
+// deux catégories : on affiche donc l'unité calendaire exacte plutôt que la
+// valeur brute en jours, pour ne jamais laisser croire à une précision
+// journalière qui n'est plus la réalité du calcul.
+const CALENDAR_DURATION_LABELS = {
+  prospect_no_mandate: '12 mois calendaires',
+  finalized_advice: '10 années calendaires',
+};
+
+function durationLabel(policy) {
+  return CALENDAR_DURATION_LABELS[policy.category] || `${policy.duration_days} jour${policy.duration_days > 1 ? 's' : ''}`;
+}
+
 function PoliciesPanel() {
   const { data: policies, loading } = useAsync(() => api.get('/api/advisory/retention/policies').then((r) => r.policies), []);
   if (loading) return <p className="muted">Chargement…</p>;
@@ -45,7 +61,7 @@ function PoliciesPanel() {
             <tr key={p.id}>
               <td>{CATEGORY_LABELS[p.category] || p.category}</td>
               <td><Badge value={p.enabled ? 'active' : 'archive'} label={p.enabled ? 'Active' : 'Inactive'} /></td>
-              <td>{p.duration_days} jour{p.duration_days > 1 ? 's' : ''}</td>
+              <td>{durationLabel(p)}</td>
               <td className="muted">{p.description}</td>
             </tr>
           ))}

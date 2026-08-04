@@ -54,9 +54,16 @@ function daysAgoSql(n) {
   return db.prepare(`SELECT datetime('now', '-${n} days') AS d`).get().d;
 }
 
-function insertSessionFixture(householdId, { status = 'draft', lastActivityDaysAgo = null, completedDaysAgo = null, title = 'Session fictive' } = {}) {
-  const lastActivity = lastActivityDaysAgo != null ? daysAgoSql(lastActivityDaysAgo) : null;
-  const completedAt = completedDaysAgo != null ? daysAgoSql(completedDaysAgo) : null;
+// `lastActivityIso`/`completedIso` : date explicite (avec `now` figé passé en
+// option aux fonctions d'éligibilité), utilisée pour les tests d'arithmétique
+// CALENDAIRE exacte (catégories B/C, décision humaine du 2026-08-04) — les
+// variantes `...DaysAgo` restent relatives à l'horloge réelle au moment du
+// test, insuffisant pour vérifier une frontière calendaire déterministe.
+function insertSessionFixture(householdId, {
+  status = 'draft', lastActivityDaysAgo = null, completedDaysAgo = null, lastActivityIso = null, completedIso = null, title = 'Session fictive',
+} = {}) {
+  const lastActivity = lastActivityIso ?? (lastActivityDaysAgo != null ? daysAgoSql(lastActivityDaysAgo) : null);
+  const completedAt = completedIso ?? (completedDaysAgo != null ? daysAgoSql(completedDaysAgo) : null);
   return db
     .prepare(
       `INSERT INTO advisory_sessions (household_id, advisor_user_id, domain, status, title, last_activity_at, completed_at)
@@ -186,19 +193,46 @@ test('éligibilité A — une recommandation existante (même brouillon, jamais 
 // Éligibilité — catégorie B (prospect sans mandat), portée foyer
 // ============================================================================
 
-test('éligibilité B — prospect à 12 mois (365 jours pile) : NON éligible, à 366 jours : éligible', () => {
+// Arithmétique CALENDAIRE exacte (décision humaine du 2026-08-04) : 12 MOIS
+// calendaires, jamais 365/366 jours — `now` figé exactement à l'échéance
+// calendaire calculée pour rendre la frontière déterministe, indépendamment
+// du nombre réel de jours dans les 12 mois concernés (28-31 jours chacun).
+test('éligibilité B — 12 mois calendaires pile : NON éligible ; 1 seconde après : éligible', () => {
   resetPolicies();
   enablePolicy('prospect_no_mandate', { duration_days: 365 });
+  const reference = '2024-03-15 10:00:00';
+  const dueDateMs = Date.UTC(2025, 2, 15, 10, 0, 0); // +12 mois calendaires exacts
+
   const h1 = buildHousehold();
-  insertSessionFixture(h1.householdId, { lastActivityDaysAgo: 365 });
-  assert.equal(RET.computeHouseholdEligibility(h1.householdId), null);
+  insertSessionFixture(h1.householdId, { lastActivityIso: reference });
+  assert.equal(RET.computeHouseholdEligibility(h1.householdId, { now: dueDateMs }), null, 'pile à l’échéance : pas encore éligible (strictement supérieur exigé)');
 
   const h2 = buildHousehold();
-  insertSessionFixture(h2.householdId, { lastActivityDaysAgo: 366 });
-  const result = RET.computeHouseholdEligibility(h2.householdId);
+  insertSessionFixture(h2.householdId, { lastActivityIso: reference });
+  const result = RET.computeHouseholdEligibility(h2.householdId, { now: dueDateMs + 1000 });
   assert.ok(result);
   assert.equal(result.category, 'prospect_no_mandate');
   assert.equal(result.action_planned, 'anonymize');
+  assert.equal(result.due_date, '2025-03-15');
+});
+
+// Cas limite bissextile : 29 février (année bissextile) + 12 mois calendaires
+// exacts doit se caler sur le dernier jour valide du mois cible (28 février,
+// l'année suivante n'étant pas bissextile), jamais déborder sur mars.
+test('éligibilité B — 29 février (bissextile) + 12 mois : échéance clampée au 28 février suivant', () => {
+  resetPolicies();
+  enablePolicy('prospect_no_mandate', { duration_days: 365 });
+  const reference = '2024-02-29 08:00:00';
+  const { householdId } = buildHousehold();
+  insertSessionFixture(householdId, { lastActivityIso: reference });
+
+  const justBefore = Date.UTC(2025, 1, 28, 8, 0, 0);
+  assert.equal(RET.computeHouseholdEligibility(householdId, { now: justBefore }), null);
+
+  const justAfter = Date.UTC(2025, 1, 28, 8, 0, 1);
+  const result = RET.computeHouseholdEligibility(householdId, { now: justAfter });
+  assert.ok(result, 'échéance clampée au 28 février 2025 (2025 non bissextile), jamais au 1er ou 3 mars');
+  assert.equal(result.due_date, '2025-02-28');
 });
 
 test('éligibilité B — contrat actif présent : jamais éligible, même très inactif', () => {
@@ -262,6 +296,42 @@ test('éligibilité C — session complétée sans recommandation validée : jam
   const { householdId } = buildHousehold();
   const sessionId = insertSessionFixture(householdId, { status: 'completed', completedDaysAgo: 100 });
   assert.equal(RET.computeSessionEligibility(sessionId), null);
+});
+
+// Arithmétique CALENDAIRE exacte (décision humaine du 2026-08-04) : 10 ANNÉES
+// calendaires, jamais 3650 jours — `now` figé exactement à l'échéance
+// calendaire pour rendre la frontière déterministe.
+test('éligibilité C — 10 années calendaires pile : "within_retention" ; 1 seconde après : "due"', () => {
+  resetPolicies();
+  enablePolicy('finalized_advice', { duration_days: 3650 });
+  const reference = '2015-06-10 09:00:00';
+  const dueDateMs = Date.UTC(2025, 5, 10, 9, 0, 0); // +10 années calendaires exactes
+
+  const { householdId } = buildHousehold();
+  const sessionId = insertSessionFixture(householdId, { status: 'completed', completedIso: reference });
+  insertRecommendationFixture(sessionId, { status: 'validated' });
+
+  const atBoundary = RET.computeSessionEligibility(sessionId, { now: dueDateMs });
+  assert.equal(atBoundary.eligibility_reason, 'finalized_advice_within_retention', 'pile à l’échéance : pas encore "due" (strictement supérieur exigé)');
+  assert.equal(atBoundary.due_date, '2025-06-10');
+
+  const afterBoundary = RET.computeSessionEligibility(sessionId, { now: dueDateMs + 1000 });
+  assert.equal(afterBoundary.eligibility_reason, 'finalized_advice_due');
+  assert.equal(afterBoundary.action_planned, 'retain', 'jamais purgée automatiquement même après échéance -- décision humaine du 2026-08-04');
+});
+
+// Cas limite bissextile : 29 février (année bissextile) + 10 années civiles
+// exactes doit se caler sur le 28 février (2030 n'est pas bissextile).
+test('éligibilité C — 29 février (bissextile) + 10 ans : échéance clampée au 28 février suivant', () => {
+  resetPolicies();
+  enablePolicy('finalized_advice', { duration_days: 3650 });
+  const reference = '2020-02-29 12:00:00';
+  const { householdId } = buildHousehold();
+  const sessionId = insertSessionFixture(householdId, { status: 'completed', completedIso: reference });
+  insertRecommendationFixture(sessionId, { status: 'validated' });
+
+  const result = RET.computeSessionEligibility(sessionId, { now: Date.UTC(2030, 0, 1) });
+  assert.equal(result.due_date, '2030-02-28', 'échéance clampée au 28 février 2030 (non bissextile), jamais au 1er ou 2 mars');
 });
 
 // ============================================================================

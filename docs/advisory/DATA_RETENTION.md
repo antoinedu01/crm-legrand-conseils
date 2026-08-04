@@ -12,6 +12,15 @@
 > `IMPLEMENTATION_ROADMAP.md` et referencé (stub) dans
 > `SECURITY_PRIVACY.md` §8-9.
 
+> **Décision humaine du 2026-08-04 (validation de la PR d'intégration
+> technique — sans activation d'aucune politique)** : les 5 durées, la
+> conception du legal hold et l'inclusion des données `advisory_*` dans
+> l'export nLPD existant sont validées comme **cadrage**, ci-dessous ; **la
+> purge réelle reste refusée à ce stade** (aucune modification). Correction
+> apportée suite à cette décision : les catégories B et C utilisent
+> désormais une arithmétique **calendaire exacte** (12 mois / 10 ans
+> civils), plus une approximation en jours (365/3650) — voir §2, §7.
+
 ## 1. Principe général
 
 Le mécanisme comprend trois couches strictement séparées :
@@ -38,8 +47,8 @@ un geste humain explicite, authentifié, tracé.
 | Catégorie | `category` | Durée proposée | Critères d'éligibilité | Action prévue |
 |---|---|---|---|---|
 | A. Diagnostic abandonné | `abandoned_diagnostic` | 90 jours | Session jamais complétée (`completed_at IS NULL` — **jamais** `status != 'completed'`, qui redeviendrait vrai après une réouverture par amendement, voir `RULES_ENGINE.md`/`API_CONTRACT.md` sur la machine d'état de session) ; aucune recommandation (même brouillon — restriction volontairement plus stricte que « aucune validée », un brouillon reste un travail humain, jamais détruit automatiquement) ; dernière activité de plus de 90 jours (`last_activity_at`, ou `created_at` si jamais renseignée) | Suppression des réponses/findings/exécutions ; la ligne session elle-même est conservée (trace technique minimale : id, dates, statut) mais anonymisée (`title`/`household_snapshot` vidés) |
-| B. Prospect sans mandat ni contrat | `prospect_no_mandate` | 12 mois (365 jours, approximation — voir §7) | Portée **foyer** : aucun contrat pour aucun membre du foyer (`contracts` via `household_members.client_id`) ; aucune recommandation sur aucune session du foyer ; dernière activité (max sur toutes les sessions du foyer) de plus de 12 mois | Identique à la catégorie A, appliqué à chaque session du foyer |
-| C. Conseil finalisé | `finalized_advice` | 10 ans (3650 jours, approximation — voir §7) | Session complétée **et** au moins une recommandation validée (`validated`/`superseded`/`withdrawn` — toutes ont existé comme preuve d'un conseil réellement délivré) | **`retain` — jamais d'action automatique dans cette livraison.** L'échéance est calculée et affichée pour la transparence du dry-run (§7 interdit explicitement la suppression automatique d'une recommandation nécessaire à la preuve d'un conseil) ; une décision humaine et juridique distincte, hors de ce lot, est requise avant toute implémentation d'une action réelle sur cette catégorie |
+| B. Prospect sans mandat ni contrat | `prospect_no_mandate` | **12 mois calendaires exacts** (validé par décision humaine du 2026-08-04 — arithmétique calendaire, plus une approximation en jours, voir §7) | Portée **foyer** : aucun contrat pour aucun membre du foyer (`contracts` via `household_members.client_id`) ; aucune recommandation sur aucune session du foyer ; dernière activité (max sur toutes les sessions du foyer) au-delà de 12 mois calendaires exacts | Identique à la catégorie A, appliqué à chaque session du foyer |
+| C. Conseil finalisé | `finalized_advice` | **10 années calendaires exactes** (validé par décision humaine du 2026-08-04) après la **clôture réelle** du mandat ou de la relation client — `completed_at` sert de proxy pour la **simulation** dry-run uniquement (voir §3) | Session complétée **et** au moins une recommandation validée (`validated`/`superseded`/`withdrawn` — toutes ont existé comme preuve d'un conseil réellement délivré) | **`retain` — jamais d'action automatique dans cette livraison, garanti structurellement (double vérification dans `executePurge`).** L'échéance est calculée et affichée pour la transparence du dry-run (§7 interdit explicitement la suppression automatique d'une recommandation nécessaire à la preuve d'un conseil) ; une décision humaine et juridique distincte, hors de ce lot, est requise avant toute implémentation d'une action réelle sur cette catégorie, **et devra alors s'appuyer sur une date de clôture réelle du mandat, jamais sur `completed_at`** |
 | D. Journaux d'audit | `audit_log` | 10 ans | — (déclaratif uniquement) | **Aucune** — aucun code de ce lot ne supprime jamais une ligne `audit_log` : la supprimer minerait la traçabilité qu'elle est censée garantir |
 | E. Sauvegardes | `backups` | 90 jours | — (déclaratif uniquement) | **Aucune** — ce lot ne gère, ne crée ni ne supprime jamais aucune sauvegarde ; le mécanisme existant (`GET /api/backup`, `SECURITY_PRIVACY.md` §11) reste inchangé |
 
@@ -123,16 +132,30 @@ livraison (créer une route dédiée, décider qui peut l'invoquer, etc.).
 
 ## 7. Limites documentées (à trancher avant toute activation)
 
-1. **Durées exprimées en jours, jamais en mois/années calendaires** — « 12
-   mois » et « 10 ans » sont approximés à 365 et 3650 jours faute de
-   logique calendaire dédiée dans le schéma actuel. Sur des durées aussi
-   longues, l'écart avec un calcul calendaire exact (années bissextiles)
-   reste de l'ordre de quelques jours — jugé négligeable pour une
-   politique elle-même non encore validée juridiquement, mais à
-   reconsidérer si une précision calendaire stricte devient exigée.
+1. **RÉSOLU (décision humaine du 2026-08-04)** — les catégories B et C
+   utilisaient initialement une approximation en jours (365/3650) ; elles
+   utilisent désormais une **arithmétique calendaire exacte** (12 mois
+   civils / 10 années civiles, `addCalendarMonths`,
+   `server/advisoryRetention.js`), avec gestion correcte des années
+   bissextiles (clampage sur le dernier jour valide du mois cible, ex. 29
+   février + 12 mois → 28 février l'année suivante si non bissextile —
+   vérifié par test). La catégorie A reste volontairement exprimée en jours
+   (90 jours après la dernière activité, décision humaine explicite,
+   inchangée) — aucune arithmétique calendaire n'y est appliquée. La
+   colonne `advisory_retention_policies.duration_days` reste seedée à
+   365/3650 pour B/C à titre d'ordre de grandeur affiché dans l'interface,
+   mais n'est plus la source du calcul d'éligibilité pour ces deux
+   catégories.
 2. **Catégorie C** : absence d'une date dédiée de « clôture du mandat »
-   dans le schéma actuel (voir §3) — `completed_at` est un proxy, jamais
-   une validation métier.
+   dans le schéma actuel (voir §3) — `completed_at` reste un proxy de
+   **simulation uniquement**. **Décision humaine du 2026-08-04** : aucune
+   purge réelle ne pourra jamais utiliser `completed_at` comme date de
+   clôture — garanti structurellement par `action_planned` toujours
+   `'retain'` pour cette catégorie et par une exclusion explicite
+   supplémentaire dans `executePurge` (défense en profondeur). Une date de
+   clôture réelle du mandat devra être ajoutée au schéma (nouvelle
+   migration, hors de ce lot) avant toute implémentation d'une action
+   réelle sur cette catégorie.
 3. **Catégorie C, action réelle** : ce lot calcule et affiche l'échéance
    mais n'implémente **aucune** action d'effacement/anonymisation
    automatique sur une recommandation validée, quelle que soit son
@@ -221,12 +244,24 @@ interface — cohérent avec l'absence de route `executePurge` (§6).
 
 (Complète la liste déjà tenue par `SECURITY_PRIVACY.md` §20.)
 
-1. Les 5 durées proposées (§2) — aucune n'est validée juridiquement.
-2. L'approximation jours/mois/années (§7.1).
-3. La date de référence de la catégorie C (« clôture du mandat », §3, §7.2)
-   — absente du schéma actuel, à définir précisément.
-4. L'action réelle (le cas échéant) applicable à la catégorie C une fois
+**Validés par décision humaine du 2026-08-04** (cadrage — n'autorisent
+aucune activation de politique ni aucune purge réelle) :
+- Les 5 durées/catégories (§2) : 90 jours (A), 12 mois calendaires (B), 10
+  années calendaires (C), 10 ans déclaratif (D), 90 jours déclaratif (E).
+- La conception du legal hold (§4).
+- L'inclusion future des données `advisory_*` dans l'export nLPD existant
+  (§9) — décision de principe ; l'extension elle-même de
+  `GET /api/clients/:id/export` reste **non implémentée**, hors périmètre
+  de ce lot, à traiter séparément.
+- ~~L'approximation jours/mois/années~~ — **résolu par arithmétique
+  calendaire exacte** (§7.1), n'est plus une question ouverte pour B/C.
+
+**Toujours ouverts** (aucune activation possible sans réponse) :
+1. La date de référence exacte de la catégorie C (« clôture réelle du
+   mandat ou de la relation client », §3, §7.2) — absente du schéma actuel ;
+   `completed_at` reste un proxy de simulation uniquement, jamais utilisable
+   par une purge réelle (garanti structurellement, §7.2).
+2. L'action réelle (le cas échéant) applicable à la catégorie C une fois
    son échéance atteinte (§7.3) — aucune n'est implémentée par ce lot.
-5. L'inclusion des données `advisory_*` dans l'export nLPD existant (§9).
-6. La propagation effective d'une suppression aux sauvegardes déjà
+3. La propagation effective d'une suppression aux sauvegardes déjà
    produites (§9).

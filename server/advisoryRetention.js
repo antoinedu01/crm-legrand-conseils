@@ -78,6 +78,36 @@ function addDaysIso(fromIso, days) {
   return new Date(fromMs + days * DAY_MS).toISOString().slice(0, 10);
 }
 
+// Arithmétique CALENDAIRE (mois/années civils), jamais une approximation en
+// jours -- décision humaine du 2026-08-04 : les catégories B (12 mois) et C
+// (10 ans) doivent utiliser un calendrier exact, contrairement à la
+// catégorie A qui reste volontairement exprimée en jours (90 jours, voir
+// `computeAbandonedEligibility`). Clampe le jour du mois cible sur son
+// dernier jour valide quand le mois de départ en a un de plus (ex. 31
+// janvier + 1 mois -> 28/29 février, jamais 3 mars) -- gère nativement les
+// années bissextiles (29 février + 12 mois -> 28 février l'année suivante
+// si non bissextile), vérifié par test.
+function addCalendarMonths(fromIso, months) {
+  if (!fromIso) return null;
+  const fromMs = new Date(fromIso.replace(' ', 'T') + (fromIso.endsWith('Z') ? '' : 'Z')).getTime();
+  if (Number.isNaN(fromMs)) return null;
+  const d = new Date(fromMs);
+  const totalMonths = d.getUTCMonth() + months;
+  const targetYear = d.getUTCFullYear() + Math.floor(totalMonths / 12);
+  const targetMonth = ((totalMonths % 12) + 12) % 12;
+  const lastDayOfTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const targetDay = Math.min(d.getUTCDate(), lastDayOfTargetMonth);
+  return Date.UTC(targetYear, targetMonth, targetDay, d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds());
+}
+
+// Périodicités calendaires fixes des catégories B/C -- décision humaine du
+// 2026-08-04, jamais dérivées de `advisory_retention_policies.duration_days`
+// (cette colonne reste seedée à 365/3650 pour ces deux catégories à titre
+// d'ordre de grandeur affiché, mais n'est plus la source du calcul
+// d'éligibilité ci-dessous : seule cette constante fait foi).
+const CALENDAR_MONTHS_PROSPECT_NO_MANDATE = 12;
+const CALENDAR_MONTHS_FINALIZED_ADVICE = 120; // 10 années civiles
+
 // --- Politiques / configuration --------------------------------------------
 
 export function listPolicies() {
@@ -213,25 +243,27 @@ function computeAbandonedEligibility(session, policy, nowMs) {
 // recommandation validée (au sens large : validated/superseded/withdrawn --
 // toutes ont existé comme preuve d'un conseil réellement délivré, jamais
 // seulement 'validated' au sens strict). Échéance calculée depuis
-// `completed_at` (proxy documenté : ce schéma ne porte aujourd'hui aucune
-// date dédiée de « clôture du mandat » -- limite explicitement signalée,
-// voir DATA_RETENTION.md et le rapport final de ce lot). action_planned
-// reste TOUJOURS 'retain' dans cette livraison, même après échéance : ce
-// module calcule et affiche l'échéance pour la transparence du dry-run,
-// mais n'implémente délibérément AUCUNE action d'effacement/anonymisation
-// automatique sur une recommandation nécessaire à la preuve d'un conseil
-// (§7, interdiction explicite) -- décision humaine distincte requise avant
-// toute activation d'une action réelle sur cette catégorie.
+// `completed_at` -- **proxy de SIMULATION uniquement**, explicitement
+// documenté (ce schéma ne porte aujourd'hui aucune date dédiée de « clôture
+// du mandat » -- limite signalée dans DATA_RETENTION.md) : décision humaine
+// du 2026-08-04, `completed_at` peut continuer à alimenter le dry-run mais
+// **ne pourra jamais servir de date de clôture à une purge réelle** --
+// garanti structurellement ici par `action_planned` qui reste TOUJOURS
+// 'retain' pour cette catégorie, quelle que soit l'échéance calculée, et
+// revérifié explicitement par une exclusion dédiée dans `executePurge`
+// (défense en profondeur, §7 interdiction explicite). Échéance calculée en
+// arithmétique CALENDAIRE exacte (10 années civiles, `addCalendarMonths`),
+// jamais une approximation en jours.
 function computeFinalizedEligibility(session, policy, nowMs) {
   if (!policy || !policy.enabled) return null;
   if (!session.completed_at) return null;
   if (!sessionHasValidatedRecommendation(session.id)) return null;
-  const days = daysBetween(session.completed_at, nowMs);
-  if (days == null) return null;
+  const dueDateMs = addCalendarMonths(session.completed_at, CALENDAR_MONTHS_FINALIZED_ADVICE);
+  if (dueDateMs == null) return null;
   return {
     category: 'finalized_advice',
-    eligibility_reason: days > policy.duration_days ? 'finalized_advice_due' : 'finalized_advice_within_retention',
-    due_date: addDaysIso(session.completed_at, policy.duration_days),
+    eligibility_reason: nowMs > dueDateMs ? 'finalized_advice_due' : 'finalized_advice_within_retention',
+    due_date: new Date(dueDateMs).toISOString().slice(0, 10),
     action_planned: 'retain',
   };
 }
@@ -255,10 +287,12 @@ export function computeSessionEligibility(sessionId, { now = Date.now() } = {}) 
 // jamais session -- aucun contrat pour aucun membre du foyer, aucune
 // recommandation (toutes sessions confondues, brouillon inclus, même
 // restriction volontairement stricte que la catégorie A), dernière
-// activité (max sur toutes les sessions du foyer) au-delà de la durée
-// configurée. N'émet un résultat QUE si le foyer a au moins une session
-// (sans session, il n'y a aucune donnée de diagnostic à purger -- rien à
-// simuler).
+// activité (max sur toutes les sessions du foyer) au-delà de 12 MOIS
+// CALENDAIRES exacts (`addCalendarMonths`, décision humaine du 2026-08-04
+// -- jamais une approximation en jours, contrairement à la catégorie A qui
+// reste volontairement en jours, voir `computeAbandonedEligibility`).
+// N'émet un résultat QUE si le foyer a au moins une session (sans session,
+// il n'y a aucune donnée de diagnostic à purger -- rien à simuler).
 export function computeHouseholdEligibility(householdId, { now = Date.now() } = {}) {
   requireHousehold(householdId);
   const policy = policyByCategory().prospect_no_mandate;
@@ -272,13 +306,13 @@ export function computeHouseholdEligibility(householdId, { now = Date.now() } = 
   const references = sessions.map((s) => s.last_activity_at || s.created_at).filter(Boolean);
   if (references.length === 0) return null;
   const mostRecentIso = references.reduce((a, b) => (a > b ? a : b));
-  const days = daysBetween(mostRecentIso, now);
-  if (days == null || days <= policy.duration_days) return null;
+  const dueDateMs = addCalendarMonths(mostRecentIso, CALENDAR_MONTHS_PROSPECT_NO_MANDATE);
+  if (dueDateMs == null || now <= dueDateMs) return null;
 
   return {
     category: 'prospect_no_mandate',
     eligibility_reason: 'prospect_no_contract_inactive',
-    due_date: addDaysIso(mostRecentIso, policy.duration_days),
+    due_date: new Date(dueDateMs).toISOString().slice(0, 10),
     action_planned: 'anonymize',
     household_id: householdId,
     session_ids: sessions.map((s) => s.id),
@@ -415,7 +449,13 @@ function assertPurgeAuthorized(req, { confirmed, recentDryRunMaxAgeHours = 24, b
 // N'agit QUE sur les catégories 'abandoned_diagnostic' et
 // 'prospect_no_mandate' (action_planned 'delete'/'anonymize') -- 'finalized_advice'
 // reste TOUJOURS 'retain' (voir computeFinalizedEligibility), jamais purgée
-// par cette fonction, quelle que soit son échéance. Respecte
+// par cette fonction, quelle que soit son échéance : exclue ICI par une
+// vérification EXPLICITE sur `category` (pas seulement sur `action_planned`)
+// -- décision humaine du 2026-08-04, défense en profondeur structurelle :
+// `completed_at` (proxy documenté, DATA_RETENTION.md) ne doit JAMAIS pouvoir
+// servir de date de clôture à une purge réelle, même si une évolution
+// future de `computeFinalizedEligibility` changeait un jour `action_planned`
+// par erreur -- cette fonction resterait bloquante indépendamment. Respecte
 // systématiquement le legal hold (déjà vérifié par computeSessionEligibility/
 // computeHouseholdEligibility, revérifié ici en défense en profondeur juste
 // avant l'écriture).
@@ -445,7 +485,7 @@ export function executePurge(req, opts = {}) {
           : sessions
               .map(({ id: sessionId }) => {
                 const r = computeSessionEligibility(sessionId, { now });
-                return r && r.action_planned !== 'retain'
+                return r && r.category !== 'finalized_advice' && r.action_planned !== 'retain'
                   ? { sessionId, category: r.category, reason: r.eligibility_reason, due: r.due_date, action: r.action_planned }
                   : null;
               })
