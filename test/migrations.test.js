@@ -752,16 +752,17 @@ test('migration v11 — index unique partiel : redémarrages répétés (3x) res
   }
 });
 
-// Rescopé au LOT 7A (migration 12 ajoutée légitimement, voir tests
-// « migration v12 » ci-dessous) : la frontière « aucun bloc ultérieur » se
-// déplace mécaniquement à chaque nouvelle migration ajoutée — même
-// précédent que le déplacement 11→12 lui-même documenté ici.
-test('migration v12 — absence de migration 13 : la dernière version de schéma reste 12, aucun bloc de migration ultérieur', async () => {
+// Rescopé à la migration 13 (correctif de dérive de schéma advisory_rules/
+// advisory_findings, GATE de préactivation LOT 5/LOT 6) : la frontière
+// « aucun bloc ultérieur » se déplace mécaniquement à chaque nouvelle
+// migration ajoutée — même précédent que le déplacement 11→12, puis 12→13
+// documenté ici.
+test('migration v13 — absence de migration 14 : la dernière version de schéma reste 13, aucun bloc de migration ultérieur', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 12, 'la base neuve doit culminer exactement à la version 12, pas au-delà');
+  assert.equal(db.pragma('user_version', { simple: true }), 13, 'la base neuve doit culminer exactement à la version 13, pas au-delà');
   const dbJsSource = fs.readFileSync(dbModulePath, 'utf8');
-  assert.ok(!/version\s*<\s*13/.test(dbJsSource), 'aucun bloc "if (version < 13)" ne doit exister');
-  assert.ok(!/user_version\s*=\s*13/.test(dbJsSource), 'aucun "user_version = 13" ne doit exister dans server/db.js');
+  assert.ok(!/version\s*<\s*14/.test(dbJsSource), 'aucun bloc "if (version < 14)" ne doit exister');
+  assert.ok(!/user_version\s*=\s*14/.test(dbJsSource), 'aucun "user_version = 14" ne doit exister dans server/db.js');
 });
 
 // Correctif SQL ciblé (second GATE, avant commit) : garantie SQLite
@@ -990,16 +991,21 @@ test('migration v12 — les 3 tables de recommandations existent, aucune table h
   assert.ok(!tables.some((t) => /product|insurer|catalog/i.test(t)), 'aucune table produit/assureur/catalogue ne doit exister au LOT 7A');
 });
 
-test('migration v12 — une base neuve atteint exactement user_version = 12', async () => {
+test('migration v12 — une base neuve atteint au moins user_version = 12', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 12);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 12);
 });
 
-test('migration v12 — idempotence : un second import de la même base n’échoue pas et reste en v12', async () => {
+test('migration v13 — une base neuve atteint exactement user_version = 13', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+});
+
+test('migration v13 — idempotence : un second import de la même base n’échoue pas et reste en v13', async () => {
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 12);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
 });
 
 test('migration v12 — advisory_recommendations : colonnes attendues présentes avec les bons types/défauts', async () => {
@@ -1126,7 +1132,7 @@ test('migration v12 — index unique partiel : présent après une migration RÉ
   const dir = tempDir();
   await buildLegacyV11Database(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 12);
+  assert.ok(db.pragma('user_version', { simple: true }) >= 12);
   const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_recommendations_one_non_dismissed_successor'").get();
   assert.ok(idx, 'l\'index doit être créé par la migration 12 en repartant d\'une base v11 réelle');
   const { sessionId, userId } = insertMinimalSessionFixture(db);
@@ -1142,7 +1148,7 @@ test('migration v12 — redémarrages répétés (3x) restent idempotents, index
   const dir = tempDir();
   for (let i = 0; i < 3; i += 1) {
     const db = await importFreshDb(dir);
-    assert.equal(db.pragma('user_version', { simple: true }), 12);
+    assert.ok(db.pragma('user_version', { simple: true }) >= 12);
     const info = db.prepare('PRAGMA index_list(advisory_recommendations)').all().filter((idx) => idx.name === 'idx_advisory_recommendations_one_non_dismissed_successor');
     assert.equal(info.length, 1, 'l\'index ne doit jamais être dupliqué par un redémarrage répété');
     assert.equal(info[0].unique, 1);
@@ -1178,4 +1184,369 @@ test('migration v12 — deux connexions SQLite réelles sur le même fichier : v
     dbA.close();
     dbB.close();
   }
+});
+
+// ===================== Migration v13 — correctif de dérive de schéma =====================
+// advisory_rules.finding_scope, advisory_findings.finding_scope et
+// advisory_findings.conflicts_detected_at_execution existent dans le code
+// depuis la création même de ces tables (migration 11) ; les tests
+// ci-dessous reconstituent fidèlement l'état RÉEL constaté (GATE de
+// préactivation LOT 5/LOT 6) d'au moins une base ayant atteint
+// user_version = 12 sans jamais avoir reçu ces colonnes ni l'index unique
+// partiel idx_advisory_rule_sets_one_published_per_domain.
+
+// Reconstruction fidèle d'une base v12 réelle affectée par la dérive :
+// schéma complet par ailleurs (obtenu via une vraie migration fraîche), puis
+// advisory_rules/advisory_findings recréées avec EXACTEMENT l'ensemble de
+// colonnes constaté sur data/crm.sqlite (GATE de préactivation), et l'index
+// unique partiel supprimé — jamais une base réelle ni data/** utilisée.
+async function buildLegacyV12SchemaDriftDatabase(dataDir) {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-migration-v12-drift-scratch-'));
+  const scratchDb = await importFreshDb(scratchDir);
+  const scratchFile = path.join(scratchDir, 'crm.sqlite');
+  scratchDb.close();
+
+  const file = path.join(dataDir, 'crm.sqlite');
+  fs.copyFileSync(scratchFile, file);
+  const db = new Database(file);
+  db.pragma('foreign_keys = OFF');
+  db.exec(`
+    DROP INDEX IF EXISTS idx_advisory_rule_sets_one_published_per_domain;
+
+    DROP TABLE advisory_findings;
+    CREATE TABLE advisory_findings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_execution_id INTEGER NOT NULL REFERENCES advisory_rule_executions(id),
+      session_id INTEGER NOT NULL REFERENCES advisory_sessions(id),
+      rule_id INTEGER NOT NULL REFERENCES advisory_rules(id),
+      stable_key TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      household_member_id INTEGER REFERENCES household_members(id),
+      finding_type TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      advisor_explanation TEXT NOT NULL,
+      client_explanation TEXT,
+      missing_data TEXT,
+      warnings TEXT,
+      contraindications TEXT,
+      used_inputs_ref TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      dismiss_reason TEXT,
+      dismissed_by_user_id INTEGER REFERENCES users(id),
+      dismissed_at TEXT,
+      needs_review INTEGER NOT NULL DEFAULT 0,
+      conflicts_with TEXT,
+      sort_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    DROP TABLE advisory_rules;
+    CREATE TABLE advisory_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_set_id INTEGER NOT NULL REFERENCES advisory_rule_sets(id),
+      stable_key TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      conditions TEXT NOT NULL,
+      required_data TEXT NOT NULL,
+      result_finding_type TEXT NOT NULL,
+      result_payload TEXT,
+      priority TEXT NOT NULL DEFAULT 'medium',
+      advisor_explanation TEXT NOT NULL,
+      client_explanation TEXT,
+      warnings TEXT,
+      contraindications TEXT,
+      source TEXT,
+      source_reference TEXT,
+      effective_from TEXT,
+      effective_until TEXT,
+      validated_by_user_id INTEGER REFERENCES users(id),
+      validated_at TEXT,
+      sort_order INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(rule_set_id, stable_key)
+    );
+  `);
+  db.pragma('foreign_keys = ON');
+  db.pragma('user_version = 12');
+  return db;
+}
+
+function insertLegacyRuleSetFixture(db, { domain = 'health', status = 'published' } = {}) {
+  return db.prepare(
+    `INSERT INTO advisory_rule_sets (stable_key, domain, version_number, status, name)
+     VALUES (?, ?, 1, ?, 'Fixture historique')`
+  ).run(`fixture-${domain}-${Math.random()}`, domain, status).lastInsertRowid;
+}
+function insertLegacyRuleFixture(db, ruleSetId, { stableKey = `regle-${Math.random()}`, domain = 'health' } = {}) {
+  return db.prepare(
+    `INSERT INTO advisory_rules (rule_set_id, stable_key, domain, title, conditions, required_data, result_finding_type, advisor_explanation, sort_order)
+     VALUES (?, ?, ?, 'Règle fixture', '{"op":"equals","ref":{"answer":"x"},"value":"oui"}', '[]', 'warning', 'Explication fixture', 1)`
+  ).run(ruleSetId, stableKey, domain).lastInsertRowid;
+}
+function insertLegacyExecutionFixture(db, sessionId, ruleSetId) {
+  return db.prepare(
+    `INSERT INTO advisory_rule_executions (session_id, session_revision, domain, rule_set_id, rule_set_version_number, content_hash, engine_version)
+     VALUES (?, 1, 'health', ?, 1, 'fixturehash', 'test')`
+  ).run(sessionId, ruleSetId).lastInsertRowid;
+}
+function insertLegacyFindingFixture(db, { executionId, sessionId, ruleId, memberId = null }) {
+  return db.prepare(
+    `INSERT INTO advisory_findings (rule_execution_id, session_id, rule_id, stable_key, domain, household_member_id, finding_type, priority, title, summary, advisor_explanation, sort_order)
+     VALUES (?, ?, ?, 'regle-fixture', 'health', ?, 'warning', 'medium', 'Constat fixture', 'Résumé fixture', 'Explication fixture', 1)`
+  ).run(executionId, sessionId, ruleId, memberId).lastInsertRowid;
+}
+
+// Comptage de TOUTES les tables applicatives (pas seulement celles touchées
+// par la migration 13) — utilisé pour prouver l'absence de perte de donnée
+// sur l'ensemble du schéma, pas seulement sur les 2 tables modifiées.
+function allTableCounts(db) {
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((r) => r.name);
+  const counts = {};
+  for (const t of tables) counts[t] = db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get().n;
+  return counts;
+}
+
+// --- Base neuve ---
+
+test('migration v13 — base neuve : colonnes présentes, user_version 13, suite fonctionnelle intacte', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.ok(db.prepare('PRAGMA table_info(advisory_rules)').all().some((c) => c.name === 'finding_scope'));
+  assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
+  assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
+  const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get();
+  assert.ok(idx);
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+});
+
+// --- Base historique dérivée (fixture réaliste : user_version 12, colonnes
+// absentes, règles/findings fictifs déjà présents, FK et index existants) ---
+
+test('migration v13 — base historique dérivée : colonnes ajoutées, données préservées, backfill correct, intégrité OK', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  assert.equal(legacy.pragma('user_version', { simple: true }), 12);
+  assert.ok(!legacy.prepare('PRAGMA table_info(advisory_rules)').all().some((c) => c.name === 'finding_scope'), 'fixture invalide : la colonne ne doit pas exister avant migration');
+
+  const { sessionId } = insertMinimalSessionFixture(legacy);
+  const ruleSetId = insertLegacyRuleSetFixture(legacy, { domain: 'health', status: 'published' });
+  const ruleId = insertLegacyRuleFixture(legacy, ruleSetId, { domain: 'health' });
+  const executionId = insertLegacyExecutionFixture(legacy, sessionId, ruleSetId);
+  const memberRow = legacy.prepare('SELECT id FROM household_members LIMIT 1').get();
+  const findingId = insertLegacyFindingFixture(legacy, { executionId, sessionId, ruleId, memberId: memberRow.id });
+  const countsBefore = allTableCounts(legacy);
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+
+  // Données préservées sur TOUTES les tables (aucune ligne perdue nulle part,
+  // pas seulement dans les 2 tables directement modifiées par la migration).
+  const countsAfter = allTableCounts(db);
+  assert.deepEqual(countsAfter, countsBefore);
+
+  // Backfill : la règle historique (créée avant toute notion de portée par
+  // membre) reçoit la valeur de comportement historique réel 'household'.
+  const rule = db.prepare('SELECT finding_scope FROM advisory_rules WHERE id = ?').get(ruleId);
+  assert.equal(rule.finding_scope, 'household');
+
+  // Backfill : le finding hérite de la portée de SA règle source (jamais
+  // une valeur générique attribuée indépendamment).
+  const finding = db.prepare('SELECT finding_scope, conflicts_detected_at_execution FROM advisory_findings WHERE id = ?').get(findingId);
+  assert.equal(finding.finding_scope, 'household');
+  // Historique et jamais deviné : NULL, pas une liste vide affirmant "aucun conflit constaté".
+  assert.equal(finding.conflicts_detected_at_execution, null);
+
+  // Index recréé, FK et intégrité valides.
+  const idx = db.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get();
+  assert.ok(idx);
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+  assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
+});
+
+test('migration v13 — base historique avec plusieurs règles/findings sur deux membres : backfill cohérent pour chaque ligne', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  const { sessionId } = insertMinimalSessionFixture(legacy);
+  const householdId = legacy.prepare('SELECT household_id FROM advisory_sessions WHERE id = ?').get(sessionId).household_id;
+  const secondClientId = legacy.prepare("INSERT INTO clients (type, first_name, last_name, status) VALUES ('particulier', 'P2', 'T2', 'prospect')").run().lastInsertRowid;
+  const secondMemberId = legacy.prepare("INSERT INTO household_members (household_id, client_id, member_role, status) VALUES (?, ?, 'conjoint', 'actif')").run(householdId, secondClientId).lastInsertRowid;
+  const firstMemberId = legacy.prepare("SELECT id FROM household_members WHERE household_id = ? AND member_role = 'principal'").get(householdId).id;
+
+  const ruleSetId = insertLegacyRuleSetFixture(legacy, { domain: 'life_pension', status: 'archived' });
+  const ruleId = insertLegacyRuleFixture(legacy, ruleSetId, { domain: 'life_pension' });
+  const executionId = insertLegacyExecutionFixture(legacy, sessionId, ruleSetId);
+  const f1 = insertLegacyFindingFixture(legacy, { executionId, sessionId, ruleId, memberId: firstMemberId });
+  const f2 = insertLegacyFindingFixture(legacy, { executionId, sessionId, ruleId, memberId: secondMemberId });
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  for (const fid of [f1, f2]) {
+    const finding = db.prepare('SELECT finding_scope FROM advisory_findings WHERE id = ?').get(fid);
+    assert.equal(finding.finding_scope, 'household');
+  }
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+});
+
+// --- Bases partiellement corrigées ---
+
+test('migration v13 — une seule colonne manquante (finding_scope sur advisory_findings uniquement) : migration réussit sans duplication', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  // Recolle finding_scope sur advisory_rules pour simuler un correctif
+  // partiel déjà appliqué manuellement — seule advisory_findings reste en retard.
+  legacy.exec(`ALTER TABLE advisory_rules ADD COLUMN finding_scope TEXT NOT NULL DEFAULT 'household'`);
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.prepare('PRAGMA table_info(advisory_rules)').all().filter((c) => c.name === 'finding_scope').length, 1, 'jamais de colonne dupliquée');
+  assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
+  assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+});
+
+test('migration v13 — deux colonnes manquantes (advisory_findings uniquement) : migration réussit', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  legacy.exec(`ALTER TABLE advisory_rules ADD COLUMN finding_scope TEXT NOT NULL DEFAULT 'household'`);
+  legacy.close();
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
+  assert.ok(db.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
+});
+
+test('migration v13 — aucune colonne manquante mais user_version encore 12 : migration réussit sans duplication ni erreur', async () => {
+  const dir = tempDir();
+  // Base v12 dont le schéma est en réalité DÉJÀ complet (toutes les colonnes
+  // présentes), seul user_version n'a jamais été avancé — cas d'une base
+  // corrigée manuellement dont l'avancement de version aurait été oublié.
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-migration-v13-complete-scratch-'));
+  const scratchDb = await importFreshDb(scratchDir);
+  scratchDb.close();
+  fs.copyFileSync(path.join(scratchDir, 'crm.sqlite'), path.join(dir, 'crm.sqlite'));
+  const legacy = new Database(path.join(dir, 'crm.sqlite'));
+  legacy.pragma('user_version = 12');
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.prepare('PRAGMA table_info(advisory_rules)').all().filter((c) => c.name === 'finding_scope').length, 1);
+  assert.equal(db.prepare('PRAGMA table_info(advisory_findings)').all().filter((c) => c.name === 'finding_scope').length, 1);
+  assert.equal(db.prepare('PRAGMA table_info(advisory_findings)').all().filter((c) => c.name === 'conflicts_detected_at_execution').length, 1);
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+});
+
+test('migration v13 — backfill différencié : deux règles à finding_scope RÉELLEMENT distinct (correctif partiel déjà appliqué à advisory_rules) — chaque finding hérite de SA règle, jamais de la valeur DEFAULT', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  // Simule un correctif partiel déjà appliqué manuellement à advisory_rules
+  // AVANT cette migration, avec des valeurs déjà différenciées par ligne —
+  // seule advisory_findings reste en retard. Ceci prouve que le backfill de
+  // advisory_findings.finding_scope utilise réellement le SELECT corrélé sur
+  // la règle source (server/db.js), pas seulement la valeur DEFAULT
+  // 'household' de l'ALTER TABLE (que toutes les lignes recevraient sinon,
+  // rendant le test incapable de distinguer les deux mécanismes).
+  legacy.exec(`ALTER TABLE advisory_rules ADD COLUMN finding_scope TEXT NOT NULL DEFAULT 'household'`);
+
+  const { sessionId } = insertMinimalSessionFixture(legacy);
+  const ruleSetId = insertLegacyRuleSetFixture(legacy, { domain: 'life_pension', status: 'archived' });
+  const memberRuleId = insertLegacyRuleFixture(legacy, ruleSetId, { domain: 'life_pension', stableKey: 'regle-member' });
+  const sessionRuleId = insertLegacyRuleFixture(legacy, ruleSetId, { domain: 'life_pension', stableKey: 'regle-session' });
+  legacy.prepare('UPDATE advisory_rules SET finding_scope = ? WHERE id = ?').run('member', memberRuleId);
+  legacy.prepare('UPDATE advisory_rules SET finding_scope = ? WHERE id = ?').run('session', sessionRuleId);
+  const executionId = insertLegacyExecutionFixture(legacy, sessionId, ruleSetId);
+  const memberRow = legacy.prepare('SELECT id FROM household_members LIMIT 1').get();
+  const memberFindingId = insertLegacyFindingFixture(legacy, { executionId, sessionId, ruleId: memberRuleId, memberId: memberRow.id });
+  const sessionFindingId = insertLegacyFindingFixture(legacy, { executionId, sessionId, ruleId: sessionRuleId, memberId: null });
+  legacy.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 13);
+  assert.equal(db.prepare('SELECT finding_scope FROM advisory_findings WHERE id = ?').get(memberFindingId).finding_scope, 'member');
+  assert.equal(db.prepare('SELECT finding_scope FROM advisory_findings WHERE id = ?').get(sessionFindingId).finding_scope, 'session');
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+});
+
+// --- Contrainte violée par des données existantes ---
+// Cas réellement atteignable sur une base héritée : dépourvue de l'index
+// unique partiel depuis le départ (précisément le constat du GATE de
+// préactivation), elle n'était protégée contre plusieurs rule_sets publiés
+// pour un même domaine que par le contrôle applicatif
+// (`assertNoOtherPublishedFamilyForDomain`), qui ne résiste pas à deux
+// publications concurrentes (docs/MIGRATIONS.md, version 11).
+test('migration v13 — échec contrôlé : deux rule_sets déjà "published" pour le même domaine (viole la contrainte de l\'index avant sa création) — erreur actionnable, transaction annulée, user_version inchangé', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  const firstId = insertLegacyRuleSetFixture(legacy, { domain: 'health', status: 'published' });
+  const secondId = insertLegacyRuleSetFixture(legacy, { domain: 'health', status: 'published' });
+  const countsBefore = allTableCounts(legacy);
+  legacy.close();
+
+  await assert.rejects(
+    () => importFreshDb(dir),
+    (err) => {
+      assert.match(err.message, /Migration 13 bloquée/);
+      assert.match(err.message, /"health"/);
+      assert.match(err.message, new RegExp(`${firstId}`));
+      assert.match(err.message, new RegExp(`${secondId}`));
+      return true;
+    }
+  );
+
+  const after = new Database(path.join(dir, 'crm.sqlite'));
+  assert.equal(after.pragma('user_version', { simple: true }), 12);
+  assert.ok(!after.prepare('PRAGMA table_info(advisory_rules)').all().some((c) => c.name === 'finding_scope'), 'aucune colonne ne doit avoir été ajoutée après un rollback');
+  assert.ok(!after.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'));
+  assert.ok(!after.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'));
+  assert.ok(!after.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get(), 'index non créé après un rollback');
+  assert.deepEqual(allTableCounts(after), countsBefore);
+  after.close();
+});
+
+// --- Échec contrôlé ---
+// Cas réellement possible sous ce schéma : un finding historique dont la
+// règle source (rule_id) ne résout plus à aucune ligne d'advisory_rules —
+// situation qu'une contrainte FK (foreign_keys=ON, server/db.js ligne 12)
+// empêche normalement, mais qui reste vérifiée explicitement plutôt que
+// supposée impossible (défense en profondeur, jamais une hypothèse silencieuse).
+test('migration v13 — échec contrôlé : finding historique avec rule_id orphelin (contrainte FK désactivée pour construire le cas) — transaction annulée, user_version inchangé', async () => {
+  const dir = tempDir();
+  const legacy = await buildLegacyV12SchemaDriftDatabase(dir);
+  const { sessionId } = insertMinimalSessionFixture(legacy);
+  const ruleSetId = insertLegacyRuleSetFixture(legacy, { domain: 'health', status: 'published' });
+  const ruleId = insertLegacyRuleFixture(legacy, ruleSetId, { domain: 'health' });
+  const executionId = insertLegacyExecutionFixture(legacy, sessionId, ruleSetId);
+  const findingId = insertLegacyFindingFixture(legacy, { executionId, sessionId, ruleId, memberId: null });
+  // Construit délibérément un rule_id orphelin (foreign_keys désactivé
+  // uniquement pour fabriquer ce cas de fixture par ailleurs empêché) :
+  // reproduit le seul scénario où le backfill ne peut PAS dériver une
+  // portée depuis la règle source.
+  legacy.pragma('foreign_keys = OFF');
+  legacy.prepare('DELETE FROM advisory_rules WHERE id = ?').run(ruleId);
+  legacy.pragma('foreign_keys = ON');
+  legacy.close();
+
+  await assert.rejects(() => importFreshDb(dir), /Migration 13 bloquée/);
+
+  // La base reste dans son état pré-migration : version inchangée, aucune
+  // colonne/index ajouté nulle part dans le bloc (transaction intégralement
+  // annulée, jamais un état partiel) — vérifié sur les 4 éléments de la
+  // migration, pas seulement sur la colonne dont l'ajout précède le throw.
+  const after = new Database(path.join(dir, 'crm.sqlite'));
+  assert.equal(after.pragma('user_version', { simple: true }), 12);
+  assert.ok(!after.prepare('PRAGMA table_info(advisory_rules)').all().some((c) => c.name === 'finding_scope'), 'aucune colonne ne doit avoir été ajoutée après un rollback (advisory_rules, ajoutée avant le throw)');
+  assert.ok(!after.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'finding_scope'), 'aucune colonne ne doit avoir été ajoutée après un rollback (advisory_findings)');
+  assert.ok(!after.prepare('PRAGMA table_info(advisory_findings)').all().some((c) => c.name === 'conflicts_detected_at_execution'), 'jamais ajoutée non plus, bien qu\'après le throw dans l\'ordre du code — la transaction annule tout le bloc');
+  assert.ok(!after.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get(), 'index non créé après un rollback');
+  assert.equal(after.prepare('SELECT id FROM advisory_findings WHERE id = ?').get(findingId).id, findingId, 'la ligne existante reste inchangée, jamais supprimée');
+  after.close();
 });
