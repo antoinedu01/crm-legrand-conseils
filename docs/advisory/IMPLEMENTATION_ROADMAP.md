@@ -654,6 +654,15 @@
 
 ## Lot 6 — Parcours Vie et Prévoyance
 
+> **Statut (phase 1)** : contenu brouillon provisionné, **non publié**, voir
+> `LIFE_PENSION_LOT6_CONTENT.md` — questionnaire de 10 questions et 5 règles
+> déterministes (couverture décès, couverture incapacité de gain,
+> indépendant à couverture incertaine, épargne retraite, révision des
+> bénéficiaires). Aucun calcul de capital, de rente ni de formule
+> actuarielle — reporté hors périmètre de cette phase 1. Publication réelle
+> conditionnée à une validation juridique et métier séparée, non faite par
+> ce lot.
+
 - Symétrique au Lot 5 pour le domaine `life_pension`
   (`LIFE_PENSION_DIAGNOSTIC.md`).
 - **Risques spécifiques** : formules de calcul (déficit incapacité, besoin
