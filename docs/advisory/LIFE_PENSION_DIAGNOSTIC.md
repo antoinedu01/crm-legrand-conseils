@@ -1,5 +1,11 @@
 # Parcours Vie et Prévoyance
 
+> **Statut (LOT 6 phase 1)** : un premier noyau réel (10 questions, 5
+> règles) est désormais provisionné en **brouillon, non publié** — voir
+> `LIFE_PENSION_LOT6_CONTENT.md`. Ce document reste la proposition de
+> conception complète ; seul un sous-ensemble restreint, sans aucun calcul
+> ni formule, en est implémenté à ce stade.
+
 > Proposition de conception (LOT 1). Toute formule mentionnée dans ce
 > document est un **modèle configurable**, présenté comme tel au conseiller
 > et au client — jamais comme une vérité contractuelle, actuarielle ou
