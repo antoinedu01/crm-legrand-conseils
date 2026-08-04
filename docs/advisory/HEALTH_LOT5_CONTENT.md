@@ -50,6 +50,15 @@ roadmap (Lot 5) :
 | 8 | `intention_resilier_complementaire_declare` | oui / non | **oui** |
 | 9 | `acceptation_nouvelle_complementaire_confirmee` | oui / non | **oui** |
 
+**Correction apportée lors de la validation humaine du dossier
+d'approbation (question 5, `tolerance_risque_financier`)** : le texte
+client interrogeait initialement une alternative binaire (prime stable /
+économiser), incohérente avec les 3 options réelles de la question
+(faible/moyenne/élevée). Reformulé pour interroger directement le niveau :
+« Quel niveau de risque financier êtes-vous prêt(e) à assumer en cas de
+dépenses de santé imprévues ? ». Ni la règle `franchise-capacite-financiere-01`
+ni ses seuils ne sont modifiés par cette correction.
+
 **Choix délibéré — pas d'option « inconnue » littérale** : le mécanisme
 natif du moteur de questionnaire (`allows_unknown` / `is_unknown`, voir
 `QUESTIONNAIRE_ENGINE.md` §2) est utilisé pour « je ne sais pas », jamais
@@ -82,10 +91,19 @@ s'active qu'entre règles différentes partageant un même `category_hint` —
 aucun `category_hint` n'est partagé dans ce noyau de 5 règles).
 
 **Sources** : `accident-coordination-doublon-01`/`accident-coverage-gap-01`
-citent une référence OFSP (art. 8 LAMal, suspension du risque accident) —
-**référence à vérifier et dater par un spécialiste métier avant toute
-publication réelle**, non validée par ce lot. Les 3 autres règles citent une
-référence méthodologique interne, explicitement non présentée comme une loi.
+citent une référence OFSP — **corrigée lors de la validation humaine du
+dossier d'approbation** : page OFSP « Assurés pouvant suspendre le risque
+accidents », art. 8 al. 1 LAMal (suspension possible **uniquement sur
+demande** de l'assuré, jamais automatique) et art. 11 OAMal (procédure de
+suspension, preuve d'une couverture accident complète au sens de la LAA
+requise). La référence initiale citait à tort l'art. 3 al. 2 LAMal — retirée,
+cet article ne constitue pas la base légale de la suspension du risque
+accident. **Consultée le 2026-08-04** (portée par `source_reference`,
+jamais par `effective_from`, qui reste la date d'entrée en vigueur du
+contenu de la règle — une notion distincte). La décision finale de
+suspension relève toujours de l'assureur, jamais du moteur de règles. Les 3
+autres règles citent une référence méthodologique interne, explicitement
+non présentée comme une loi.
 
 ## 4. Limites (rappel explicite, aucune de ces garanties n'est optionnelle)
 
@@ -111,8 +129,12 @@ session tant qu'au moins une réponse manque.
 ## 5. Validation avant publication réelle (non faite par ce lot)
 
 Avant tout passage `brouillon → publié` (questionnaire et rule_set) :
-- validation juridique de la source OFSP citée par les règles A/B (délai,
-  seuils, portée exacte — non vérifiés par ce lot) ;
+- validation juridique **formelle** (par un spécialiste qualifié) de la
+  source OFSP citée par les règles A/B — la référence a été corrigée et
+  datée (art. 8 al. 1 LAMal, art. 11 OAMal, consultée le 2026-08-04, voir
+  §3 ci-dessus) sur décision humaine dans le dossier d'approbation, mais
+  cette correction ne remplace pas une validation juridique formelle
+  (délai, seuils, portée exacte — non vérifiés par ce lot) ;
 - confirmation par `compliance-privacy-reviewer` de la classification de
   confidentialité des 4 questions sensibles ;
 - revue finale par `health-insurance-domain` du contenu réel des 5 règles.

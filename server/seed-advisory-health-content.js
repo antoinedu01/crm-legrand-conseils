@@ -13,8 +13,20 @@ import { createRuleSet, upsertRule } from './advisoryRules.js';
 export const QUESTIONNAIRE_STABLE_KEY = 'diagnostic-sante-phase1';
 export const RULE_SET_STABLE_KEY = 'regles-sante-phase1';
 
-const SOURCE_OFSP_ACCIDENT = 'Office fédéral de la santé publique (OFSP) — assurance-maladie obligatoire, suspension du risque accident (art. 8 LAMal, art. 3 al. 2 LAMal et dispositions OAMal relatives à la preuve d’une couverture accident suffisante par un employeur).';
-const SOURCE_REF_OFSP_ACCIDENT = 'OFSP — LAMal art. 8 (suspension du risque accident) — référence à vérifier et dater par un spécialiste métier avant publication.';
+// Correction apportée lors de la validation humaine du dossier
+// d'approbation : la référence initiale citait à tort l'art. 3 al. 2 LAMal
+// (retirée, elle ne constitue pas la base légale de la suspension du risque
+// accident) et ne portait aucune date de consultation. Base officielle
+// retenue par la décision humaine : OFSP, page « Assurés pouvant suspendre
+// le risque accidents » — art. 8 al. 1 LAMal (suspension sur demande) et
+// art. 11 OAMal (procédure). La date de consultation est portée par
+// `source_reference`, jamais par `effective_from` (qui reste la date
+// d'entrée en vigueur du contenu de la règle, une notion distincte). Le
+// champ `source` est plafonné à 300 caractères (`checkTextFields`,
+// `server/advisoryRules.js`) — texte volontairement concis, jamais tronqué
+// silencieusement.
+const SOURCE_OFSP_ACCIDENT = 'Office fédéral de la santé publique (OFSP) — page « Assurés pouvant suspendre le risque accidents » : suspension de l’accident LAMal uniquement sur demande (art. 8 al. 1 LAMal), preuve d’une couverture LAA complète requise (art. 11 OAMal). Jamais automatique ; décision finale de l’assureur.';
+const SOURCE_REF_OFSP_ACCIDENT = 'OFSP — page « Assurés pouvant suspendre le risque accidents » — art. 8 al. 1 LAMal (suspension sur demande) et art. 11 OAMal (procédure de suspension). Consultée le 2026-08-04.';
 const SOURCE_INTERNAL = 'Référence interne — méthodologie de conseil Legrand Conseils, à valider par un spécialiste métier avant mise en production.';
 const SOURCE_REF_INTERNAL = 'Note méthodologique interne — non une source légale.';
 const EFFECTIVE_FROM = '2026-08-03';
@@ -100,8 +112,13 @@ const QUESTIONS = [
   }),
   questionSpec({
     stable_key: 'tolerance_risque_financier',
-    advisor_text: 'Tolérance déclarée au risque financier.',
-    client_text: 'Préférez-vous une prime plus stable ou plutôt économiser sur la durée, quitte à assumer un risque plus élevé en cas de sinistre ?',
+    advisor_text: 'Niveau de tolérance au risque financier déclaré par la personne (échelle à trois niveaux : faible, moyenne, élevée).',
+    // Correction apportée lors de la validation humaine du dossier
+    // d'approbation : le texte précédent posait une alternative binaire
+    // (prime stable / économiser) incohérente avec les 3 options réelles de
+    // la question (faible/moyenne/élevée) — reformulé pour interroger
+    // directement le niveau, cohérent avec l'échelle à trois niveaux.
+    client_text: 'Quel niveau de risque financier êtes-vous prêt(e) à assumer en cas de dépenses de santé imprévues ?',
     sensitive: false,
     sort_order: 5,
     options: NIVEAU_3(['faible', 'moyenne', 'elevee']),
