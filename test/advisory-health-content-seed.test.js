@@ -438,6 +438,33 @@ test('Portée membre — fan-out correct sur un foyer à deux membres (un seul m
   assert.equal(aFindings[0].household_member_id, principalMemberId);
 });
 
+// Reproduction exacte de l'anomalie signalée lors du test fonctionnel réel
+// post-migration 14 : un membre B avec une réponse "unknown" sur une
+// question des règles A/B ne doit plus jamais empêcher ni masquer le finding
+// substantif dû au membre A dont les réponses sont pourtant complètes.
+test('Correctif — foyer à deux membres réels LOT5 : membre A déclenche la règle A, membre B "unknown" -> les deux findings coexistent, jamais l\'un masquant l\'autre', () => {
+  const { householdId, principalMemberId, secondMemberId } = buildHousehold({ withSecondMember: true });
+  const sessionId = startedSession(householdId);
+  answer(sessionId, principalMemberId, 'couverture_accident_hors_lamal_declaree', 'oui');
+  answer(sessionId, principalMemberId, 'accident_inclus_lamal_declare', 'oui');
+  answer(sessionId, secondMemberId, 'couverture_accident_hors_lamal_declaree', 'oui');
+  answerUnknown(sessionId, secondMemberId, 'accident_inclus_lamal_declare');
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: publishedRuleSetIdForExecution() });
+  const findings = E.listActiveFindings(sessionId, {}, REQ);
+
+  const aFinding = findings.find((f) => f.stable_key === 'accident-coordination-doublon-01' && f.finding_type === 'warning');
+  assert.ok(aFinding, 'le finding substantif du membre A (réponses complètes) doit exister, jamais masqué par les données manquantes du membre B');
+  assert.equal(aFinding.household_member_id, principalMemberId);
+  assert.equal(aFinding.finding_scope, 'member');
+
+  const missingForB = findings.find((f) => f.stable_key === 'accident-coordination-doublon-01' && f.finding_type === 'missing_information' && f.household_member_id === secondMemberId);
+  assert.ok(missingForB, 'le missing_information du membre B doit exister et être rattaché à LUI (household_member_id), jamais household_member_id=null');
+
+  const householdLevelMissing = findings.find((f) => f.stable_key === 'accident-coordination-doublon-01' && f.finding_type === 'missing_information' && f.household_member_id == null);
+  assert.ok(!householdLevelMissing, 'plus aucun missing_information de portée foyer masquant le résultat du membre A (comportement AVANT correctif)');
+});
+
 test('Aucune recommandation créée automatiquement par les 5 règles', () => {
   const { householdId, principalMemberId } = buildHousehold();
   const before = db.prepare('SELECT COUNT(*) AS n FROM advisory_recommendations').get().n;

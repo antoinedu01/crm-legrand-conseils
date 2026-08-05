@@ -453,50 +453,154 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
       const usedContractBranchesGlobal = new Set();
       const findingsInMemory = [];
 
+      function missingInformationFinding(rule, missing, memberId) {
+        return {
+          rule, finding_type: 'missing_information', priority: rule.priority,
+          title: `Information manquante pour : ${rule.title}`,
+          summary: `Cette règle ne peut pas conclure : ${missing.length} donnée(s) manquante(s).`,
+          advisor_explanation: `La règle « ${rule.stable_key} » ne peut pas être évaluée : des données requises sont manquantes. Contexte de la règle : ${rule.advisor_explanation}`,
+          client_explanation: null, missing_data: missing, warnings: [], contraindications: [],
+          used_inputs_ref: [], result_payload: null, household_member_id: memberId,
+        };
+      }
+
+      // `required_data` de portée MEMBRE (une question `scope: 'member'')
+      // contre le reste (question de portée foyer, `contract_branch`) — seul
+      // ce second groupe reste une donnée réellement PARTAGÉE par tous les
+      // membres (sa complétude ne varie jamais d'un membre à l'autre, un seul
+      // contrôle global reste donc correct pour lui). Correctif du défaut
+      // constaté lors du test fonctionnel post-migration 14 : une réponse
+      // manquante/`unknown` du membre B sur une question de portée membre ne
+      // doit jamais être mélangée à la complétude du membre A.
+      function partitionRequiredData(requiredData) {
+        const memberRefs = [];
+        const otherRefs = [];
+        for (const ref of requiredData) {
+          const kind = refKind(ref);
+          if (kind === 'answer') {
+            const q = byStableKey.get(ref.answer);
+            if (q && q.scope === 'member') { memberRefs.push(ref); continue; }
+          }
+          otherRefs.push(ref);
+        }
+        return { memberRefs, otherRefs };
+      }
+
+      // Présence d'une référence de portée MEMBRE pour UN membre précis,
+      // jamais `.every()` sur l'ensemble du foyer (contrairement à
+      // `isRequiredDataPresent` ci-dessus, dont le contrat `.every()` reste
+      // correct et inchangé pour les règles de portée foyer/session ainsi
+      // que pour le quantificateur `all` ci-dessous, où la vérité de la
+      // règle dépend réellement de TOUS les membres à la fois).
+      function isRequiredDataPresentForMember(ref, member) {
+        const q = byStableKey.get(ref.answer);
+        if (!q) return false;
+        const row = answerIndex.get(`${q.id}|${member.id}`);
+        return !!(row && row.status === 'answered');
+      }
+
       for (const rule of orderedRules) {
         const refs = collectAllRefs(rule.conditions);
         for (const k of refs.answerKeys) usedAnswerKeysGlobal.add(k);
         for (const b of refs.contractBranches) usedContractBranchesGlobal.add(b);
 
+        // finding_scope = member (GATE LOT 4A §3, correctif membre isolé) :
+        // le quantificateur racine (`any`/`all` over members, garanti par
+        // `validateRuleSetForPublish`) déjà utilisé pour l'attribution des
+        // findings substantifs (`resolveQuantifierMembers`) pilote AUSSI la
+        // vérification de complétude des données, membre par membre pour
+        // `any` -- jamais un `.every()` global qui empêcherait à tort
+        // l'évaluation d'un membre dont les données sont pourtant complètes
+        // simplement parce qu'un AUTRE membre a une réponse manquante/
+        // `unknown`. `all` reste un contrôle collectif inchangé (correct :
+        // la vérité d'un `all` dépend réellement de tous les membres à la
+        // fois, une donnée manquante pour un seul suffit à rendre le
+        // résultat collectif indéterminable pour tous).
+        if (rule.finding_scope === 'member') {
+          const { memberRefs, otherRefs } = partitionRequiredData(rule.required_data);
+          const otherMissing = otherRefs.filter((ref) => !isRequiredDataPresent(ref)).map(structuredDataRef);
+          if (otherMissing.length > 0) {
+            findingsInMemory.push(missingInformationFinding(rule, otherMissing, null));
+            continue;
+          }
+
+          if (rule.conditions.op === 'all') {
+            const collectiveMissing = [];
+            for (const member of members) {
+              for (const ref of memberRefs) {
+                if (!isRequiredDataPresentForMember(ref, member)) collectiveMissing.push(structuredDataRef(ref));
+              }
+            }
+            if (collectiveMissing.length > 0) {
+              const seen = new Set();
+              const deduped = collectiveMissing.filter((m) => (seen.has(m.stable_key) ? false : (seen.add(m.stable_key), true)));
+              findingsInMemory.push(missingInformationFinding(rule, deduped, null));
+              continue;
+            }
+            const triggered = evaluateRuleCondition(rule.conditions, context);
+            ruleResults[rule.stable_key] = triggered;
+            if (!triggered) continue;
+            const matchingMembers = resolveQuantifierMembers(rule.conditions, context);
+            for (const member of matchingMembers) {
+              findingsInMemory.push({
+                rule, finding_type: rule.result_finding_type, priority: rule.priority,
+                title: rule.title, summary: rule.description || rule.title,
+                advisor_explanation: rule.advisor_explanation, client_explanation: rule.client_explanation,
+                missing_data: null, warnings: rule.warnings, contraindications: rule.contraindications,
+                used_inputs_ref: buildUsedInputsRef(refs, member), result_payload: rule.result_payload,
+                household_member_id: member.id,
+              });
+            }
+            continue;
+          }
+
+          // `any` -- évaluation INDÉPENDANTE par membre, coeur du correctif :
+          // une donnée manquante pour le membre B produit un
+          // `missing_information` RATTACHÉ À CE MEMBRE (household_member_id
+          // = son id, jamais `null`) sans jamais empêcher l'évaluation ni la
+          // création du finding substantif du membre A.
+          let anyTriggered = false;
+          let allMembersDetermined = true;
+          for (const member of members) {
+            const memberMissing = memberRefs.filter((ref) => !isRequiredDataPresentForMember(ref, member)).map(structuredDataRef);
+            if (memberMissing.length > 0) {
+              allMembersDetermined = false;
+              findingsInMemory.push(missingInformationFinding(rule, memberMissing, member.id));
+              continue;
+            }
+            const matches = evaluateRuleCondition(rule.conditions.condition, { ...context, member });
+            if (matches) {
+              anyTriggered = true;
+              findingsInMemory.push({
+                rule, finding_type: rule.result_finding_type, priority: rule.priority,
+                title: rule.title, summary: rule.description || rule.title,
+                advisor_explanation: rule.advisor_explanation, client_explanation: rule.client_explanation,
+                missing_data: null, warnings: rule.warnings, contraindications: rule.contraindications,
+                used_inputs_ref: buildUsedInputsRef(refs, member), result_payload: rule.result_payload,
+                household_member_id: member.id,
+              });
+            }
+          }
+          // `rule_result` figé uniquement quand un résultat définitif a pu
+          // être établi (au moins un membre a réellement déclenché la règle,
+          // ou tous les membres ont pu être évalués sans donnée manquante) --
+          // jamais une conclusion `false` silencieuse tirée d'une évaluation
+          // partielle (même principe conservateur que le reste de ce
+          // module : ne jamais affirmer une complétude qui n'existe pas).
+          if (anyTriggered || allMembersDetermined) ruleResults[rule.stable_key] = anyTriggered;
+          continue;
+        }
+
         const missing = rule.required_data.filter((ref) => !isRequiredDataPresent(ref)).map(structuredDataRef);
 
         if (missing.length > 0) {
-          findingsInMemory.push({
-            rule, finding_type: 'missing_information', priority: rule.priority,
-            title: `Information manquante pour : ${rule.title}`,
-            summary: `Cette règle ne peut pas conclure : ${missing.length} donnée(s) manquante(s).`,
-            advisor_explanation: `La règle « ${rule.stable_key} » ne peut pas être évaluée : des données requises sont manquantes. Contexte de la règle : ${rule.advisor_explanation}`,
-            client_explanation: null, missing_data: missing, warnings: [], contraindications: [],
-            used_inputs_ref: [], result_payload: null, household_member_id: null,
-          });
+          findingsInMemory.push(missingInformationFinding(rule, missing, null));
           continue;
         }
 
         const triggered = evaluateRuleCondition(rule.conditions, context);
         ruleResults[rule.stable_key] = triggered;
         if (!triggered) continue;
-
-        // finding_scope = member (GATE LOT 4A §3) : un finding DISTINCT par
-        // membre correspondant réellement à la condition, jamais une
-        // attribution arbitraire — `resolveQuantifierMembers` identifie ces
-        // membres de façon déterministe à partir du quantificateur racine
-        // déjà vérifié à la publication (`validateRuleSetForPublish`).
-        // `session`/`household` restent un unique finding agrégé, comme
-        // avant, `household_member_id` toujours NULL.
-        if (rule.finding_scope === 'member') {
-          const matchingMembers = resolveQuantifierMembers(rule.conditions, context);
-          for (const member of matchingMembers) {
-            findingsInMemory.push({
-              rule, finding_type: rule.result_finding_type, priority: rule.priority,
-              title: rule.title, summary: rule.description || rule.title,
-              advisor_explanation: rule.advisor_explanation, client_explanation: rule.client_explanation,
-              missing_data: null, warnings: rule.warnings, contraindications: rule.contraindications,
-              used_inputs_ref: buildUsedInputsRef(refs, member), result_payload: rule.result_payload,
-              household_member_id: member.id,
-            });
-          }
-          continue;
-        }
 
         findingsInMemory.push({
           rule, finding_type: rule.result_finding_type, priority: rule.priority,

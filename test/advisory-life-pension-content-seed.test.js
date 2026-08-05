@@ -486,6 +486,37 @@ test('Portée membre — fan-out correct sur un foyer à deux membres (un seul m
   assert.equal(aFindings[0].household_member_id, principalMemberId);
 });
 
+// Reproduction exacte de l'anomalie signalée lors du test fonctionnel réel
+// post-migration 14 (même correctif générique que LOT5) : un membre B avec
+// une réponse "unknown" sur une question de la règle A ne doit plus jamais
+// empêcher ni masquer le finding substantif dû au membre A.
+test('Correctif — foyer à deux membres réels LOT6 : membre A déclenche la règle A (décès), membre B "unknown" -> les deux findings coexistent', () => {
+  const { householdId, principalMemberId, secondMemberId } = buildHousehold({ withSecondMember: true });
+  const sessionId = startedSession(householdId);
+  answer(sessionId, principalMemberId, 'personnes_dependantes_financierement_declare', 'oui');
+  answer(sessionId, principalMemberId, 'couverture_deces_connue_declare', 'non');
+  answer(sessionId, secondMemberId, 'personnes_dependantes_financierement_declare', 'oui');
+  answerUnknown(sessionId, secondMemberId, 'couverture_deces_connue_declare');
+  // required: true sur ces 2 questions pour les deux membres, indépendamment de la règle testée ici.
+  for (const member of [principalMemberId, secondMemberId]) {
+    answer(sessionId, member, 'couverture_incapacite_gain_connue_declare', 'oui');
+    answer(sessionId, member, 'prevoyance_professionnelle_volontaire_connue_declare', 'oui');
+  }
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'life_pension', rev(sessionId), REQ, { rule_set_id: seedResult.ruleSetId });
+  const findings = E.listActiveFindings(sessionId, {}, REQ);
+
+  const aFinding = findings.find((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'gap');
+  assert.ok(aFinding, 'le finding substantif du membre A (réponses complètes) doit exister, jamais masqué par les données manquantes du membre B');
+  assert.equal(aFinding.household_member_id, principalMemberId);
+
+  const missingForB = findings.find((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'missing_information' && f.household_member_id === secondMemberId);
+  assert.ok(missingForB, 'le missing_information du membre B doit exister et être rattaché à LUI, jamais household_member_id=null');
+
+  const householdLevelMissing = findings.find((f) => f.stable_key === 'deces-couverture-absente-01' && f.finding_type === 'missing_information' && f.household_member_id == null);
+  assert.ok(!householdLevelMissing, 'plus aucun missing_information de portée foyer masquant le résultat du membre A (comportement AVANT correctif)');
+});
+
 test('Aucune recommandation, aucun produit, aucun assureur, aucun montant calculé automatiquement', () => {
   const { householdId, principalMemberId } = buildHousehold();
   const before = db.prepare('SELECT COUNT(*) AS n FROM advisory_recommendations').get().n;
