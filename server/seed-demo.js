@@ -60,33 +60,33 @@ const insertContract = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const insertCommission = db.prepare(`
-  INSERT INTO commissions (contract_id, type, label, amount, due_date, status, paid_date)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO commissions (contract_id, type, label, expected_amount_chf, expected_payment_date, status, received_payment_date, received_amount_chf, commission_mode)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const year = new Date().getFullYear();
 
 let id = insertContract.run(ids[0], companyId('Swiss Life'), 'vie_3a', 'SL-3A-482291',
   'Prévoyance liée 3a', 6883, 'annuelle', `${year - 1}-01-01`, `${year + 24}-01-01`, 'actif', 4, 1).lastInsertRowid;
-insertCommission.run(id, 'acquisition', "Commission d'acquisition", 275.3, `${year - 1}-01-01`, 'payee', `${year - 1}-02-10`);
-insertCommission.run(id, 'recurrente', `Commission de portefeuille ${year}`, 68.85, `${year}-12-31`, 'attendue', null);
+insertCommission.run(id, 'acquisition', "Commission d'acquisition", 275.3, `${year - 1}-01-01`, 'received', `${year - 1}-02-10`, 275.3, 'percentage');
+insertCommission.run(id, 'recurrente', `Commission de portefeuille ${year}`, 68.85, `${year}-12-31`, 'expected', null, 0, 'percentage');
 
 id = insertContract.run(ids[0], companyId('CSS'), 'lca', 'CSS-LCA-118822',
   'Complémentaire hospitalisation', 2160, 'mensuelle', `${year}-01-01`, null, 'actif', 3, 0.5).lastInsertRowid;
-insertCommission.run(id, 'acquisition', "Commission d'acquisition", 64.8, `${year}-01-01`, 'payee', `${year}-02-05`);
+insertCommission.run(id, 'acquisition', "Commission d'acquisition", 64.8, `${year}-01-01`, 'received', `${year}-02-05`, 64.8, 'fixed_amount');
 
 id = insertContract.run(ids[1], companyId('AXA'), 'vie_3b', 'AXA-3B-90332',
   'Assurance vie 3b mixte', 4800, 'annuelle', `${year}-04-01`, `${year + 19}-04-01`, 'actif', 4, 1).lastInsertRowid;
-insertCommission.run(id, 'acquisition', "Commission d'acquisition", 192, `${year}-04-01`, 'attendue', null);
+insertCommission.run(id, 'acquisition', "Commission d'acquisition", 192, `${year}-04-01`, 'expected', null, 0, 'percentage');
 
 id = insertContract.run(ids[1], companyId('Groupe Mutuel'), 'lamal',
   'GM-AOS-77120', 'LAMal assurance de base', 4620, 'mensuelle', `${year}-01-01`, null, 'actif', 3, 0.5).lastInsertRowid;
-insertCommission.run(id, 'acquisition', "Commission d'acquisition", 138.6, `${year}-01-01`, 'payee', `${year}-03-01`);
+insertCommission.run(id, 'acquisition', "Commission d'acquisition", 138.6, `${year}-01-01`, 'received', `${year}-03-01`, 138.6, 'fixed_amount');
 
 id = insertContract.run(ids[3], companyId('Helvetia'), 'hypotheque', 'HEL-HYP-55010',
   'Assurance amortissement hypothèque', 9200, 'annuelle', `${year - 1}-07-01`, `${year + 14}-07-01`, 'actif', 4, 1).lastInsertRowid;
-insertCommission.run(id, 'acquisition', "Commission d'acquisition", 368, `${year - 1}-07-01`, 'payee', `${year - 1}-08-15`);
-insertCommission.run(id, 'recurrente', `Commission de portefeuille ${year}`, 92, `${year}-12-31`, 'attendue', null);
+insertCommission.run(id, 'acquisition', "Commission d'acquisition", 368, `${year - 1}-07-01`, 'received', `${year - 1}-08-15`, 368, 'percentage');
+insertCommission.run(id, 'recurrente', `Commission de portefeuille ${year}`, 92, `${year}-12-31`, 'expected', null, 0, 'percentage');
 
 id = insertContract.run(ids[2], companyId('Zurich'), 'vie_3a', null,
   'Offre prévoyance 3a', 7056, 'annuelle', null, null, 'offre', 4, 1).lastInsertRowid;

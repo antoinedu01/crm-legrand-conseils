@@ -27,15 +27,25 @@ export const CLIENT_STATUS = {
 };
 
 export const COMMISSION_STATUS = {
-  attendue: 'Attendue',
-  payee: 'Payée',
-  annulee: 'Annulée',
+  expected: 'Attendue',
+  partially_received: 'Partiellement reçue',
+  received: 'Reçue',
+  disputed: 'Contestée',
+  cancelled: 'Annulée',
+  reversed: 'Reprise',
 };
 
 export const COMMISSION_TYPES = {
   acquisition: 'Acquisition',
   recurrente: 'Récurrente',
   ajustement: 'Ajustement',
+  reprise: 'Reprise',
+};
+
+export const COMMISSION_MODES = {
+  fixed_amount: 'Montant fixe (CHF)',
+  percentage: 'Pourcentage de la prime',
+  manual_adjustment: 'Ajustement manuel',
 };
 
 export const ACTIVITY_TYPES = {

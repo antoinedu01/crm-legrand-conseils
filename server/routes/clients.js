@@ -94,7 +94,7 @@ clientsRouter.get('/:id', (req, res) => {
   const commissions = db
     .prepare(
       `SELECT cm.* FROM commissions cm JOIN contracts ct ON ct.id = cm.contract_id
-       WHERE ct.client_id = ? ORDER BY cm.due_date DESC`
+       WHERE ct.client_id = ? ORDER BY cm.expected_payment_date DESC`
     )
     .all(client.id);
   const activities = db

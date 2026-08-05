@@ -631,3 +631,107 @@ toujours une copie jetable de cette sauvegarde) : migration officielle via
 publication LOT 5/LOT 6 x2 chacun (idempotence confirmée) sur cette copie
 uniquement, dix règles exécutées avec l'attribution par membre attendue,
 aucune recommandation créée automatiquement.)*
+
+## Version 15
+
+**Objectif** : correction du modèle de commission pour la LAMal et les
+assurances complémentaires LCA — constat : le CRM supposait jusqu'ici que
+TOUTE commission se calcule en pourcentage de la prime annuelle (`amount =
+annual_premium × acq_commission_rate / 100`), y compris pour la LAMal/LCA,
+où le montant est en réalité fixé par la compagnie selon la convention de
+courtage et ne se déduit d'aucune formule. Purement additive sur la table
+`commissions` existante : aucune ligne n'est supprimée, aucun montant n'est
+recalculé ni inventé.
+
+**Renommages** (métadonnées uniquement, `RENAME COLUMN`, aucune valeur
+perdue ni modifiée) :
+- `amount` → `expected_amount_chf`
+- `due_date` → `expected_payment_date`
+- `paid_date` → `received_payment_date`
+
+**Colonnes ajoutées** (guardées par `hasColumn`, comme la migration 13, pour
+rester sûres à rejouer) :
+- `received_amount_chf REAL NOT NULL DEFAULT 0` — montant réellement reçu,
+  désormais distinct du montant attendu (permet un paiement partiel).
+  **Backfill** : `= expected_amount_chf` pour toute ligne historique
+  `status = 'payee'` (fait vérifiable — aucun paiement partiel n'existait
+  avant ce lot — jamais une valeur inventée), `0` pour les autres (valeur
+  par défaut, déjà exacte).
+- `commission_mode TEXT NOT NULL DEFAULT 'percentage' CHECK (IN
+  ('fixed_amount', 'percentage', 'manual_adjustment'))`. **Backfill** :
+  `'manual_adjustment'` pour `type = 'ajustement'` (montant historiquement
+  toujours saisi librement, sans calcul de taux — description exacte de son
+  mode de calcul réel) ; le défaut `'percentage'` couvre correctement
+  `'acquisition'`/`'recurrente'`, réellement calculées via taux × prime par
+  le code existant.
+- `product_name TEXT`, `insured_label TEXT` (« assuré concerné », texte
+  libre — alternative retenue à un `household_member_id`, pour ne pas
+  coupler ce lot au module foyer du Diagnostic 360, hors périmètre),
+  `insurer_statement_reference TEXT`, `accounting_period TEXT` — nouveaux
+  champs libres, tous nullables.
+- `reversal_of_commission_id INTEGER REFERENCES commissions(id)`,
+  `reversal_amount_chf REAL` — reprise/annulation : une reprise est une
+  NOUVELLE ligne (montant négatif) liée à la commission d'origine, qui
+  n'est jamais supprimée ni modifiée dans son montant (seul son statut
+  passe à `'reversed'`, via `server/routes/commissions.js`,
+  `POST /:id/reverse`). Contrainte d'appariement (les deux colonnes
+  toujours renseignées ensemble ou absentes ensemble) appliquée par
+  triggers (`trg_commissions_reversal_pair_insert/update`), SQLite
+  n'autorisant pas de `CHECK` multi-colonnes sur un `ADD COLUMN`.
+
+**Traduction des valeurs de statut** (1:1, français interne → vocabulaire
+désormais exigé) : `'attendue'` → `'expected'`, `'payee'` → `'received'`,
+`'annulee'` → `'cancelled'`. Trois valeurs supplémentaires
+(`'partially_received'`, `'disputed'`, `'reversed'`) rejoignent le
+vocabulaire mais ne sont attribuées à aucune ligne existante par cette
+migration — uniquement prospectivement, via les routes applicatives.
+`status` ne peut pas recevoir de nouveau `DEFAULT` SQL sans reconstruction
+complète de table (écartée, migration strictement additive) : le code
+applicatif renseigne désormais toujours `status` explicitement, et un
+couple de triggers (`trg_commissions_status_valid_insert/update`) bloque,
+avec un message actionnable, toute écriture hors du nouveau vocabulaire —
+filet de sécurité contre l'ancien défaut SQL `'attendue'`, jamais atteint
+en usage normal.
+
+**Comportement applicatif corrigé** (`server/commissionCalc.js`,
+`server/routes/contracts.js`, `server/routes/commissions.js`) :
+- `computeAcquisitionCommission` retourne désormais toujours `null` pour
+  les branches `lamal`/`lca` (`FIXED_ONLY_BRANCHES`) : plus aucune
+  commission n'est générée automatiquement à la création d'un contrat
+  LAMal/LCA, quels que soient `annual_premium`/`acq_commission_rate`.
+- Le mode `'percentage'` est refusé (400) pour toute commission
+  `lamal`/`lca` (`assertCommissionModeAllowed`) ; le mode par défaut
+  proposé pour ces branches est `'fixed_amount'`.
+- `POST /api/commissions/generate-recurring` exclut structurellement les
+  branches `lamal`/`lca`.
+- Toutes les autres branches (vie, LPP, hypothèque, incapacité, etc.)
+  conservent exactement le comportement percentage précédent — aucune
+  régression.
+
+**Compatibilité** : migration strictement additive. Aucune colonne ni table
+existante n'est supprimée ; le seul contenu réécrit est le backfill ciblé
+(`received_amount_chf`, `commission_mode`, valeurs de `status`), dérivé
+sans exception de données déjà présentes.
+
+**Réversibilité** : partiellement réversible techniquement (renommages
+inverses, `DROP COLUMN`), mais sans utilité pratique — reviendrait au
+modèle défectueux corrigé par ce lot.
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire (voir
+procédure en tête de ce document). Cette migration a été développée et
+testée exclusivement sur des bases temporaires isolées (`CRM_DATA_DIR`) —
+**jamais exécutée contre `data/crm.sqlite`** au moment de son intégration ;
+son application à la base réelle reste une action humaine distincte et
+future, hors périmètre de ce correctif.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 15)`. Testée dans `test/migrations.test.js`,
+`test/commission-model.test.js` et `test/commission-calc.test.js` : base
+neuve, base historique dérivée (renommages + backfill + préservation
+intégrale d'une commission historique), idempotence, mode fixe/pourcentage/
+ajustement manuel, reprise (ligne négative liée, historique jamais altéré),
+paiement partiel, exclusion structurelle de la génération automatique pour
+LAMal/LCA, non-régression des autres branches, absence de montant codé en
+dur par assureur, environnement de démonstration isolé
+(`server/seed-commission-demo.js`, refuse explicitement de cibler
+`data/crm.sqlite`).)*

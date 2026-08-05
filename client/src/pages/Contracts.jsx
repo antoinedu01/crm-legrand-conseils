@@ -11,6 +11,7 @@ import { LcaFields } from '../components/contracts/LcaFields.jsx';
 import { buildLifeBlock, composeLifePayload, LIFE_COMPATIBLE_BRANCHES, LIFE_INITIAL_FIELDS } from '../components/contracts/lifePayload.js';
 import { LifeFields } from '../components/contracts/LifeFields.jsx';
 import { estimateLifeAcquisitionCommission, LifeCommissionError } from '../components/contracts/lifeCommissionEstimate.js';
+import { FIXED_ONLY_BRANCHES } from '../components/contracts/fixedCommissionBranches.js';
 
 const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
 
@@ -270,10 +271,14 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     }
   }
 
+  const isFixedOnlyBranch = FIXED_ONLY_BRANCHES.includes(form.branch);
   const premium = Number(form.annual_premium) || 0;
   const acqRateValue = Number(form.acq_commission_rate) || 0;
-  const acq = (premium * acqRateValue) / 100;
-  const rec = (premium * (Number(form.rec_commission_rate) || 0)) / 100;
+  // Aucun aperçu ni génération automatique de commission par pourcentage
+  // pour la LAMal/LCA (isFixedOnlyBranch) : ces branches n'utilisent jamais
+  // annual_premium × un taux, cf. server/commissionCalc.js.
+  const acq = isFixedOnlyBranch ? 0 : (premium * acqRateValue) / 100;
+  const rec = isFixedOnlyBranch ? 0 : (premium * (Number(form.rec_commission_rate) || 0)) / 100;
 
   // Aperçu Vie (Lot I4.1) : uniquement à la création, pour une branche Vie à
   // fréquence périodique (payment_frequency !== 'unique') — c'est le seul
@@ -361,12 +366,24 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
           <Field label="Échéance">
             <input type="date" value={form.end_date || ''} onChange={set('end_date')} />
           </Field>
-          <Field label="Commission d’acquisition (%)">
-            <input type="number" min="0" step="0.01" value={form.acq_commission_rate ?? ''} onChange={set('acq_commission_rate')} />
-          </Field>
-          <Field label="Commission récurrente / portefeuille (%)">
-            <input type="number" min="0" step="0.01" value={form.rec_commission_rate ?? ''} onChange={set('rec_commission_rate')} />
-          </Field>
+          {isFixedOnlyBranch ? (
+            <Field label="Commission" full>
+              <div className="alert warn" style={{ margin: 0 }}>
+                Aucun calcul automatique fondé sur la prime pour la LAMal/LCA : le montant, fixé par la
+                compagnie, se saisit en CHF depuis la page <Link to="/commissions">Commissions</Link> une
+                fois le contrat créé.
+              </div>
+            </Field>
+          ) : (
+            <>
+              <Field label="Commission d’acquisition (%)">
+                <input type="number" min="0" step="0.01" value={form.acq_commission_rate ?? ''} onChange={set('acq_commission_rate')} />
+              </Field>
+              <Field label="Commission récurrente / portefeuille (%)">
+                <input type="number" min="0" step="0.01" value={form.rec_commission_rate ?? ''} onChange={set('rec_commission_rate')} />
+              </Field>
+            </>
+          )}
           <Field label="Notes" full>
             <textarea rows={2} value={form.notes || ''} onChange={set('notes')} />
           </Field>

@@ -2,8 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LIFE_COMMISSION_BRANCHES,
+  FIXED_ONLY_BRANCHES,
+  COMMISSION_MODES,
   CommissionCalcError,
   computeAcquisitionCommission,
+  defaultCommissionModeForBranch,
+  assertCommissionModeAllowed,
 } from '../server/commissionCalc.js';
 
 const BASE = {
@@ -84,13 +88,13 @@ test('montant décimal arrondi à deux décimales, une seule fois à la fin', ()
   assert.equal(Number.isInteger(Math.round(amount * 100)), true);
 });
 
-test('LAMal — conserve la formule actuelle (prime × taux, sans durée) même si policy_term_years est fourni par erreur', () => {
-  assert.equal(computeAcquisitionCommission({ branch: 'lamal', annual_premium: 3600, payment_frequency: 'mensuelle', acq_commission_rate: 5, policy_term_years: null }), 180);
-  assert.equal(computeAcquisitionCommission({ branch: 'lamal', annual_premium: 3600, payment_frequency: 'annuelle', acq_commission_rate: 5, policy_term_years: 99 }), 180);
+test('LAMal — aucune commission automatique, quels que soient la prime, le taux ou policy_term_years (fix/fixed-health-commission-model)', () => {
+  assert.equal(computeAcquisitionCommission({ branch: 'lamal', annual_premium: 3600, payment_frequency: 'mensuelle', acq_commission_rate: 5, policy_term_years: null }), null);
+  assert.equal(computeAcquisitionCommission({ branch: 'lamal', annual_premium: 3600, payment_frequency: 'annuelle', acq_commission_rate: 5, policy_term_years: 99 }), null);
 });
 
-test('LCA — conserve la formule actuelle', () => {
-  assert.equal(computeAcquisitionCommission({ branch: 'lca', annual_premium: 900, payment_frequency: 'annuelle', acq_commission_rate: 5, policy_term_years: null }), 45);
+test('LCA — aucune commission automatique, quels que soient la prime ou le taux (fix/fixed-health-commission-model)', () => {
+  assert.equal(computeAcquisitionCommission({ branch: 'lca', annual_premium: 900, payment_frequency: 'annuelle', acq_commission_rate: 5, policy_term_years: null }), null);
 });
 
 test('Incapacité — conserve la formule actuelle', () => {
@@ -108,4 +112,46 @@ test('LIFE_COMMISSION_BRANCHES — exactement vie_3a et vie_3b', () => {
 test('taux ou prime absents (undefined) -> aucune commission, jamais une erreur de durée', () => {
   assert.equal(computeAcquisitionCommission({ branch: 'vie_3a', payment_frequency: 'annuelle', policy_term_years: null }), null);
   assert.equal(computeAcquisitionCommission({ branch: 'vie_3a', annual_premium: 6000, payment_frequency: 'annuelle', policy_term_years: null }), null);
+});
+
+// --- fix/fixed-health-commission-model : FIXED_ONLY_BRANCHES et modes ------
+
+test('FIXED_ONLY_BRANCHES — exactement lamal et lca', () => {
+  assert.deepEqual(FIXED_ONLY_BRANCHES, ['lamal', 'lca']);
+});
+
+test('COMMISSION_MODES — exactement fixed_amount, percentage, manual_adjustment', () => {
+  assert.deepEqual(COMMISSION_MODES, ['fixed_amount', 'percentage', 'manual_adjustment']);
+});
+
+test('defaultCommissionModeForBranch — fixed_amount pour LAMal/LCA, percentage pour les autres branches', () => {
+  assert.equal(defaultCommissionModeForBranch('lamal'), 'fixed_amount');
+  assert.equal(defaultCommissionModeForBranch('lca'), 'fixed_amount');
+  for (const branch of ['vie_3a', 'vie_3b', 'lpp', 'hypotheque', 'deces', 'incapacite', 'rc_menage', 'autre']) {
+    assert.equal(defaultCommissionModeForBranch(branch), 'percentage', `branche ${branch}`);
+  }
+});
+
+test('assertCommissionModeAllowed — refuse percentage pour LAMal/LCA, accepte fixed_amount/manual_adjustment', () => {
+  assert.throws(() => assertCommissionModeAllowed('lamal', 'percentage'), CommissionCalcError);
+  assert.throws(() => assertCommissionModeAllowed('lca', 'percentage'), CommissionCalcError);
+  assert.doesNotThrow(() => assertCommissionModeAllowed('lamal', 'fixed_amount'));
+  assert.doesNotThrow(() => assertCommissionModeAllowed('lamal', 'manual_adjustment'));
+  assert.doesNotThrow(() => assertCommissionModeAllowed('lca', 'fixed_amount'));
+});
+
+test('assertCommissionModeAllowed — percentage reste autorisé pour toute branche hors LAMal/LCA', () => {
+  for (const branch of ['vie_3a', 'vie_3b', 'lpp', 'hypotheque', 'deces', 'incapacite', 'rc_menage', 'autre']) {
+    assert.doesNotThrow(() => assertCommissionModeAllowed(branch, 'percentage'), `branche ${branch}`);
+  }
+});
+
+test('assertCommissionModeAllowed — message d’erreur explicite mentionnant l’absence de calcul fondé sur la prime', () => {
+  try {
+    assertCommissionModeAllowed('lamal', 'percentage');
+    assert.fail('devait lever CommissionCalcError');
+  } catch (err) {
+    assert.ok(err instanceof CommissionCalcError);
+    assert.match(err.message, /prime/i);
+  }
 });
