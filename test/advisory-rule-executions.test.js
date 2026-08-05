@@ -600,6 +600,191 @@ test('executeRuleSetForSession — finding_scope=member avec all : ne produit un
   assert.equal(full.findings_count, 2);
 });
 
+// --- Correctif : missing_information isolé par membre (rapport GATE post-
+// migration 14, test fonctionnel réel) ---------------------------------------
+// Avant correctif : `required_data` de portée membre était vérifié par un
+// SEUL contrôle `.every()` sur TOUT le foyer avant même d'évaluer la
+// condition -- une réponse manquante/`unknown` pour UN membre empêchait
+// l'évaluation de TOUS les membres pour cette règle (y compris ceux dont les
+// données étaient complètes), produisant un unique `missing_information` de
+// portée foyer (`household_member_id: null`) au lieu du finding substantif
+// pourtant dû. Corrigé : `any over members` évalue et vérifie la complétude
+// des données INDÉPENDAMMENT pour chaque membre.
+
+test('executeRuleSetForSession — correctif : membre A complet + membre B "unknown" -> finding substantif pour A, missing_information rattaché à B (jamais l\'inverse)', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [
+    { question_id: memberQId, household_member_id: principalMemberId, status: 'answered', value: true },
+  ], rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [
+    { question_id: memberQId, household_member_id: childMemberId, status: 'unknown' },
+  ], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-missing-isolated-unknown'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-MISSING-ISOLATED-UNKNOWN',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [{ answer: HEALTH_MEMBER_Q }],
+    finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+
+  assert.equal(detail.findings.length, 2, 'un finding substantif pour A + un missing_information pour B, jamais un seul finding de portée foyer masquant les deux');
+  const substantive = detail.findings.find((f) => f.finding_type !== 'missing_information');
+  const missing = detail.findings.find((f) => f.finding_type === 'missing_information');
+  assert.ok(substantive, 'le finding substantif du membre A doit exister');
+  assert.equal(substantive.household_member_id, principalMemberId);
+  assert.equal(substantive.finding_scope, 'member');
+  assert.equal(substantive.rule_id !== undefined, true);
+  assert.ok(missing, 'le missing_information du membre B doit exister');
+  assert.equal(missing.household_member_id, childMemberId, 'rattaché au membre RÉELLEMENT concerné, jamais household_member_id=null');
+  assert.equal(missing.finding_scope, 'member');
+  assert.equal(missing.session_id, sessionId);
+});
+
+test('executeRuleSetForSession — correctif : membre A complet + membre B SANS AUCUNE réponse -> même isolation (pas seulement le cas "unknown" explicite)', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [
+    { question_id: memberQId, household_member_id: principalMemberId, status: 'answered', value: true },
+  ], rev(sessionId), REQ);
+  // childMemberId : aucune ligne advisory_answers du tout pour cette question.
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-missing-isolated-absent'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-MISSING-ISOLATED-ABSENT',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [{ answer: HEALTH_MEMBER_Q }],
+    finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  assert.equal(detail.findings.length, 2);
+  assert.equal(detail.findings.find((f) => f.finding_type !== 'missing_information').household_member_id, principalMemberId);
+  assert.equal(detail.findings.find((f) => f.finding_type === 'missing_information').household_member_id, childMemberId);
+});
+
+test('executeRuleSetForSession — correctif : inverse (membre A "unknown", membre B complet et déclenchant) -> aucun mélange entre membres', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: childMemberId, status: 'answered', value: true }], rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: principalMemberId, status: 'unknown' }], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-missing-isolated-reverse'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-MISSING-ISOLATED-REVERSE',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [{ answer: HEALTH_MEMBER_Q }],
+    finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  assert.equal(detail.findings.length, 2);
+  const substantive = detail.findings.find((f) => f.finding_type !== 'missing_information');
+  const missing = detail.findings.find((f) => f.finding_type === 'missing_information');
+  assert.equal(substantive.household_member_id, childMemberId, 'le membre complet et déclenchant obtient bien son finding, quel que soit son rôle dans le foyer');
+  assert.equal(missing.household_member_id, principalMemberId);
+  // Aucun mélange : les références d'entrées utilisées par le finding de B ne doivent jamais citer A.
+  assert.ok(substantive.used_inputs_ref.every((r) => r.household_member_id == null || r.household_member_id === childMemberId));
+});
+
+test('executeRuleSetForSession — correctif : trois membres (A déclenche, B données manquantes, C complet mais ne déclenche pas) -> exactement 1 substantif + 1 missing_information, C absent des deux', () => {
+  const aClientId = insertClient();
+  const { id: hh } = createHousehold({ primary_client_id: aClientId }, REQ);
+  const a = db.prepare("SELECT id FROM household_members WHERE household_id = ? AND member_role = 'principal'").get(hh).id;
+  const bClientId = insertClient();
+  const { id: b } = addMember(hh, { member_role: 'enfant', client_id: bClientId }, REQ);
+  const cClientId = insertClient();
+  const { id: c } = addMember(hh, { member_role: 'enfant', client_id: cClientId }, REQ);
+
+  const sessionId = createAndStartSession(hh, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [
+    { question_id: memberQId, household_member_id: a, status: 'answered', value: true },
+    { question_id: memberQId, household_member_id: c, status: 'answered', value: false },
+  ], rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: b, status: 'unknown' }], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-missing-isolated-three'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-MISSING-ISOLATED-THREE',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [{ answer: HEALTH_MEMBER_Q }],
+    finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  assert.equal(detail.findings.length, 2, 'C a des données complètes mais ne satisfait pas la condition -- zéro finding pour lui, ni substantif ni missing_information');
+  assert.equal(detail.findings.find((f) => f.finding_type !== 'missing_information').household_member_id, a);
+  assert.equal(detail.findings.find((f) => f.finding_type === 'missing_information').household_member_id, b);
+  assert.ok(!detail.findings.some((f) => f.household_member_id === c));
+});
+
+test('executeRuleSetForSession — correctif : quantificateur "all" reste un contrôle COLLECTIF inchangé (donnée manquante pour un membre = un seul missing_information de portée foyer, jamais par membre)', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: principalMemberId, status: 'answered', value: true }], rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: childMemberId, status: 'unknown' }], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-missing-all-collective'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-MISSING-ALL-COLLECTIVE',
+    conditions: { op: 'all', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [{ answer: HEALTH_MEMBER_Q }],
+    finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  assert.equal(detail.findings.length, 1, '"all" reste une vérité collective : une donnée manquante pour un membre rend le résultat indéterminable pour TOUS, jamais un finding partiel');
+  assert.equal(detail.findings[0].finding_type, 'missing_information');
+  assert.equal(detail.findings[0].household_member_id, null);
+});
+
+test('executeRuleSetForSession — correctif : aucune recommandation automatique, historique et audit inchangés (un seul événement "exécution lancée" malgré plusieurs findings)', () => {
+  const sessionId = createAndStartSession(householdId, 'health', { versionId: healthVersionId });
+  const memberQId = findQuestionId(healthVersionId, HEALTH_MEMBER_Q);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: principalMemberId, status: 'answered', value: true }], rev(sessionId), REQ);
+  S.recordAnswers(sessionId, [{ question_id: memberQId, household_member_id: childMemberId, status: 'unknown' }], rev(sessionId), REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-missing-no-autoreco'), domain: 'health', name: 'X' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-MISSING-NO-AUTORECO',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: HEALTH_MEMBER_Q }, value: true } },
+    required_data: [{ answer: HEALTH_MEMBER_Q }],
+    finding_scope: 'member',
+  }), REQ);
+  publishHealthRuleSet(ruleSetId);
+
+  const recBefore = db.prepare('SELECT COUNT(*) AS n FROM advisory_recommendations').get().n;
+  const auditBefore = auditCount('exécution lancée');
+  ensureCompleted(sessionId);
+  const result = E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM advisory_recommendations').get().n, recBefore, 'jamais de recommandation créée automatiquement, même avec un mélange finding/missing_information');
+  assert.equal(auditCount('exécution lancée'), auditBefore + 1, 'un seul événement d’audit pour l’exécution entière, jamais un par membre');
+  const detail = E.getExecutionDetail(sessionId, result.execution_id);
+  assert.equal(detail.findings.length, 2);
+  // Historique : les deux findings restent consultables ensemble, dans la même exécution.
+  assert.deepEqual(detail.findings.map((f) => f.rule_execution_id), [result.execution_id, result.execution_id]);
+});
+
 test('executeRuleSetForSession — finding_scope=member : un membre RETIRÉ après démarrage reste rattaché (snapshot figé de la session)', () => {
   const { householdId: hh, principalMemberId: principal, childMemberId: child } = buildHouseholdWithChild();
   const sessionId = createAndStartSession(hh, 'health', { versionId: healthVersionId });
