@@ -477,6 +477,31 @@ l'API, voir `API_CONTRACT.md` §7).
 - Le rapport (`REPORT_SPECIFICATION.md`) reprend explicitement la liste des
   informations manquantes ayant empêché une conclusion.
 
+> **`display_condition` (LOT 7A-T)** — `isRequiredDataPresent`/
+> `isRequiredDataPresentForMember` (`server/advisoryRuleExecutions.js`)
+> considèrent désormais qu'une question dont la `display_condition` évalue
+> à faux pour un membre (ou pour le foyer) n'est jamais « manquante » — elle
+> n'est simplement pas applicable, en réutilisant le même évaluateur pur
+> `evaluateCondition` (`server/advisoryConditions.js`) déjà utilisé par
+> `getSessionWorkspace`/`validateSessionForCompletion`
+> (`server/advisorySessions.js`).
+>
+> **Limite documentée, volontairement non traitée par ce lot** : seule la
+> `display_condition` de la QUESTION elle-même est prise en compte — pas
+> celle de sa SECTION parente (`advisory_sections.display_condition`,
+> colonne distincte, pourtant déjà supportée par le schéma et par
+> `Q.upsertSection`). Si une future version de questionnaire masque une
+> section entière via `display_condition` et qu'une règle référence en
+> `required_data` une question de cette section (elle-même sans
+> `display_condition` propre), cette question sera à tort traitée comme
+> manquante pour les membres/foyers auxquels la section ne s'applique pas —
+> reproduisant, un niveau au-dessus, exactement le défaut que ce lot corrige
+> au niveau question. Aucun contenu publié à ce jour (`diagnostic-sante-phase1`,
+> `regles-sante-phase1`, `diagnostic-vie-prevoyance-phase1` et leurs règles)
+> n'utilise de `display_condition` de section — ce n'est donc pas une
+> régression active, mais une limite à traiter avant qu'un futur lot
+> n'introduise une section conditionnelle référencée par une règle.
+
 ## 9. Empêcher les recommandations silencieuses
 
 - Toute `advisory_recommendation` à l'état `envisagee` doit être visible

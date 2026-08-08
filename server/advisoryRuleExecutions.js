@@ -10,6 +10,7 @@ import { assert, inEnum, ValidationError } from './validate.js';
 import { audit } from './audit.js';
 import { AdvisoryError, displayName } from './advisoryHouseholds.js';
 import { evaluateRuleCondition, refKind, resolveQuantifierMembers } from './advisoryRuleConditions.js';
+import { evaluateCondition } from './advisoryConditions.js';
 import { sessionMembersFor, answerValueFor, isSessionWritable } from './advisorySessions.js';
 import { getVersionDetail } from './advisoryQuestionnaires.js';
 import { getRuleSetDetail, listRuleSets, RULE_SET_DOMAINS } from './advisoryRules.js';
@@ -322,6 +323,32 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
         return { status: row.status, value: answerValueFor(row) };
       }
 
+      // LOT 7A-T : une question dont la `display_condition` évalue à faux
+      // pour ce membre (ou pour le foyer, en portée household) n'est jamais
+      // « manquante » — elle n'est simplement pas applicable, exactement la
+      // même règle déjà appliquée à la complétude de session
+      // (`validateSessionForCompletion`, server/advisorySessions.js) et à la
+      // visibilité de l'espace de travail (`getSessionWorkspace`). Réutilise
+      // le même évaluateur pur `evaluateCondition` (server/advisoryConditions.js)
+      // — jamais un second moteur d'évaluation de conditions. Sans
+      // `display_condition` (toute question v1 historique, qui n'en définit
+      // aucune), retourne `true` immédiatement : comportement strictement
+      // inchangé pour tout contenu déjà publié.
+      //
+      // Limite documentée (LOT 7A-T, docs/advisory/RULES_ENGINE.md §8) :
+      // seule la `display_condition` de la QUESTION est prise en compte ici,
+      // jamais celle de sa SECTION parente (`advisory_sections.display_condition`)
+      // — aucun contenu publié à ce jour n'en utilise, non traité par ce lot.
+      function isVisibleForContext(q, member) {
+        if (!q.display_condition) return true;
+        const cond = JSON.parse(q.display_condition);
+        return evaluateCondition(cond, {
+          session: { domain: session.domain },
+          member: member ? { member_role: member.member_role } : null,
+          getAnswer: (stableKey) => resolveAnswerFor(stableKey, member),
+        });
+      }
+
       // Constat GATE LOT 4A (revue `rules-engine-auditor`) : une question de
       // portée « member » exige que TOUS les membres du foyer figé aient
       // répondu pour être considérée présente — jamais « au moins un membre
@@ -341,10 +368,12 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
           if (q.scope === 'member') {
             if (members.length === 0) return true; // vacuité : aucun membre, rien ne manque
             return members.every((m) => {
+              if (!isVisibleForContext(q, m)) return true; // non applicable à ce membre : jamais manquant (LOT 7A-T)
               const row = answerIndex.get(`${q.id}|${m.id}`);
               return !!(row && row.status === 'answered');
             });
           }
+          if (!isVisibleForContext(q, null)) return true; // non applicable au foyer : jamais manquant (LOT 7A-T)
           const row = answerIndex.get(`${q.id}|household`);
           return !!(row && row.status === 'answered');
         }
@@ -495,6 +524,7 @@ export function executeRuleSetForSession(sessionId, domain, expectedRevision, re
       function isRequiredDataPresentForMember(ref, member) {
         const q = byStableKey.get(ref.answer);
         if (!q) return false;
+        if (!isVisibleForContext(q, member)) return true; // non applicable à ce membre : jamais manquant (LOT 7A-T)
         const row = answerIndex.get(`${q.id}|${member.id}`);
         return !!(row && row.status === 'answered');
       }
