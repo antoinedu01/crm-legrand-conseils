@@ -19,22 +19,22 @@ dashboardRouter.get('/', (req, res) => {
 
   const commissionsPaidYear = db
     .prepare(
-      `SELECT COALESCE(SUM(amount), 0) AS s FROM commissions
-       WHERE status = 'payee' AND strftime('%Y', COALESCE(paid_date, due_date)) = ?`
+      `SELECT COALESCE(SUM(received_amount_chf), 0) AS s FROM commissions
+       WHERE status != 'cancelled' AND strftime('%Y', COALESCE(received_payment_date, expected_payment_date)) = ?`
     )
     .get(year).s;
   const commissionsPending = db
-    .prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM commissions WHERE status = 'attendue'")
+    .prepare("SELECT COALESCE(SUM(expected_amount_chf - received_amount_chf), 0) AS s FROM commissions WHERE status != 'cancelled'")
     .get().s;
 
-  // Série mensuelle des commissions (12 derniers mois, payées + attendues)
+  // Série mensuelle des commissions (12 derniers mois, reçues + attendues)
   const monthly = db
     .prepare(
-      `SELECT strftime('%Y-%m', due_date) AS month,
-        SUM(CASE WHEN status = 'payee' THEN amount ELSE 0 END) AS paid,
-        SUM(CASE WHEN status = 'attendue' THEN amount ELSE 0 END) AS pending
+      `SELECT strftime('%Y-%m', expected_payment_date) AS month,
+        SUM(CASE WHEN status != 'cancelled' THEN received_amount_chf ELSE 0 END) AS paid,
+        SUM(CASE WHEN status != 'cancelled' THEN expected_amount_chf - received_amount_chf ELSE 0 END) AS pending
        FROM commissions
-       WHERE due_date >= date('now', '-12 months') AND due_date <= date('now', '+1 month')
+       WHERE expected_payment_date >= date('now', '-12 months') AND expected_payment_date <= date('now', '+1 month')
        GROUP BY month ORDER BY month`
     )
     .all();

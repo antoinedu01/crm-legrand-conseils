@@ -1395,6 +1395,157 @@ if (version < 14) {
   migrate();
 }
 
+// Migration 15 — Correction du modèle de commission pour la LAMal et les
+// assurances complémentaires LCA (constat : le CRM supposait jusqu'ici que
+// TOUTE commission se calcule en pourcentage de la prime annuelle — faux
+// pour la LAMal/LCA, où le montant est fixé par la compagnie selon la
+// convention de courtage et ne se déduit d'aucune formule). Purement
+// additive sur la table `commissions` existante : aucune ligne existante
+// n'est supprimée, aucun montant n'est recalculé ni inventé — seuls des
+// renommages de colonnes (préservant les valeurs), de nouvelles colonnes
+// (valeurs par défaut neutres) et une traduction 1:1 des valeurs de statut
+// sont appliqués, le tout dans une seule transaction.
+if (version < 15) {
+  const migrate = db.transaction(() => {
+    // Même garde d'idempotence que la migration 13 (hasColumn) : nécessaire
+    // ici aussi car certains tests construisent une base déjà passée par le
+    // schéma cible puis refixent `user_version` à une valeur antérieure —
+    // chaque étape doit donc rester sûre à rejouer, jamais supposée
+    // "première exécution".
+    function hasColumn(table, column) {
+      return db.prepare(`PRAGMA table_info("${table}")`).all().some((c) => c.name === column);
+    }
+
+    // Renommages : ces trois colonnes changent de nom pour correspondre au
+    // nouveau modèle (montant/date ATTENDU vs REÇU), mais aucune valeur
+    // n'est perdue ni modifiée — ALTER TABLE ... RENAME COLUMN est une
+    // opération de métadonnées SQLite, jamais une réécriture de données.
+    if (hasColumn('commissions', 'amount')) {
+      db.exec(`ALTER TABLE commissions RENAME COLUMN amount TO expected_amount_chf`);
+    }
+    if (hasColumn('commissions', 'due_date')) {
+      db.exec(`ALTER TABLE commissions RENAME COLUMN due_date TO expected_payment_date`);
+    }
+    if (hasColumn('commissions', 'paid_date')) {
+      db.exec(`ALTER TABLE commissions RENAME COLUMN paid_date TO received_payment_date`);
+    }
+
+    // Nouvelles colonnes. `received_amount_chf` permet désormais un
+    // paiement partiel (distinct du montant attendu) ; `commission_mode`
+    // porte le mode de calcul réel de la ligne (jamais déduit du montant a
+    // posteriori) ; les champs de reprise permettent d'annuler une
+    // commission déjà reçue SANS jamais supprimer la ligne d'origine
+    // (voir backfill et règles applicatives dans server/routes/commissions.js).
+    if (!hasColumn('commissions', 'received_amount_chf')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN received_amount_chf REAL NOT NULL DEFAULT 0`);
+    }
+    if (!hasColumn('commissions', 'commission_mode')) {
+      db.exec(`
+        ALTER TABLE commissions ADD COLUMN commission_mode TEXT NOT NULL DEFAULT 'percentage'
+          CHECK (commission_mode IN ('fixed_amount', 'percentage', 'manual_adjustment'))
+      `);
+    }
+    if (!hasColumn('commissions', 'product_name')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN product_name TEXT`);
+    }
+    if (!hasColumn('commissions', 'insured_label')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN insured_label TEXT`);
+    }
+    if (!hasColumn('commissions', 'insurer_statement_reference')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN insurer_statement_reference TEXT`);
+    }
+    if (!hasColumn('commissions', 'accounting_period')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN accounting_period TEXT`);
+    }
+    if (!hasColumn('commissions', 'reversal_of_commission_id')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN reversal_of_commission_id INTEGER REFERENCES commissions(id)`);
+    }
+    if (!hasColumn('commissions', 'reversal_amount_chf')) {
+      db.exec(`ALTER TABLE commissions ADD COLUMN reversal_amount_chf REAL`);
+    }
+    // Un montant de reprise n'a de sens qu'accompagné de son lien vers la
+    // commission d'origine, et réciproquement — jamais l'un sans l'autre.
+    // Ajoutée séparément : SQLite n'autorise pas une contrainte CHECK
+    // portant sur plusieurs colonnes dans le même ADD COLUMN.
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_commissions_reversal_pair_insert
+      BEFORE INSERT ON commissions
+      WHEN (NEW.reversal_of_commission_id IS NULL) != (NEW.reversal_amount_chf IS NULL)
+      BEGIN
+        SELECT RAISE(ABORT, 'reversal_of_commission_id et reversal_amount_chf doivent être renseignés ensemble ou absents ensemble');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_commissions_reversal_pair_update
+      BEFORE UPDATE ON commissions
+      WHEN (NEW.reversal_of_commission_id IS NULL) != (NEW.reversal_amount_chf IS NULL)
+      BEGIN
+        SELECT RAISE(ABORT, 'reversal_of_commission_id et reversal_amount_chf doivent être renseignés ensemble ou absents ensemble');
+      END;
+    `);
+
+    // `status` existe depuis la version 1 avec `DEFAULT 'attendue'` (SQLite
+    // ne permet pas de modifier le DEFAULT d'une colonne existante sans
+    // reconstruction complète de table — écarté ici pour rester cohérent
+    // avec le style strictement additif de toutes les migrations
+    // précédentes). Le code applicatif renseigne désormais toujours
+    // explicitement `status` avec le nouveau vocabulaire ; ce couple de
+    // triggers est un filet de sécurité qui bloque, avec un message
+    // actionnable, toute écriture qui s'appuierait par erreur sur l'ancien
+    // défaut SQL ou sur une valeur hors du nouveau vocabulaire — plutôt que
+    // de laisser une valeur française obsolète se réinsérer silencieusement.
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_commissions_status_valid_insert
+      BEFORE INSERT ON commissions
+      WHEN NEW.status NOT IN ('expected', 'partially_received', 'received', 'disputed', 'cancelled', 'reversed')
+      BEGIN
+        SELECT RAISE(ABORT, 'status de commission invalide (attendu : expected/partially_received/received/disputed/cancelled/reversed)');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_commissions_status_valid_update
+      BEFORE UPDATE OF status ON commissions
+      WHEN NEW.status NOT IN ('expected', 'partially_received', 'received', 'disputed', 'cancelled', 'reversed')
+      BEGIN
+        SELECT RAISE(ABORT, 'status de commission invalide (attendu : expected/partially_received/received/disputed/cancelled/reversed)');
+      END;
+    `);
+
+    // Backfill `received_amount_chf` : une commission historique déjà
+    // 'payee' avait, par construction du code existant, intégralement
+    // reçu son montant (aucun paiement partiel n'a jamais existé avant ce
+    // lot) — fait vérifiable, jamais une valeur inventée. Les commissions
+    // 'attendue'/'annulee' n'ont jamais rien reçu (0, valeur par défaut).
+    db.exec(`UPDATE commissions SET received_amount_chf = expected_amount_chf WHERE status = 'payee'`);
+
+    // Backfill `commission_mode` : la valeur par défaut 'percentage'
+    // couvre déjà correctement 'acquisition'/'recurrente', réellement
+    // calculées via taux × prime par le code existant
+    // (server/commissionCalc.js, generate-recurring). Les lignes de type
+    // 'ajustement' ont toujours été un montant saisi librement par le
+    // conseiller, sans aucun calcul de taux — 'manual_adjustment' est donc
+    // la description exacte de leur mode de calcul historique, jamais une
+    // reclassification arbitraire.
+    db.exec(`UPDATE commissions SET commission_mode = 'manual_adjustment' WHERE type = 'ajustement'`);
+
+    // Traduction 1:1 des valeurs de statut vers le nouveau vocabulaire
+    // (français interne → anglais, aligné sur le référentiel désormais
+    // exigé : expected/partially_received/received/disputed/cancelled/
+    // reversed). Seules les trois valeurs historiques existent avant ce
+    // lot ; aucune commission existante ne se voit attribuer
+    // 'partially_received'/'disputed'/'reversed' par cette migration —
+    // ces trois valeurs ne s'appliquent que prospectivement, via les
+    // routes applicatives.
+    db.exec(`UPDATE commissions SET status = 'expected' WHERE status = 'attendue'`);
+    db.exec(`UPDATE commissions SET status = 'received' WHERE status = 'payee'`);
+    db.exec(`UPDATE commissions SET status = 'cancelled' WHERE status = 'annulee'`);
+
+    // `type` gagne une quatrième valeur possible ('reprise'), déjà
+    // couverte par la contrainte applicative existante (aucune contrainte
+    // SQL sur `type`, comme pour `status` — cohérence avec le reste du
+    // schéma, cf. contracts.status/clients.status).
+
+    db.pragma('user_version = 15');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

@@ -716,8 +716,10 @@ contractsRouter.get('/', (req, res) => {
   let sql = `
     SELECT ct.*, co.name AS company_name,
       cl.first_name, cl.last_name, cl.company_name AS client_company, cl.type AS client_type,
-      (SELECT COALESCE(SUM(amount), 0) FROM commissions WHERE contract_id = ct.id AND status = 'payee') AS commissions_paid,
-      (SELECT COALESCE(SUM(amount), 0) FROM commissions WHERE contract_id = ct.id AND status = 'attendue') AS commissions_pending,
+      (SELECT COALESCE(SUM(received_amount_chf), 0) FROM commissions
+        WHERE contract_id = ct.id AND status != 'cancelled') AS commissions_paid,
+      (SELECT COALESCE(SUM(expected_amount_chf - received_amount_chf), 0) FROM commissions
+        WHERE contract_id = ct.id AND status != 'cancelled') AS commissions_pending,
       lam.care_model AS lamal_care_model, lam.deductible AS lamal_deductible,
       lam.accident_coverage AS lamal_accident_coverage, lam.canton AS lamal_canton,
       lam.tariff_region AS lamal_tariff_region,
@@ -872,11 +874,16 @@ contractsRouter.post('/', (req, res) => {
       .prepare(`INSERT INTO contracts (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
       .run(...fields.map((f) => data[f]));
     const id = info.lastInsertRowid;
-    // Commission d'acquisition générée automatiquement
+    // Commission d'acquisition générée automatiquement — jamais pour les
+    // branches LAMal/LCA (computeAcquisitionCommission y retourne toujours
+    // null, cf. server/commissionCalc.js) : pour ces branches, aucun
+    // montant n'est inventé ici ; le conseiller saisit une ligne
+    // 'fixed_amount' depuis la page Commissions une fois le montant connu
+    // (convention communiquée par la compagnie).
     if (commissionAmount != null) {
       db.prepare(
-        `INSERT INTO commissions (contract_id, type, label, amount, due_date, status)
-         VALUES (?, 'acquisition', 'Commission d''acquisition', ?, ?, 'attendue')`
+        `INSERT INTO commissions (contract_id, type, label, expected_amount_chf, expected_payment_date, status, commission_mode)
+         VALUES (?, 'acquisition', 'Commission d''acquisition', ?, ?, 'expected', 'percentage')`
       ).run(id, commissionAmount, data.start_date || null);
     }
     const lamal = lamalProvided && lamalBody !== null ? writeLamal(id, lamalBody) : null;
@@ -1084,12 +1091,25 @@ contractsRouter.put('/:id', (req, res) => {
 contractsRouter.delete('/:id', (req, res) => {
   const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
   if (!contract) return res.status(404).json({ error: 'Contrat introuvable.' });
-  const paid = db
-    .prepare("SELECT COUNT(*) AS n FROM commissions WHERE contract_id = ? AND status = 'payee'")
+  // Aucune commission déjà (partiellement) reçue, reprise, ou ayant fait
+  // l'objet d'une reprise ne doit jamais être supprimée (§5 — historique
+  // toujours conservé) ; un contrat portant une telle ligne ne peut donc
+  // pas être supprimé (avec toutes ses commissions) non plus.
+  const protectedCount = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM commissions c
+       WHERE c.contract_id = ?
+         AND (
+           c.status IN ('received', 'partially_received', 'reversed')
+           OR c.received_amount_chf > 0
+           OR c.reversal_of_commission_id IS NOT NULL
+           OR EXISTS (SELECT 1 FROM commissions r WHERE r.reversal_of_commission_id = c.id)
+         )`
+    )
     .get(contract.id).n;
-  if (paid > 0) {
+  if (protectedCount > 0) {
     return res.status(400).json({
-      error: 'Des commissions payées sont liées à ce contrat (conservation comptable 10 ans, art. 958f CO). Passez-le en « résilié » plutôt que de le supprimer.',
+      error: 'Des commissions reçues, reprises ou ayant fait l’objet d’une reprise sont liées à ce contrat (conservation comptable 10 ans, art. 958f CO). Passez-le en « résilié » plutôt que de le supprimer.',
     });
   }
   const tx = db.transaction(() => {

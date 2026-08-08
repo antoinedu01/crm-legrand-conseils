@@ -574,7 +574,7 @@ test('executePurge — jamais de suppression sur un contrat ou une commission', 
   // qu'AUCUN code de purge ne touche jamais contracts/commissions, y compris
   // indirectement -- au cas où l'éligibilité changerait de logique un jour.
   const contractId = insertContract(principalClientId);
-  db.prepare("INSERT INTO commissions (contract_id, type, amount) VALUES (?, 'acquisition', 500)").run(contractId);
+  db.prepare("INSERT INTO commissions (contract_id, type, expected_amount_chf, status) VALUES (?, 'acquisition', 500, 'expected')").run(contractId);
   const contractsBefore = db.prepare('SELECT COUNT(*) AS n FROM contracts').get().n;
   const commissionsBefore = db.prepare('SELECT COUNT(*) AS n FROM commissions').get().n;
 

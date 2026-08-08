@@ -19,11 +19,11 @@ channelsRouter.get('/', (req, res) => {
           JOIN lead_details ld ON ld.client_id = ct.client_id
           WHERE ld.channel_id = ch.id AND ct.status = 'actif'
           AND strftime('%Y', ct.created_at) = ?) AS contracts_year,
-        (SELECT COALESCE(SUM(cm.amount), 0) FROM commissions cm
+        (SELECT COALESCE(SUM(cm.received_amount_chf), 0) FROM commissions cm
           JOIN contracts ct ON ct.id = cm.contract_id
           JOIN lead_details ld ON ld.client_id = ct.client_id
-          WHERE ld.channel_id = ch.id AND cm.status = 'payee'
-          AND strftime('%Y', COALESCE(cm.paid_date, cm.due_date)) = ?) AS commissions_year,
+          WHERE ld.channel_id = ch.id AND cm.status != 'cancelled'
+          AND strftime('%Y', COALESCE(cm.received_payment_date, cm.expected_payment_date)) = ?) AS commissions_year,
         (SELECT COALESCE(SUM(cc.amount), 0) FROM channel_costs cc
           WHERE cc.channel_id = ch.id AND cc.month LIKE ? || '-%') AS costs_year
        FROM channels ch

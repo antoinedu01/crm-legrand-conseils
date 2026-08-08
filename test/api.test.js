@@ -116,7 +116,7 @@ test('création d’un contrat : commission d’acquisition automatique + averti
   // Lot I4.1 : 7056 (prime annuelle) × 20 (durée) × 4 (taux) / 100 = 5644.80
   // — remplace l'ancien montant 282.24 (= 7056 × 4 / 100), qui ignorait la
   // durée contractuelle du contrat Vie.
-  assert.equal(acq.amount, 5644.80);
+  assert.equal(acq.expected_amount_chf, 5644.80);
 });
 
 test('un taux de commission invalide est refusé', async () => {
@@ -175,7 +175,7 @@ test('la sauvegarde produit un fichier SQLite', async () => {
 test('un contrat avec commission payée ne peut pas être supprimé', async () => {
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === contractId && c.type === 'acquisition');
-  await auth(request(app).put(`/api/commissions/${acq.id}`)).send({ status: 'payee' });
+  await auth(request(app).put(`/api/commissions/${acq.id}`)).send({ status: 'received' });
   const del = await auth(request(app).delete(`/api/contracts/${contractId}`));
   assert.equal(del.status, 400);
   assert.ok(del.body.error.includes('958f'));
@@ -553,7 +553,7 @@ test('LAMal — la suppression du contrat supprime automatiquement contract_lama
   assert.ok(!list.body.find((c) => c.id === created.body.id), 'le contrat a bien été supprimé');
 });
 
-test('LAMal — non-régression de la génération de commission sur un contrat enrichi', async () => {
+test('LAMal — aucune commission générée automatiquement sur un contrat enrichi (fix/fixed-health-commission-model)', async () => {
   const client = await auth(request(app).post('/api/clients')).send({
     first_name: 'Commission', last_name: 'Lamal', status: 'client',
   });
@@ -564,9 +564,8 @@ test('LAMal — non-régression de la génération de commission sur un contrat 
   });
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
-  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LAMal enrichi');
-  assert.equal(acq.amount, 90);
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id);
+  assert.equal(acq, undefined, 'aucune commission ne doit jamais être générée automatiquement pour un contrat LAMal, même enrichi (aucun calcul fondé sur la prime pour cette branche)');
 });
 
 // --- Lot C : détails LCA (contract_lca) -------------------------------
@@ -768,7 +767,7 @@ test('LCA — coexistence avec LAMal sans régression, et refus d’un bloc comb
   assert.equal(combinedOnLca.status, 400);
 });
 
-test('LCA — non-régression de la génération de commission sur un contrat enrichi', async () => {
+test('LCA — aucune commission générée automatiquement sur un contrat enrichi (fix/fixed-health-commission-model)', async () => {
   const client = await auth(request(app).post('/api/clients')).send({
     first_name: 'Commission', last_name: 'Lca', status: 'client',
   });
@@ -779,9 +778,8 @@ test('LCA — non-régression de la génération de commission sur un contrat en
   });
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
-  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LCA enrichi');
-  assert.equal(acq.amount, 45);
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id);
+  assert.equal(acq, undefined, 'aucune commission ne doit jamais être générée automatiquement pour un contrat LCA, même enrichi (aucun calcul fondé sur la prime pour cette branche)');
 });
 
 test('LCA — les entrées d’audit création/modification/suppression sont journalisées', async () => {
@@ -1066,7 +1064,7 @@ test('Vie — non-régression de la génération de commission sur un contrat en
   assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat vie enrichi');
   // Lot I4.1 : 2400 × 10 (durée) × 5 (taux) / 100 = 1200 — remplace l'ancien
   // montant 120 (= 2400 × 5 / 100), qui ignorait la durée contractuelle.
-  assert.equal(acq.amount, 1200);
+  assert.equal(acq.expected_amount_chf, 1200);
 });
 
 // --- Lot I4.1 : commission d'acquisition Vie calculée sur le volume ------
@@ -1086,7 +1084,7 @@ test('Vie — commission d’acquisition calculée sur le volume contractuel (pr
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
   assert.ok(acq);
-  assert.equal(acq.amount, 4800);
+  assert.equal(acq.expected_amount_chf, 4800);
 });
 
 test('Vie 3b — même formule volume contractuel', async () => {
@@ -1101,7 +1099,7 @@ test('Vie 3b — même formule volume contractuel', async () => {
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 4800);
+  assert.equal(acq.expected_amount_chf, 4800);
 });
 
 test('Vie mensuelle — annual_premium reste la prime annuelle, aucun facteur 12 supplémentaire', async () => {
@@ -1116,7 +1114,7 @@ test('Vie mensuelle — annual_premium reste la prime annuelle, aucun facteur 12
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 4800);
+  assert.equal(acq.expected_amount_chf, 4800);
 });
 
 test('Vie trimestrielle — aucun facteur 4 supplémentaire', async () => {
@@ -1131,7 +1129,7 @@ test('Vie trimestrielle — aucun facteur 4 supplémentaire', async () => {
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 4800);
+  assert.equal(acq.expected_amount_chf, 4800);
 });
 
 test('Vie semestrielle — aucun facteur 2 supplémentaire', async () => {
@@ -1146,7 +1144,7 @@ test('Vie semestrielle — aucun facteur 2 supplémentaire', async () => {
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 4800);
+  assert.equal(acq.expected_amount_chf, 4800);
 });
 
 test('Vie prime unique — prime × taux, sans durée', async () => {
@@ -1161,7 +1159,7 @@ test('Vie prime unique — prime × taux, sans durée', async () => {
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 240);
+  assert.equal(acq.expected_amount_chf, 240);
 });
 
 test('Vie périodique, taux positif, durée absente -> requête rejetée (400), aucun contrat créé', async () => {
@@ -1222,7 +1220,7 @@ test('Vie — durée = 1 -> commission = prime annuelle × taux', async () => {
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 240);
+  assert.equal(acq.expected_amount_chf, 240);
 });
 
 test('Vie — montant décimal arrondi à deux décimales, une seule fois à la fin', async () => {
@@ -1238,10 +1236,10 @@ test('Vie — montant décimal arrondi à deux décimales, une seule fois à la 
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
   const expected = Math.round(1999.99 * 7 * 3.5) / 100;
-  assert.equal(acq.amount, expected);
+  assert.equal(acq.expected_amount_chf, expected);
 });
 
-test('LAMal — la formule de commission actuelle reste inchangée par le Lot I4.1 (pas de facteur durée)', async () => {
+test('LAMal — aucun calcul fondé sur la prime, quel que soit acq_commission_rate (fix/fixed-health-commission-model)', async () => {
   const client = await auth(request(app).post('/api/clients')).send({
     first_name: 'Regression', last_name: 'Lamal', status: 'client',
   });
@@ -1252,11 +1250,11 @@ test('LAMal — la formule de commission actuelle reste inchangée par le Lot I4
   });
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
-  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 180);
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id);
+  assert.equal(acq, undefined, 'un acq_commission_rate positif ne doit jamais générer de commission LAMal automatique');
 });
 
-test('LCA — la formule de commission actuelle reste inchangée par le Lot I4.1', async () => {
+test('LCA — aucun calcul fondé sur la prime, quel que soit acq_commission_rate (fix/fixed-health-commission-model)', async () => {
   const client = await auth(request(app).post('/api/clients')).send({
     first_name: 'Regression', last_name: 'Lca', status: 'client',
   });
@@ -1267,8 +1265,8 @@ test('LCA — la formule de commission actuelle reste inchangée par le Lot I4.1
   });
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
-  const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 45);
+  const acq = commissions.body.find((c) => c.contract_id === res.body.id);
+  assert.equal(acq, undefined, 'un acq_commission_rate positif ne doit jamais générer de commission LCA automatique');
 });
 
 test('Incapacité — la formule de commission actuelle reste inchangée par le Lot I4.1', async () => {
@@ -1283,7 +1281,7 @@ test('Incapacité — la formule de commission actuelle reste inchangée par le 
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 75);
+  assert.equal(acq.expected_amount_chf, 75);
 });
 
 test('LPP/IJM — la formule de commission actuelle reste inchangée par le Lot I4.1', async () => {
@@ -1298,7 +1296,7 @@ test('LPP/IJM — la formule de commission actuelle reste inchangée par le Lot 
   assert.equal(res.status, 201);
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
-  assert.equal(acq.amount, 100);
+  assert.equal(acq.expected_amount_chf, 100);
 });
 
 test('commission récurrente (generate-recurring) reste inchangée pour un contrat Vie de longue durée', async () => {
@@ -1316,7 +1314,7 @@ test('commission récurrente (generate-recurring) reste inchangée pour un contr
   const commissions = await auth(request(app).get('/api/commissions'));
   const rec = commissions.body.find((c) => c.contract_id === created.body.id && c.type === 'recurrente');
   assert.ok(rec, 'commission récurrente générée');
-  assert.equal(rec.amount, 120, 'pas de facteur durée appliqué à la commission récurrente (120 = 6000×2/100, pas ×20)');
+  assert.equal(rec.expected_amount_chf, 120, 'pas de facteur durée appliqué à la commission récurrente (120 = 6000×2/100, pas ×20)');
 });
 
 test('Vie — les entrées d’audit création/modification/suppression sont journalisées', async () => {
@@ -1624,7 +1622,7 @@ test('Incapacité — non-régression de la génération de commission sur un co
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
   assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat incapacité enrichi');
-  assert.equal(acq.amount, 75);
+  assert.equal(acq.expected_amount_chf, 75);
 });
 
 test('Incapacité — les entrées d’audit création/modification/suppression sont journalisées', async () => {
@@ -2062,7 +2060,7 @@ test('LPP/IJM — non-régression de la génération de commission sur un contra
   const commissions = await auth(request(app).get('/api/commissions'));
   const acq = commissions.body.find((c) => c.contract_id === res.body.id && c.type === 'acquisition');
   assert.ok(acq, 'commission d’acquisition toujours générée automatiquement pour un contrat LPP/IJM enrichi');
-  assert.equal(acq.amount, 100);
+  assert.equal(acq.expected_amount_chf, 100);
 });
 
 test('LPP/IJM — les entrées d’audit création/modification/suppression sont journalisées', async () => {
@@ -2212,9 +2210,11 @@ test('LCA — G1 : null explicite est rejeté sur les trois enums non nullables,
   assert.equal(created.status, 201);
   const id = created.body.id;
 
+  // Aucune commission générée automatiquement pour une branche LCA
+  // (fix/fixed-health-commission-model) : rien à vérifier côté commission
+  // ici, seule l'absence d'altération du contrat lui-même importe.
   const commissionsBefore = await auth(request(app).get('/api/commissions'));
-  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.ok(acqBefore, 'commission d’acquisition générée à la création');
+  assert.equal(commissionsBefore.body.find((c) => c.contract_id === id), undefined);
 
   const fields = ['underwriting_status', 'administrative_reservation_status', 'exclusions_status'];
   for (const field of fields) {
@@ -2234,9 +2234,7 @@ test('LCA — G1 : null explicite est rejeté sur les trois enums non nullables,
   assert.ok(!entry, 'aucun audit de modification LCA ne doit être créé après un rejet de validation');
 
   const commissionsAfter = await auth(request(app).get('/api/commissions'));
-  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.equal(acqAfter.amount, acqBefore.amount, 'la commission ne doit pas être altérée après un rejet de validation');
-  assert.equal(acqAfter.status, acqBefore.status);
+  assert.equal(commissionsAfter.body.find((c) => c.contract_id === id), undefined, 'toujours aucune commission après le rejet');
 });
 
 test('LCA — G1 : absence des trois enums en PUT préserve les valeurs existantes ; une valeur valide les met à jour', async () => {
@@ -2384,9 +2382,11 @@ test('LAMal — lamal: null en mise à jour : audit de suppression, commissions 
   assert.equal(created.status, 201);
   const id = created.body.id;
 
+  // Aucune commission générée automatiquement pour une branche LAMal
+  // (fix/fixed-health-commission-model) : cette ligne vérifie uniquement
+  // que ce fait reste vrai avant/après la suppression du bloc lamal.
   const commissionsBefore = await auth(request(app).get('/api/commissions'));
-  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.ok(acqBefore, 'commission d’acquisition générée à la création');
+  assert.equal(commissionsBefore.body.find((c) => c.contract_id === id), undefined);
 
   const del = await auth(request(app).put(`/api/contracts/${id}`)).send({ lamal: null });
   assert.equal(del.status, 200);
@@ -2397,10 +2397,7 @@ test('LAMal — lamal: null en mise à jour : audit de suppression, commissions 
   assert.equal(row.annual_premium, 3000, 'le contrat générique ne doit pas être altéré');
 
   const commissionsAfter = await auth(request(app).get('/api/commissions'));
-  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.ok(acqAfter, 'la commission existante doit toujours exister');
-  assert.equal(acqAfter.amount, acqBefore.amount, 'la commission ne doit pas être altérée');
-  assert.equal(acqAfter.status, acqBefore.status);
+  assert.equal(commissionsAfter.body.find((c) => c.contract_id === id), undefined, 'toujours aucune commission après suppression du bloc lamal');
 
   const log = await auth(request(app).get('/api/compliance/audit-log?q=suppression détails LAMal'));
   assert.ok(
@@ -2420,9 +2417,6 @@ test('LAMal — rejet d’un PUT partiel (care_model ou deductible manquant), sa
   });
   const id = created.body.id;
 
-  const commissionsBefore = await auth(request(app).get('/api/commissions'));
-  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-
   const missingCareModel = await auth(request(app).put(`/api/contracts/${id}`))
     .send({ lamal: { deductible: 500 } });
   assert.equal(missingCareModel.status, 400, 'un objet LAMal sans care_model doit être rejeté (pas de mise à jour partielle)');
@@ -2436,10 +2430,6 @@ test('LAMal — rejet d’un PUT partiel (care_model ou deductible manquant), sa
   assert.equal(row.lamal.deductible, 300);
   assert.equal(row.lamal.canton, 'VD');
   assert.equal(row.annual_premium, 3000, 'le contrat générique ne doit pas être altéré');
-
-  const commissionsAfter = await auth(request(app).get('/api/commissions'));
-  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas être altérées');
 
   const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails LAMal'));
   assert.ok(
@@ -2459,9 +2449,6 @@ test('LAMal — rollback logique d’un PUT combinant champ générique valide e
   });
   const id = created.body.id;
 
-  const commissionsBefore = await auth(request(app).get('/api/commissions'));
-  const acqBefore = commissionsBefore.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-
   const res = await auth(request(app).put(`/api/contracts/${id}`))
     .send({ notes: 'note générique modifiée', lamal: { care_model: 'invalide', deductible: 300 } });
   assert.equal(res.status, 400, 'la requête combinée doit être rejetée dans son ensemble');
@@ -2470,10 +2457,6 @@ test('LAMal — rollback logique d’un PUT combinant champ générique valide e
   assert.notEqual(row.notes, 'note générique modifiée', 'le champ générique ne doit pas avoir changé');
   assert.equal(row.lamal.care_model, 'standard', 'le bloc LAMal ne doit pas avoir changé');
   assert.equal(row.lamal.deductible, 300);
-
-  const commissionsAfter = await auth(request(app).get('/api/commissions'));
-  const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas avoir changé');
 
   const log = await auth(request(app).get('/api/compliance/audit-log?q=modification'));
   assert.ok(
@@ -2524,7 +2507,7 @@ test('Vie — rejet de component_type: null en PUT sur une ligne existante, sans
 
   const commissionsAfter = await auth(request(app).get('/api/commissions'));
   const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas être altérées');
+  assert.equal(acqAfter.expected_amount_chf, acqBefore.expected_amount_chf, 'les commissions ne doivent pas être altérées');
 
   const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails vie'));
   assert.ok(
@@ -2572,7 +2555,7 @@ test('Incapacité — rejet de benefit_type: null en PUT sur une ligne existante
 
   const commissionsAfter = await auth(request(app).get('/api/commissions'));
   const acqAfter = commissionsAfter.body.find((c) => c.contract_id === id && c.type === 'acquisition');
-  assert.equal(acqAfter.amount, acqBefore.amount, 'les commissions ne doivent pas être altérées');
+  assert.equal(acqAfter.expected_amount_chf, acqBefore.expected_amount_chf, 'les commissions ne doivent pas être altérées');
 
   const log = await auth(request(app).get('/api/compliance/audit-log?q=modification détails incapacité'));
   assert.ok(

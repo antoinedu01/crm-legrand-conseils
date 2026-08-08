@@ -313,14 +313,18 @@ export default function ClientDetail() {
           ) : (
             <table className="data">
               <thead>
-                <tr><th>Type</th><th>Échéance</th><th className="num">Montant</th><th>Statut</th></tr>
+                <tr>
+                  <th>Type</th><th>Échéance</th><th className="num">Attendu</th>
+                  <th className="num">Reçu</th><th>Statut</th>
+                </tr>
               </thead>
               <tbody>
                 {c.commissions.map((cm) => (
                   <tr key={cm.id}>
                     <td>{COMMISSION_TYPES[cm.type] || cm.type}</td>
-                    <td>{fmtDate(cm.due_date)}</td>
-                    <td className="num">{fmtCHF(cm.amount)}</td>
+                    <td>{fmtDate(cm.expected_payment_date)}</td>
+                    <td className="num">{fmtCHF(cm.expected_amount_chf)}</td>
+                    <td className="num">{fmtCHF(cm.received_amount_chf)}</td>
                     <td><Badge value={cm.status} label={COMMISSION_STATUS[cm.status]} /></td>
                   </tr>
                 ))}

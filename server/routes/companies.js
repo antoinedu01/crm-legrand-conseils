@@ -32,12 +32,12 @@ companiesRouter.get('/', (req, res) => {
     .prepare(
       `SELECT co.*,
         (SELECT COUNT(*) FROM contracts ct WHERE ct.company_id = co.id AND ct.status = 'actif') AS active_contracts,
-        (SELECT COALESCE(SUM(cm.amount), 0) FROM commissions cm
+        (SELECT COALESCE(SUM(cm.received_amount_chf), 0) FROM commissions cm
           JOIN contracts ct ON ct.id = cm.contract_id
-          WHERE ct.company_id = co.id AND cm.status = 'payee') AS commissions_paid,
-        (SELECT COALESCE(SUM(cm.amount), 0) FROM commissions cm
+          WHERE ct.company_id = co.id AND cm.status != 'cancelled') AS commissions_paid,
+        (SELECT COALESCE(SUM(cm.expected_amount_chf - cm.received_amount_chf), 0) FROM commissions cm
           JOIN contracts ct ON ct.id = cm.contract_id
-          WHERE ct.company_id = co.id AND cm.status = 'attendue') AS commissions_pending
+          WHERE ct.company_id = co.id AND cm.status != 'cancelled') AS commissions_pending
        FROM companies co ORDER BY co.active DESC, co.name COLLATE NOCASE`
     )
     .all();
