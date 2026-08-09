@@ -369,3 +369,238 @@ test('projection — synthesis.raw_active_findings_count reste exact après éca
   assert.equal(workspace.synthesis.active_findings_count, 1, 'le groupe compte toujours pour 1 seule carte active (2 lignes brutes encore actives)');
   assert.equal(workspace.synthesis.raw_active_findings_count, 2, 'seules 2 des 3 lignes brutes sont encore actives après un écartement individuel');
 });
+
+// =============================================================================
+// SYNTH-T — extraction read-only : getProjectedSessionFindings
+// =============================================================================
+// Sous-lot technique préalable au moteur de synthèse Santé (décision
+// humaine). `getSessionFindingsWorkspace` (LOT 4B, tests ci-dessus) consomme
+// désormais `getProjectedSessionFindings` en interne — les tests ci-dessus
+// PASSENT TOUJOURS SANS MODIFICATION après l'extraction : c'est la preuve
+// d'équivalence fonctionnelle n°1. Les tests ci-dessous couvrent
+// spécifiquement le contrat de la nouvelle fonction elle-même : read-only
+// stricte, domaine explicite, isolation multi-domaines/multi-membres, et le
+// fait que les 2 audits de `getSessionFindingsWorkspace` restent
+// exclusivement dans cette dernière.
+
+function auditCount(sessionId) {
+  return db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'advisory_session' AND entity_id = ?").get(sessionId).n;
+}
+// Délta par identifiant (jamais par horodatage) : `datetime('now')` n'a
+// qu'une résolution à la seconde en SQLite -- plusieurs lignes d'audit
+// créées dans le même test (millisecondes) peuvent partager exactement le
+// même `created_at`, rendant un filtre par horodatage peu fiable. `id` est
+// AUTOINCREMENT, donc un simple `id > maxIdBefore` capture exactement et
+// uniquement les lignes ajoutées depuis l'appel marqué.
+function maxAuditId(sessionId) {
+  return db.prepare("SELECT COALESCE(MAX(id), 0) AS n FROM audit_log WHERE entity = 'advisory_session' AND entity_id = ?").get(sessionId).n;
+}
+function auditActionsAfter(sessionId, afterId) {
+  return db
+    .prepare("SELECT action FROM audit_log WHERE entity = 'advisory_session' AND entity_id = ? AND id > ? ORDER BY id")
+    .all(sessionId, afterId)
+    .map((r) => r.action);
+}
+function buildLifePensionSingleRule() {
+  const Q_KEY = uniqueKey('vie-question-synth-t');
+  const { id: qid } = Q.createQuestionnaire({ stable_key: uniqueKey('quest-life-synth-t'), domain: 'life_pension', name: 'Démo vie fictive SYNTH-T' }, REQ);
+  const { id: vid } = Q.createDraftVersion(qid, {}, REQ);
+  const { id: sid } = Q.upsertSection(vid, { stable_key: 's_membre_vie', title: 'Membre', sort_order: 1, applies_to: 'member' }, REQ);
+  Q.upsertQuestion(sid, { stable_key: Q_KEY, advisor_text: 'Question vie fictive SYNTH-T ?', type: 'boolean', scope: 'member', sort_order: 1 }, REQ);
+  Q.publishVersion(vid, REQ);
+
+  const { id: ruleSetId } = R.createRuleSet({ stable_key: uniqueKey('rs-life-synth-t'), domain: 'life_pension', name: 'Ensemble vie fictif SYNTH-T' }, REQ);
+  R.upsertRule(ruleSetId, validRuleData({
+    stable_key: 'TEST-RULE-LIFE-SYNTH-T',
+    conditions: { op: 'any', over: 'members', condition: { op: 'equals', ref: { answer: Q_KEY }, value: true } },
+    required_data: [{ answer: Q_KEY }],
+    finding_scope: 'member',
+    result_payload: { category_hint: 'categorie_vie_fictive_synth_t' },
+  }), REQ);
+  archiveOtherPublishedForDomain('life_pension', ruleSetId);
+  R.publishRuleSet(ruleSetId, REQ);
+  return { vid, Q_KEY, ruleSetId };
+}
+function createAndStartMixedSessionSynthT(householdId, healthVid, lifeVid) {
+  const { id: sessionId } = S.createSession({
+    household_id: householdId, domain: 'mixed',
+    questionnaire_versions: [
+      { questionnaire_version_id: healthVid, domain: 'health', module_role: 'domain', display_order: 1 },
+      { questionnaire_version_id: lifeVid, domain: 'life_pension', module_role: 'domain', display_order: 2 },
+    ],
+  }, REQ);
+  S.startSession(sessionId, rev(sessionId), REQ);
+  return sessionId;
+}
+
+test('SYNTH-T — getProjectedSessionFindings appelée seule : ZÉRO nouvelle ligne audit_log (strictement read-only)', () => {
+  const { householdId } = buildSingleMemberHousehold();
+  const { vid, ruleSetId } = buildQuestionnaireAndTrio();
+  const sessionId = createAndStartSession(householdId, vid);
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+
+  const before = auditCount(sessionId);
+  const result = E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  const after = auditCount(sessionId);
+  assert.equal(after, before, 'aucune ligne audit_log ajoutée par la fonction read-only, même appelée plusieurs fois');
+  E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  assert.equal(auditCount(sessionId), before, 'toujours aucun audit après un second appel');
+
+  assert.equal(result.raw.length, 3, '3 lignes brutes hydratées (une par règle du trio)');
+  assert.equal(result.projected.length, 1, 'projection dédupliquée exactement comme via getSessionFindingsWorkspace');
+  assert.deepEqual(result.projected[0].source_finding_ids.sort(), result.raw.map((r) => r.id).sort(), 'source_finding_ids strictement préservés');
+  assert.match(result.projected[0].projection_id, /^missing:member::/, 'projection_id synthétique préservé, jamais un id réel');
+  assert.equal(result.session.id, sessionId);
+  assert.equal(result.household.id, householdId);
+  assert.ok(Array.isArray(result.members) && result.members.length === 1);
+  assert.equal(result.state.state, 'up_to_date');
+});
+
+test('SYNTH-T — getSessionFindingsWorkspace continue de journaliser exactement ses audits existants (le helper interne n\'en ajoute aucun de plus)', () => {
+  const { householdId } = buildSingleMemberHousehold();
+  const { vid, ruleSetId } = buildQuestionnaireAndTrio();
+  const sessionId = createAndStartSession(householdId, vid);
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+
+  const beforeId = maxAuditId(sessionId);
+  E.getSessionFindingsWorkspace(sessionId, REQ);
+  const actions = auditActionsAfter(sessionId, beforeId);
+  assert.ok(actions.includes('consultation espace constats session'), 'action attendue toujours journalisée par getSessionFindingsWorkspace');
+  assert.ok(!actions.includes('consultation findings sensibles'), 'aucune donnée sensible dans ce fixture -- pas d\'audit de sensibilité attendu');
+  assert.equal(actions.length, 1, 'exactement 1 ligne d\'audit pour cet appel (aucun audit fantôme introduit par l\'extraction)');
+});
+
+test('SYNTH-T — getProjectedSessionFindings refuse un domaine non applicable à la session (garde explicite, jamais un mélange silencieux)', () => {
+  const { householdId } = buildSingleMemberHousehold();
+  const { vid } = buildQuestionnaireAndTrio();
+  const sessionId = createAndStartSession(householdId, vid); // session de domaine 'health' pur
+  ensureCompleted(sessionId);
+  assert.throws(() => E.getProjectedSessionFindings(sessionId, { domain: 'life_pension' }), /non applicable/);
+});
+
+test('SYNTH-T — domaine explicite sur session mixte : aucun mélange entre health et life_pension, ni dans les findings bruts ni dans les données de complétude', () => {
+  const { householdId, principalMemberId } = buildSingleMemberHousehold();
+  const { vid: healthVid, Q_KEY: healthQKey, ruleSetId: healthRuleSetId } = buildQuestionnaireAndTrio();
+  const { vid: lifeVid, ruleSetId: lifeRuleSetId } = buildLifePensionSingleRule();
+  const sessionId = createAndStartMixedSessionSynthT(householdId, healthVid, lifeVid);
+  const healthQId = findQuestionId(healthVid, healthQKey);
+  // Le membre répond santé (déclenche 1 finding substantif) mais ne répond
+  // jamais vie/prévoyance (déclenche 1 missing_information) -- pour vérifier
+  // l'isolation sur les 2 types de finding, pas seulement missing_information.
+  S.recordAnswers(sessionId, [{ question_id: healthQId, household_member_id: principalMemberId, status: 'answered', value: 'accepte' }], rev(sessionId), REQ);
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: healthRuleSetId });
+  E.executeRuleSetForSession(sessionId, 'life_pension', rev(sessionId), REQ, { rule_set_id: lifeRuleSetId });
+
+  const healthOnly = E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  assert.equal(healthOnly.state.last_execution.rule_set_id, healthRuleSetId);
+  assert.equal(healthOnly.raw.length, 1);
+  assert.equal(healthOnly.raw[0].domain, 'health');
+  assert.equal(healthOnly.raw[0].finding_type, 'solution_category');
+  assert.equal(healthOnly.projected.length, 1);
+  assert.equal(healthOnly.projected[0].domain, 'health', 'un finding substantif traverse la projection sans perdre son domaine');
+
+  const lifeOnly = E.getProjectedSessionFindings(sessionId, { domain: 'life_pension' });
+  assert.equal(lifeOnly.state.last_execution.rule_set_id, lifeRuleSetId);
+  assert.equal(lifeOnly.raw.length, 1);
+  assert.equal(lifeOnly.raw[0].domain, 'life_pension');
+  assert.equal(lifeOnly.raw[0].finding_type, 'missing_information');
+  assert.equal(lifeOnly.projected.length, 1);
+
+  // Vérification croisée finale : jamais un id de finding health dans le
+  // résultat life_pension, ni l'inverse.
+  const healthFindingIds = new Set(healthOnly.raw.map((f) => f.id));
+  const lifeFindingIds = new Set(lifeOnly.raw.map((f) => f.id));
+  assert.equal([...healthFindingIds].filter((id) => lifeFindingIds.has(id)).length, 0);
+
+  // Confirme aussi que le wrapper getSessionFindingsWorkspace regroupe
+  // correctement les deux domaines sans jamais les mélanger dans le même
+  // tableau (structure déjà testée par le LOT 4B, revérifiée ici avec ce
+  // scénario mixte particulier).
+  const workspace = E.getSessionFindingsWorkspace(sessionId, REQ);
+  assert.equal(workspace.by_domain.health.findings.length, 1);
+  assert.equal(workspace.by_domain.life_pension.findings.length, 1);
+});
+
+test('SYNTH-T — attribution multi-membres via getProjectedSessionFindings directement : jamais de contamination entre membres', () => {
+  const { householdId, principalMemberId, childMemberId } = buildTwoMemberHousehold();
+  const { vid, ruleSetId } = buildQuestionnaireAndTrio();
+  const sessionId = createAndStartSession(householdId, vid);
+  ensureCompleted(sessionId);
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+
+  const result = E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  assert.equal(result.raw.length, 6, '3 règles × 2 membres, chacune sa ligne technique');
+  assert.equal(result.projected.length, 2, 'une entrée projetée par membre, jamais fusionnée entre eux');
+  assert.deepEqual(result.projected.map((f) => f.household_member_id).sort(), [principalMemberId, childMemberId].sort());
+  for (const f of result.raw) {
+    assert.ok(f.household_member_id === principalMemberId || f.household_member_id === childMemberId);
+    assert.equal(f.member.id, f.household_member_id, 'le membre attaché correspond toujours au household_member_id de sa propre ligne');
+  }
+});
+
+test('SYNTH-T — état d\'analyse via getProjectedSessionFindings : not_yet_run -> up_to_date -> stale, valeurs exactes conservées', () => {
+  const { householdId, principalMemberId } = buildSingleMemberHousehold();
+  const { vid, Q_KEY, ruleSetId } = buildQuestionnaireAndTrio();
+  const sessionId = createAndStartSession(householdId, vid);
+  const qId = findQuestionId(vid, Q_KEY);
+  S.recordAnswers(sessionId, [{ question_id: qId, household_member_id: principalMemberId, status: 'answered', value: 'accepte' }], rev(sessionId), REQ);
+  ensureCompleted(sessionId);
+
+  const notYetRun = E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  assert.equal(notYetRun.state.state, 'not_yet_run');
+  assert.equal(notYetRun.raw.length, 0);
+  assert.equal(notYetRun.projected.length, 0);
+
+  E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: ruleSetId });
+  const upToDate = E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  assert.equal(upToDate.state.state, 'up_to_date');
+  assert.equal(upToDate.raw.length, 1);
+
+  S.amendAnswer(sessionId, {
+    question_id: qId, household_member_id: principalMemberId, status: 'answered', value: 'preferee',
+    amendment_reason: 'Correction fictive SYNTH-T pour test de staleness.',
+    expected_revision: rev(sessionId),
+  }, REQ);
+  const stale = E.getProjectedSessionFindings(sessionId, { domain: 'health' });
+  assert.equal(stale.state.state, 'stale');
+  assert.equal(stale.raw.length, 1, 'les findings de la dernière exécution restent affichables même obsolètes -- jamais vidés silencieusement');
+});
+
+test('SYNTH-T — getProjectedSessionFindings rejette une session inexistante (AdvisoryError 404 "Session introuvable.")', () => {
+  const inexistantSessionId = 9_999_999;
+  assert.throws(
+    () => E.getProjectedSessionFindings(inexistantSessionId, { domain: 'health' }),
+    /Session introuvable\./,
+  );
+});
+
+test('SYNTH-T — getProjectedSessionFindings rejette une session dont le foyer a disparu (AdvisoryError 404 "Foyer introuvable.")', () => {
+  const { householdId } = buildSingleMemberHousehold();
+  const { vid } = buildQuestionnaireAndTrio();
+  const sessionId = createAndStartSession(householdId, vid);
+  ensureCompleted(sessionId);
+
+  // Simule un foyer disparu (incohérence de données, hors périmètre normal du
+  // produit) en désactivant temporairement les contraintes FK -- pattern déjà
+  // utilisé par test/migrations.test.js pour ce type de scénario. La ligne
+  // complète est capturée avant suppression puis restaurée telle quelle,
+  // pour ne laisser aucun effet de bord sur les tests suivants du fichier.
+  const originalHousehold = db.prepare('SELECT * FROM households WHERE id = ?').get(householdId);
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.prepare('DELETE FROM households WHERE id = ?').run(householdId);
+    assert.throws(
+      () => E.getProjectedSessionFindings(sessionId, { domain: 'health' }),
+      /Foyer introuvable\./,
+    );
+  } finally {
+    const columns = Object.keys(originalHousehold);
+    const placeholders = columns.map(() => '?').join(', ');
+    db.prepare(`INSERT INTO households (${columns.join(', ')}) VALUES (${placeholders})`)
+      .run(...columns.map((c) => originalHousehold[c]));
+    db.pragma('foreign_keys = ON');
+  }
+});

@@ -1385,6 +1385,98 @@ function auditFindingsWorkspaceView(req, sessionId, revision, status) {
   audit(req, 'consultation espace constats session', 'advisory_session', sessionId, `révision ${revision} — ${status}`);
 }
 
+// Chargement + projection READ-ONLY d'UN SEUL domaine (SYNTH-T, sous-lot
+// technique préalable au moteur de synthèse Santé -- décision humaine).
+// Extraite du corps de `getSessionFindingsWorkspace` ci-dessous, qui
+// l'appelle désormais une fois par domaine plutôt que de dupliquer cette
+// logique. Un `domain` EXPLICITE (jamais « tous les domaines de la
+// session ») pour qu'un futur appelant (le moteur de synthèse Santé) ne
+// charge jamais un domaine dont il n'a pas besoin.
+//
+// Contrat strict :
+// - AUCUN appel à `audit()` ni à un helper d'audit (`auditFindingsWorkspaceView`/
+//   `auditSensitiveDataAccessIfNeeded` restent exclusivement dans
+//   `getSessionFindingsWorkspace`) ;
+// - AUCUNE écriture, aucune transaction ;
+// - ne calcule ni état global multi-domaines, ni synthèse chiffrée, ni
+//   actions UI (`can_launch_analysis`/`can_dismiss_findings`/
+//   `can_create_recommendation`) -- entièrement à la charge de l'appelant.
+// `req` est volontairement ABSENT de la signature : les seuls contrôles
+// déjà présents dans ce chemin (existence de la session, existence du
+// foyer) ne dépendent d'aucune donnée de la requête HTTP -- aucun rôle ni
+// permission n'y est vérifié (ce contrôle reste, comme aujourd'hui, à la
+// charge de la couche route/middleware, en amont). Ne jamais ajouter `req`
+// à cette signature pour y loger un audit : l'audit reste strictement la
+// responsabilité de chaque appelant.
+// Réutilise `projectFindings` (server/advisoryFindingsProjection.js) et
+// `hydrateFindingRows` ci-dessus TELS QUELS -- jamais dupliqués.
+// `session`/`household` retournés sont les lignes BRUTES de base (jamais la
+// projection trimée que construit `getSessionFindingsWorkspace` en sortie,
+// ni `primary_display_name`) -- un futur appelant (le moteur de synthèse
+// Santé) ne doit jamais les réexposer tels quels via une réponse HTTP sans
+// les recurer lui-même (revue advisory-architect, SYNTH-T).
+// Redondance de requêtes assumée (revues rules-engine-auditor/advisory-architect,
+// SYNTH-T) : `getSessionFindingsWorkspace` ci-dessous relit déjà session/
+// household une fois pour son propre usage, PUIS cette fonction les relit à
+// nouveau à CHAQUE appel (jusqu'à 3× pour une session `mixed`) -- un choix
+// délibéré pour que cette fonction reste autonome et testable isolément par
+// domaine, jamais couplée à un état déjà chargé par l'appelant. Coût
+// négligeable sur ce moteur (lectures SQLite synchrones, indexées, un seul
+// conseiller à la fois) ; à réévaluer seulement si ce chemin devenait un
+// jour un goulot d'étranglement mesuré.
+export function getProjectedSessionFindings(sessionId, { domain }) {
+  const session = requireSession(sessionId);
+  assert(inEnum(domain, RULE_SET_DOMAINS) && domain != null, 'Domaine inconnu (common, health ou life_pension attendu).');
+  if (!allowedExecutionDomainsForSession(session.domain).includes(domain)) {
+    throw new AdvisoryError(`Domaine « ${domain} » non applicable à cette session (${session.domain}).`, 400);
+  }
+  const household = getHousehold(session.household_id);
+  if (!household) throw new AdvisoryError('Foyer introuvable.', 404);
+  const members = sessionMembersFor(session);
+  const membersById = new Map(members.map((m) => [m.id, m]));
+
+  const state = resolveDomainAnalysisState(sessionId, domain, session.revision);
+
+  // Cadrage LOT 7A (sujet 1, option D) : la déduplication de présentation
+  // des `missing_information` ne touche JAMAIS ce qui est écrit en base --
+  // uniquement cette projection de lecture. Le texte affiché pour une
+  // donnée manquante vient de la question RÉELLEMENT manquante
+  // (`advisor_text`, résolu via `buildQuestionIndex`, le même mécanisme
+  // déjà utilisé pour `used_inputs_ref` dans `hydrateFindingRows`
+  // ci-dessus) -- jamais du titre d'une règle particulière.
+  const questionsByStableKey = buildQuestionIndex(sessionId);
+  function describeMissingRef(ref) {
+    if (ref.kind === 'contract_branch') return `Statut du contrat (${ref.contract_branch})`;
+    const q = ref.stable_key ? questionsByStableKey.get(ref.stable_key) : null;
+    return q ? q.advisor_text : (ref.stable_key || 'donnée inconnue');
+  }
+
+  let raw = [];
+  if (state.last_execution) {
+    const rows = db
+      .prepare(`SELECT * FROM advisory_findings f WHERE f.rule_execution_id = ? ORDER BY ${FINDINGS_ORDER_BY}`)
+      .all(state.last_execution.id);
+    raw = hydrateFindingRows(rows, sessionId).map((f) => {
+      // Le membre concerné est résolu via `sessionMembersFor` -- JAMAIS
+      // une consultation directe de `household_members` (constat GATE
+      // LOT 4B, revues rules-engine-auditor/compliance-privacy-reviewer :
+      // risque d'IDOR si un membre appartenant à un AUTRE foyer était
+      // consulté indépendamment de son rattachement réel à CETTE
+      // session). Projection MINIMALE (GATE LOT 7B ciblé §6) : `id`/
+      // `display_name`/`member_role`/`historical` sont ceux réellement
+      // utiles -- `client_id`, `current_status`/`no_longer_active`
+      // (doublons stricts de `historical`) et `can_answer` n'ont aucun
+      // usage ici, jamais transmis sans besoin réel.
+      const fullMember = f.household_member_id != null ? membersById.get(f.household_member_id) : null;
+      const member = fullMember ? { id: fullMember.id, display_name: fullMember.display_name, member_role: fullMember.member_role, historical: fullMember.historical } : null;
+      return { ...f, member };
+    });
+  }
+  const projected = projectFindings(raw, { describeMissingRef });
+
+  return { session, household, members, state, raw, projected };
+}
+
 // Projection complète et prête à afficher pour l'espace conseiller des
 // findings (LOT 4B, GET /api/advisory/sessions/:id/findings-workspace) --
 // mirroir délibéré de `getSessionWorkspace` (Lot 3B, server/advisorySessions.js)
@@ -1394,31 +1486,18 @@ function auditFindingsWorkspaceView(req, sessionId, revision, status) {
 // STRUCTURELLEMENT les résultats par domaine réel (jamais une liste
 // interleaved) -- rend structurellement impossible un mélange accidentel de
 // domaines à l'affichage (constat client-meeting-ux, GATE LOT 4B §5).
+// SYNTH-T : consomme désormais `getProjectedSessionFindings` (un appel par
+// domaine) plutôt que de dupliquer le chargement/la projection -- contrat
+// EXTERNE de cette fonction strictement inchangé, ses 2 audits restent
+// exclusivement ICI (jamais dans la fonction read-only qu'elle appelle).
 export function getSessionFindingsWorkspace(sessionId, req) {
   const session = requireSession(sessionId);
   const household = getHousehold(session.household_id);
   if (!household) throw new AdvisoryError('Foyer introuvable.', 404);
   const members = sessionMembersFor(session);
-  const membersById = new Map(members.map((m) => [m.id, m]));
 
   const domains = allowedExecutionDomainsForSession(session.domain);
   const allFindingsForAudit = [];
-
-  // Cadrage LOT 7A (sujet 1, option D) : la déduplication de présentation
-  // des `missing_information` ne touche JAMAIS ce qui est écrit en base --
-  // uniquement cette lecture-ci (l'espace conseiller des findings). Le
-  // texte affiché pour une donnée manquante vient de la question RÉELLEMENT
-  // manquante (`advisor_text`, résolu via `buildQuestionIndex`, le même
-  // mécanisme déjà utilisé pour `used_inputs_ref` dans `hydrateFindingRows`
-  // ci-dessus) -- jamais du titre d'une règle particulière, pour ne jamais
-  // dépendre de laquelle des règles bloquées a techniquement produit la
-  // ligne. Un seul appel, réutilisé pour tous les domaines de cette session.
-  const questionsByStableKey = buildQuestionIndex(sessionId);
-  function describeMissingRef(ref) {
-    if (ref.kind === 'contract_branch') return `Statut du contrat (${ref.contract_branch})`;
-    const q = ref.stable_key ? questionsByStableKey.get(ref.stable_key) : null;
-    return q ? q.advisor_text : (ref.stable_key || 'donnée inconnue');
-  }
 
   // Compteur technique brut par domaine (AVANT projection) -- distinct de
   // `d.findings` (byDomain, projeté). Sert UNIQUEMENT à calculer
@@ -1430,40 +1509,14 @@ export function getSessionFindingsWorkspace(sessionId, req) {
 
   const byDomain = {};
   for (const domain of domains) {
-    const state = resolveDomainAnalysisState(sessionId, domain, session.revision);
-    let findings = [];
-    if (state.last_execution) {
-      const rows = db
-        .prepare(`SELECT * FROM advisory_findings f WHERE f.rule_execution_id = ? ORDER BY ${FINDINGS_ORDER_BY}`)
-        .all(state.last_execution.id);
-      findings = hydrateFindingRows(rows, sessionId).map((f) => {
-        // Le membre concerné est résolu via `sessionMembersFor` -- JAMAIS
-        // une consultation directe de `household_members` (constat GATE
-        // LOT 4B, revues rules-engine-auditor/compliance-privacy-reviewer :
-        // risque d'IDOR si un membre appartenant à un AUTRE foyer était
-        // consulté indépendamment de son rattachement réel à CETTE
-        // session). Projection MINIMALE (GATE LOT 7B ciblé §6) : `id`/
-        // `display_name`/`member_role`/`historical` sont ceux réellement
-        // utiles (libellé, distinction principal/conjoint/enfant, filtre,
-        // mention « retiré du foyer ») -- `client_id` (identifiant technique
-        // interne), `current_status`/`no_longer_active` (doublons stricts
-        // de `historical`) et `can_answer` (nécessaire ailleurs, à
-        // `SessionWorkspace.jsx` pour le statut de réponse d'un membre,
-        // sans usage ici) n'ont aucun usage frontend sur cet écran, jamais
-        // transmis sans besoin réel.
-        const fullMember = f.household_member_id != null ? membersById.get(f.household_member_id) : null;
-        const member = fullMember ? { id: fullMember.id, display_name: fullMember.display_name, member_role: fullMember.member_role, historical: fullMember.historical } : null;
-        return { ...f, member };
-      });
-      // Audit et calcul de sensibilité : toujours sur les findings BRUTS
-      // (avant projection) -- la déduplication de présentation ne doit
-      // jamais influencer ce qui est considéré comme une donnée sensible
-      // effectivement consultée.
-      allFindingsForAudit.push(...findings);
-      rawFindingsByDomain[domain] = findings;
-      findings = projectFindings(findings, { describeMissingRef });
-    }
-    byDomain[domain] = { domain, ...state, findings };
+    const { state, raw, projected } = getProjectedSessionFindings(sessionId, { domain });
+    // Audit et calcul de sensibilité : toujours sur les findings BRUTS
+    // (avant projection) -- la déduplication de présentation ne doit
+    // jamais influencer ce qui est considéré comme une donnée sensible
+    // effectivement consultée.
+    allFindingsForAudit.push(...raw);
+    rawFindingsByDomain[domain] = raw;
+    byDomain[domain] = { domain, ...state, findings: projected };
   }
 
   auditSensitiveDataAccessIfNeeded(req, sessionId, 'tous domaines applicables', hasFrozenSensitiveRefInFindings(allFindingsForAudit));
