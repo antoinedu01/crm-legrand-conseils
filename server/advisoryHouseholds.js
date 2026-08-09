@@ -310,7 +310,23 @@ export function addMember(householdId, body = {}, req) {
 
   if (new_person) {
     assert(new_person.first_name || new_person.last_name, 'Un nom est requis pour créer une personne.');
-    assert(isDateStr(new_person.birth_date), 'Date de naissance invalide (AAAA-MM-JJ).');
+    // Constat FIX-MEMBER-DOB (audit QA-E2E1) : `isDateStr` (server/validate.js)
+    // reste volontairement permissif pour null/undefined -- comportement
+    // générique partagé par d'autres appelants (ex. mise à jour d'un client
+    // existant), jamais modifié ici. La création d'une NOUVELLE personne
+    // exige réellement une date de naissance connue (donnée structurante du
+    // dossier et des diagnostics assurance, décision humaine explicite) :
+    // renforcement localisé à CE chemin de création uniquement, via un code
+    // métier stable (même convention que `AdvisoryError`, cf. en-tête de
+    // fichier) plutôt qu'un texte fragile à faire correspondre côté client.
+    if (!new_person.birth_date) {
+      throw new AdvisoryError(
+        'Date de naissance obligatoire pour créer une nouvelle personne.', 400, 'NEW_PERSON_BIRTH_DATE_REQUIRED'
+      );
+    }
+    if (!isDateStr(new_person.birth_date)) {
+      throw new AdvisoryError('Date de naissance invalide (AAAA-MM-JJ).', 400, 'NEW_PERSON_BIRTH_DATE_INVALID');
+    }
     checkTextFields(new_person, ['first_name', 'last_name'], 200);
 
     matches = checkSimilarity(

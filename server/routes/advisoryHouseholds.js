@@ -18,6 +18,12 @@ function handle(res, fn) {
     if (err instanceof AdvisoryError) {
       const body = { error: err.message };
       if (err.matches) body.matches = err.matches;
+      // `code` (même convention que server/routes/advisoryRecommendations.js
+      // §3) : identifiant machine stable, optionnel, jamais inventé ici —
+      // simplement transmis tel quel si l'erreur d'origine en porte un
+      // (ex. HEALTH_SYNTHESIS_UNSUPPORTED_VERSION, SYNTH-API §3 : « laisser
+      // remonter le 409 du moteur sans traduction destructive »).
+      if (err.code) body.code = err.code;
       return res.status(err.status).json(body);
     }
     throw err;

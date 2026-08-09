@@ -234,6 +234,112 @@ test('addMember — création rapide d’une personne (new_person) sans email/t�
   assert.equal(child.first_name, 'Petit');
 });
 
+// --- FIX-MEMBER-DOB-v2 : date de naissance obligatoire pour new_person -----
+// Renforce uniquement le chemin de création d'une NOUVELLE personne dans un
+// foyer (`new_person`). `isDateStr` (server/validate.js) reste volontairement
+// permissif pour null/undefined ailleurs (ex. client_id existant) : ce
+// comportement générique n'est ni testé ni modifié ici.
+
+test('addMember — new_person sans birth_date (absent) est refusé (400, code stable), aucune création', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const beforeClients = db.prepare('SELECT COUNT(*) AS n FROM clients').get().n;
+  assert.throws(
+    () => addMember(householdId, { new_person: { first_name: 'Sans', last_name: 'Date' }, member_role: 'enfant' }, REQ),
+    (err) => {
+      assert.ok(err instanceof AdvisoryError);
+      assert.equal(err.status, 400);
+      assert.equal(err.code, 'NEW_PERSON_BIRTH_DATE_REQUIRED');
+      return true;
+    }
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM clients').get().n, beforeClients, 'aucune ligne client créée');
+});
+
+test('addMember — new_person avec birth_date = null est refusé (400, code stable), aucune création', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const beforeClients = db.prepare('SELECT COUNT(*) AS n FROM clients').get().n;
+  assert.throws(
+    () =>
+      addMember(
+        householdId,
+        { new_person: { first_name: 'Date', last_name: 'Nulle', birth_date: null }, member_role: 'enfant' },
+        REQ
+      ),
+    (err) => {
+      assert.ok(err instanceof AdvisoryError);
+      assert.equal(err.status, 400);
+      assert.equal(err.code, 'NEW_PERSON_BIRTH_DATE_REQUIRED');
+      return true;
+    }
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM clients').get().n, beforeClients, 'aucune ligne client créée');
+});
+
+test('addMember — new_person avec birth_date = "" est refusé (400, code stable), aucune création', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const beforeClients = db.prepare('SELECT COUNT(*) AS n FROM clients').get().n;
+  assert.throws(
+    () =>
+      addMember(
+        householdId,
+        { new_person: { first_name: 'Date', last_name: 'Vide', birth_date: '' }, member_role: 'enfant' },
+        REQ
+      ),
+    (err) => {
+      assert.ok(err instanceof AdvisoryError);
+      assert.equal(err.status, 400);
+      assert.equal(err.code, 'NEW_PERSON_BIRTH_DATE_REQUIRED');
+      return true;
+    }
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM clients').get().n, beforeClients, 'aucune ligne client créée');
+});
+
+test('addMember — new_person avec birth_date syntaxiquement invalide est refusé (400, code stable), aucune création', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const beforeClients = db.prepare('SELECT COUNT(*) AS n FROM clients').get().n;
+  assert.throws(
+    () =>
+      addMember(
+        householdId,
+        { new_person: { first_name: 'Date', last_name: 'Invalide', birth_date: '31/12/2020' }, member_role: 'enfant' },
+        REQ
+      ),
+    (err) => {
+      assert.ok(err instanceof AdvisoryError);
+      assert.equal(err.status, 400);
+      assert.equal(err.code, 'NEW_PERSON_BIRTH_DATE_INVALID');
+      return true;
+    }
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM clients').get().n, beforeClients, 'aucune ligne client créée');
+});
+
+test('addMember — new_person avec birth_date valide réussit normalement', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const result = addMember(
+    householdId,
+    { new_person: { first_name: 'Date', last_name: 'Valide', birth_date: '2015-07-20' }, member_role: 'enfant' },
+    REQ
+  );
+  assert.ok(result.id);
+  const child = db.prepare('SELECT * FROM clients WHERE id = ?').get(result.client_id);
+  assert.equal(child.birth_date, '2015-07-20');
+});
+
+test('addMember — une personne existante (client_id) reste utilisable sans birth_date (chemin non affecté)', () => {
+  const principalId = insertClient();
+  const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
+  const existingId = insertClient({ first_name: 'Deja', last_name: 'La', birth_date: null });
+  const result = addMember(householdId, { client_id: existingId, member_role: 'autre_charge' }, REQ);
+  assert.ok(result.id, 'le rattachement d’une personne existante sans date de naissance continue de fonctionner');
+});
+
 test('addMember — new_person journalise « création client » (distinct de « ajout membre foyer »), sans donnée sensible', () => {
   const principalId = insertClient();
   const { id: householdId } = createHousehold({ primary_client_id: principalId }, REQ);
@@ -489,7 +595,11 @@ test('checkSimilarity — remonte le foyer commun comme élément corroborant', 
   insertClient({ first_name: 'Nadia', last_name: 'Keller' });
   addMember(
     householdId,
-    { new_person: { first_name: 'Nadia', last_name: 'Keller' }, member_role: 'autre_charge', confirmed_despite_match: true },
+    {
+      new_person: { first_name: 'Nadia', last_name: 'Keller', birth_date: '1988-02-02' },
+      member_role: 'autre_charge',
+      confirmed_despite_match: true,
+    },
     REQ
   );
   // Une nouvelle recherche « Nadia Keller » doit maintenant trouver 2 candidats.

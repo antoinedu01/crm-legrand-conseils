@@ -6,6 +6,7 @@ import {
   HOUSEHOLD_STATUS, MEMBER_ROLES, DEMOTABLE_ROLES, MATCH_LEVELS, fmtDate, fmtDateTime,
   SESSION_DOMAINS, SESSION_STATUSES,
 } from '../labels.js';
+import { isValidDateStr, getAddMemberErrorMessage } from './householdMemberValidation.js';
 
 function age(birthDate) {
   if (!birthDate) return null;
@@ -115,6 +116,23 @@ function AddMemberForm({ householdId, members, onClose, onSaved }) {
 
   async function submit(extra = {}) {
     setError(null);
+    // Date de naissance obligatoire (constat QA-E2E1, FIX-MEMBER-DOB) —
+    // uniquement pour la création réelle d'une nouvelle personne (jamais
+    // pour « Utiliser cette personne », qui rattache un client existant via
+    // extra.client_id sans passer par new_person). Bloque l'appel réseau
+    // plutôt que de laisser le serveur le refuser : la validation HTML
+    // `required` ne protège pas ce second point d'entrée, rendu hors du
+    // `<form>` initial (écran de confirmation de similarité).
+    if (mode === 'new' && !extra.client_id) {
+      if (!newPerson.birth_date) {
+        setError('La date de naissance est obligatoire.');
+        return;
+      }
+      if (!isValidDateStr(newPerson.birth_date)) {
+        setError('Veuillez renseigner une date de naissance valide.');
+        return;
+      }
+    }
     try {
       const res = await api.post(`/api/advisory/households/${householdId}/members`, payload(extra));
       if (res.already_in_households?.length) {
@@ -129,7 +147,11 @@ function AddMemberForm({ householdId, members, onClose, onSaved }) {
       if (err.status === 409 && err.data?.matches) {
         setMatches(err.data.matches);
       } else {
-        setError(err.message);
+        // Aucun texte backend (message, détail, stack) n'est interpolé ici,
+        // volontairement : un message serveur inattendu ne doit jamais
+        // atteindre l'interface telle quelle (audit FIX-MEMBER-DOB §4).
+        // Mapping pur et testable dans householdMemberValidation.js.
+        setError(getAddMemberErrorMessage(err));
       }
     }
   }
@@ -214,8 +236,8 @@ function AddMemberForm({ householdId, members, onClose, onSaved }) {
             <Field label="Nom">
               <input value={newPerson.last_name} onChange={(e) => setNewPerson({ ...newPerson, last_name: e.target.value })} />
             </Field>
-            <Field label="Date de naissance">
-              <input type="date" value={newPerson.birth_date} onChange={(e) => setNewPerson({ ...newPerson, birth_date: e.target.value })} />
+            <Field label="Date de naissance (obligatoire)">
+              <input type="date" required value={newPerson.birth_date} onChange={(e) => setNewPerson({ ...newPerson, birth_date: e.target.value })} />
             </Field>
           </div>
           {similarityPreview.length > 0 && (
