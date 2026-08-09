@@ -11,6 +11,7 @@ import { audit } from './audit.js';
 import { AdvisoryError, displayName } from './advisoryHouseholds.js';
 import { evaluateRuleCondition, refKind, resolveQuantifierMembers } from './advisoryRuleConditions.js';
 import { evaluateCondition } from './advisoryConditions.js';
+import { projectFindings } from './advisoryFindingsProjection.js';
 import { sessionMembersFor, answerValueFor, isSessionWritable } from './advisorySessions.js';
 import { getVersionDetail } from './advisoryQuestionnaires.js';
 import { getRuleSetDetail, listRuleSets, RULE_SET_DOMAINS } from './advisoryRules.js';
@@ -1403,6 +1404,30 @@ export function getSessionFindingsWorkspace(sessionId, req) {
   const domains = allowedExecutionDomainsForSession(session.domain);
   const allFindingsForAudit = [];
 
+  // Cadrage LOT 7A (sujet 1, option D) : la déduplication de présentation
+  // des `missing_information` ne touche JAMAIS ce qui est écrit en base --
+  // uniquement cette lecture-ci (l'espace conseiller des findings). Le
+  // texte affiché pour une donnée manquante vient de la question RÉELLEMENT
+  // manquante (`advisor_text`, résolu via `buildQuestionIndex`, le même
+  // mécanisme déjà utilisé pour `used_inputs_ref` dans `hydrateFindingRows`
+  // ci-dessus) -- jamais du titre d'une règle particulière, pour ne jamais
+  // dépendre de laquelle des règles bloquées a techniquement produit la
+  // ligne. Un seul appel, réutilisé pour tous les domaines de cette session.
+  const questionsByStableKey = buildQuestionIndex(sessionId);
+  function describeMissingRef(ref) {
+    if (ref.kind === 'contract_branch') return `Statut du contrat (${ref.contract_branch})`;
+    const q = ref.stable_key ? questionsByStableKey.get(ref.stable_key) : null;
+    return q ? q.advisor_text : (ref.stable_key || 'donnée inconnue');
+  }
+
+  // Compteur technique brut par domaine (AVANT projection) -- distinct de
+  // `d.findings` (byDomain, projeté). Sert UNIQUEMENT à calculer
+  // `synthesis.raw_active_findings_count` ci-dessous ; jamais exposé comme
+  // liste, jamais substitué à `getExecutionDetail` (voie technique
+  // complète). Décision humaine (cadrage LOT 7A, sujet 1, suite Option D) :
+  // ajout non cassant, aucune UI ne le consomme aujourd'hui.
+  const rawFindingsByDomain = {};
+
   const byDomain = {};
   for (const domain of domains) {
     const state = resolveDomainAnalysisState(sessionId, domain, session.revision);
@@ -1430,7 +1455,13 @@ export function getSessionFindingsWorkspace(sessionId, req) {
         const member = fullMember ? { id: fullMember.id, display_name: fullMember.display_name, member_role: fullMember.member_role, historical: fullMember.historical } : null;
         return { ...f, member };
       });
+      // Audit et calcul de sensibilité : toujours sur les findings BRUTS
+      // (avant projection) -- la déduplication de présentation ne doit
+      // jamais influencer ce qui est considéré comme une donnée sensible
+      // effectivement consultée.
       allFindingsForAudit.push(...findings);
+      rawFindingsByDomain[domain] = findings;
+      findings = projectFindings(findings, { describeMissingRef });
     }
     byDomain[domain] = { domain, ...state, findings };
   }
@@ -1477,7 +1508,22 @@ export function getSessionFindingsWorkspace(sessionId, req) {
   // même si son `state` affiche encore `up_to_date` au sens strict de la
   // révision. Distincte de `globalState` ci-dessus, qui, elle, ne regarde
   // que les domaines requis (+ common si applicable).
-  const synthesis = { active_findings_count: 0, active_conflicts_count: 0, domains_current: [], domains_excluded_stale: [] };
+  // `active_findings_count` compte les entrées de la PROJECTION conseiller
+  // (`d.findings`, après déduplication de présentation des
+  // `missing_information` -- Option D, cadrage LOT 7A sujet 1) : c'est le
+  // nombre de CARTES réellement visibles par le conseiller sur cet écran,
+  // jamais le nombre de lignes techniques brutes. `raw_active_findings_count`
+  // (décision humaine explicite) est un compteur technique séparé,
+  // ADDITIF et non affiché par l'interface actuelle -- le nombre de lignes
+  // `advisory_findings` brutes réellement actives, AVANT toute
+  // déduplication, sur les mêmes domaines/mêmes conditions
+  // (`countsTowardSynthesis`) que `active_findings_count`. Les deux
+  // compteurs divergent normalement dès qu'un groupe de `missing_information`
+  // fusionne plusieurs lignes brutes en une seule carte.
+  const synthesis = {
+    active_findings_count: 0, active_conflicts_count: 0, raw_active_findings_count: 0,
+    domains_current: [], domains_excluded_stale: [],
+  };
   for (const domain of domains) {
     const d = byDomain[domain];
     const countsTowardSynthesis = d.state === 'up_to_date' && (domain !== 'common' || commonApplicable);
@@ -1485,6 +1531,7 @@ export function getSessionFindingsWorkspace(sessionId, req) {
       synthesis.domains_current.push(domain);
       synthesis.active_findings_count += d.findings.filter((f) => f.status === 'active').length;
       synthesis.active_conflicts_count += d.findings.filter((f) => f.status === 'active' && f.needs_review).length;
+      synthesis.raw_active_findings_count += (rawFindingsByDomain[domain] || []).filter((f) => f.status === 'active').length;
     } else if (d.findings.length > 0) {
       synthesis.domains_excluded_stale.push(domain);
     }

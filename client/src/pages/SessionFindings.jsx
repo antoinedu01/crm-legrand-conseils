@@ -144,6 +144,26 @@ export default function SessionFindings() {
     navigate(`/diagnostic-360/sessions/${id}/workspace`, { state: { questionId, memberId: memberId ?? null, answerId: answerId ?? null } });
   }
 
+  // « Compléter l'information » (décision humaine, cadrage LOT 7A sujet 1,
+  // suite Option D) : une information manquante n'est jamais écartée ni
+  // transformée directement en recommandation depuis cet écran -- elle se
+  // complète en répondant à la question. Un `missing_information` projeté
+  // peut fusionner plusieurs données manquantes ou concerner une question de
+  // portée membre sans instance unique résolvable ; dans ce cas (ou celui
+  // d'une référence de branche de contrat, jamais une question) il n'existe
+  // pas de lien stable vers UNE réponse précise -- on revient simplement à
+  // l'espace questionnaire de la session, sans construire d'infrastructure
+  // de focus automatique supplémentaire pour ce lot.
+  function goToMissingInfo(finding) {
+    const refs = finding.missing_data || [];
+    const single = refs.length === 1 ? refs[0] : null;
+    if (single && single.kind === 'answer' && single.question_id != null && single.scope !== 'member') {
+      goToSourceAnswer(single.question_id, null);
+    } else {
+      navigate(`/diagnostic-360/sessions/${id}/workspace`);
+    }
+  }
+
   // Refuse clairement le changement d'onglet tant qu'une sélection non vide
   // existe (§10) -- jamais un mélange silencieux de domaines dans une même
   // recommandation groupée.
@@ -255,6 +275,7 @@ export default function SessionFindings() {
           canDismiss={actions.can_dismiss_findings}
           onDismiss={setDismissTarget}
           onGoToSource={goToSourceAnswer}
+          onGoToMissingInfo={goToMissingInfo}
           onOpenHistory={() => setHistoryDomain(activeDomain)}
           multiSelect={multiSelect}
           onToggleMultiSelect={() => { setMultiSelect((v) => !v); clearSelection(); }}
@@ -354,7 +375,7 @@ const STATUS_FILTERS = [['active', 'Actifs'], ['dismissed', 'Écartés'], ['all'
 const PRIORITY_FILTERS = [['all', 'Toutes'], ['critical', 'Critique'], ['high', 'Élevée'], ['medium', 'Moyenne'], ['low', 'Faible']];
 const TYPE_FILTERS = [['all', 'Tous'], ...Object.entries(FINDING_TYPES)];
 
-function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHistory, multiSelect, onToggleMultiSelect, selectedFindingIds, onToggleSelected, onCreateFromFinding, canCreateRecommendation }) {
+function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onGoToMissingInfo, onOpenHistory, multiSelect, onToggleMultiSelect, selectedFindingIds, onToggleSelected, onCreateFromFinding, canCreateRecommendation }) {
   const [filters, setFilters] = useState({ status: 'active', priority: 'all', type: 'all', member: 'all' });
   const findings = domainData.findings;
 
@@ -371,7 +392,12 @@ function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHi
   // Titre par id, pour que le badge « Conflit actif » d'une carte puisse
   // nommer explicitement le(s) constat(s) concerné(s) (constat
   // client-meeting-ux, GATE LOT 4B : un décompte seul ne dit pas LEQUEL).
-  const titleById = useMemo(() => new Map(findings.map((f) => [f.id, f.title])), [findings]);
+  // Une entrée `missing_information` projetée n'a jamais de `id` réel (voir
+  // `projection_id` ci-dessous) -- `f.conflicts_with` ne référence de toute
+  // façon jamais ce type de constat (`needs_review` toujours faux pour
+  // `missing_information`), mais la clé de secours évite malgré tout de
+  // faire cohabiter plusieurs entrées sous une même clé `undefined`.
+  const titleById = useMemo(() => new Map(findings.map((f) => [f.id ?? f.projection_id, f.title])), [findings]);
 
   // FILTRE UNIQUEMENT (partition stable) -- préserve intégralement l'ordre
   // déjà calculé par le serveur (conflits actifs, puis priorité, puis ordre
@@ -445,9 +471,10 @@ function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHi
       ) : (
         visible.map((f) => (
           <FindingCard
-            key={f.id} finding={f} canDismiss={canDismiss} onDismiss={() => onDismiss(f)} onGoToSource={onGoToSource} titleById={titleById}
+            key={f.id ?? f.projection_id} finding={f} canDismiss={canDismiss} onDismiss={() => onDismiss(f)} onGoToSource={onGoToSource} titleById={titleById}
             multiSelect={multiSelect} selected={selectedFindingIds?.has(f.id)} onToggleSelected={() => onToggleSelected(f.id)}
             onCreateFromFinding={() => onCreateFromFinding(f.id)}
+            onGoToMissingInfo={() => onGoToMissingInfo(f)}
             canCreateRecommendation={canCreateRecommendation}
           />
         ))
@@ -458,7 +485,8 @@ function DomainPanel({ domainData, canDismiss, onDismiss, onGoToSource, onOpenHi
 
 // --- Carte d'un constat --------------------------------------------------
 
-function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly, titleById, multiSelect, selected, onToggleSelected, onCreateFromFinding, canCreateRecommendation }) {
+function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, onGoToMissingInfo, readOnly, titleById, multiSelect, selected, onToggleSelected, onCreateFromFinding, canCreateRecommendation }) {
+  const isMissingInfo = f.finding_type === 'missing_information';
   const answerRefs = (f.used_inputs_ref || []).filter((r) => r.kind === 'answer');
   const contractRefs = (f.used_inputs_ref || []).filter((r) => r.kind === 'contract_branch');
   const ruleRefCount = (f.used_inputs_ref || []).filter((r) => r.kind === 'rule_result').length;
@@ -472,7 +500,7 @@ function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly
   return (
     <div className={`card finding-card${activeConflict ? ' needs-review' : ''}${f.status !== 'active' ? ' dismissed' : ''}`}>
       <div className="f-head">
-        {multiSelect && f.status === 'active' && (
+        {multiSelect && f.status === 'active' && !isMissingInfo && (
           <label className="check" style={{ marginRight: 2 }}>
             <input type="checkbox" checked={!!selected} onChange={onToggleSelected} aria-label={`Sélectionner « ${f.title} » pour une recommandation groupée`} />
           </label>
@@ -583,15 +611,39 @@ function FindingCard({ finding: f, canDismiss, onDismiss, onGoToSource, readOnly
         </div>
       </details>
 
+      {/* Une information manquante n'est pas un constat de conseil : elle ne
+          s'écarte jamais depuis cet écran et ne devient jamais directement
+          une recommandation -- elle se COMPLÈTE (décision humaine, cadrage
+          LOT 7A sujet 1, suite Option D). LOT 7B/7C reprendront ces données
+          dans la synthèse/les recommandations, jamais une création
+          immédiate depuis une donnée absente. */}
       {!readOnly && f.status === 'active' && (
         <div className="f-actions">
-          {canDismiss && <button className="ghost small" onClick={onDismiss}>Écarter ce constat</button>}
-          {!multiSelect && canCreateRecommendation && <button className="ghost small" onClick={onCreateFromFinding}>Créer une recommandation à partir de ce constat</button>}
+          {isMissingInfo ? (
+            <button className="ghost small" onClick={onGoToMissingInfo}>Compléter l'information</button>
+          ) : (
+            <>
+              {canDismiss && <button className="ghost small" onClick={onDismiss}>Écarter ce constat</button>}
+              {!multiSelect && canCreateRecommendation && <button className="ghost small" onClick={onCreateFromFinding}>Créer une recommandation à partir de ce constat</button>}
+            </>
+          )}
         </div>
       )}
+      {/* Le détail réel (auteur/motif/date) n'existe QUE sur un finding brut
+          individuel -- jamais sur une entrée `missing_information` PROJETÉE
+          (groupe fusionné, `dismissed_at` absent par construction, voir
+          `advisoryFindingsProjection.js`). Se fonder sur la présence réelle
+          de ces champs, jamais sur `finding_type` seul (constat
+          advisory-architect) : `FindingCard` est aussi utilisée en lecture
+          seule dans `HistoryModal` sur des lignes BRUTES individuelles
+          (`getExecutionDetail`), y compris pour un `missing_information`
+          déjà écarté avant ce lot -- ce détail réel doit y rester visible,
+          jamais dégradé en message générique. */}
       {f.status === 'dismissed' && (
         <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          Écarté par {f.dismissed_by_name || 'un conseiller'} le {fmtDateTime(f.dismissed_at)} — Motif : {f.dismiss_reason}
+          {f.dismissed_at != null
+            ? <>Écarté par {f.dismissed_by_name || 'un conseiller'} le {fmtDateTime(f.dismissed_at)} — Motif : {f.dismiss_reason}</>
+            : "Cette information manquante n'est plus active : elle a été écartée."}
         </div>
       )}
     </div>

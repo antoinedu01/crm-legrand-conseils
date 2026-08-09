@@ -332,6 +332,18 @@ sont jamais retirés) mais n'est jamais additionné dans ce total — jamais un
 mélange silencieux de findings issus de révisions différentes dans un même
 chiffre agrégé.
 
+> **`active_findings_count` vs `raw_active_findings_count` (décision
+> humaine, suite Option D — voir §8)** — `synthesis.active_findings_count`
+> compte les entrées de la PROJECTION conseiller (`d.findings`, après
+> déduplication de présentation des `missing_information`) : c'est le nombre
+> de cartes réellement visibles sur cet écran, **pas** le nombre de lignes
+> `advisory_findings` brutes. `synthesis.raw_active_findings_count` est un
+> second compteur, additif et non cassant, qui totalise lui les lignes
+> brutes réellement actives sur les mêmes domaines/mêmes conditions
+> d'inclusion — un usage technique/d'audit, non affiché par l'interface
+> actuelle. Les deux compteurs divergent normalement dès qu'un groupe de
+> `missing_information` fusionne plusieurs lignes brutes en une seule carte.
+
 ## 3. Les sept étapes — distinction stricte
 
 Le moteur ne doit jamais fusionner ces étapes :
@@ -501,6 +513,67 @@ l'API, voir `API_CONTRACT.md` §7).
 > n'utilise de `display_condition` de section — ce n'est donc pas une
 > régression active, mais une limite à traiter avant qu'un futur lot
 > n'introduise une section conditionnelle référencée par une règle.
+
+> **Projection de présentation — « Option D » (décision humaine, cadrage
+> LOT 7A sujet 1)** — trois règles distinctes bloquées par EXACTEMENT la même
+> donnée manquante, pour le même membre (ou la même portée foyer), écrivent
+> toujours trois lignes `advisory_findings` brutes (une par règle, sans
+> exception, y compris pour un `rule_set` v1 historique déjà publié) — la
+> déduplication n'existe **jamais** à l'écriture, pour ne jamais affaiblir la
+> reproductibilité d'une ré-exécution historique. Cinq principes, non
+> négociables :
+> 1. **Les findings bruts sont l'historique technique et auditable** —
+>    `advisory_findings` reste la seule source de vérité complète.
+>    `getExecutionDetail` (drill-down d'une exécution précise) et
+>    `listFindingsHistory` (historique complet d'une session) continuent de
+>    lire ces lignes brutes SANS AUCUNE projection, exactement comme avant ce
+>    lot.
+> 2. **Seule la présentation conseiller regroupe les `missing_information`**
+>    — `getSessionFindingsWorkspace` (unique consommateur projeté à ce jour)
+>    applique `projectFindings` (`server/advisoryFindingsProjection.js`,
+>    fonction PURE, sans accès base) après hydratation des findings bruts.
+>    Clé de regroupement : `finding_scope` + `household_member_id` (ou
+>    `'household'`) + signature canonique (triée) de l'ensemble des
+>    références manquantes (`missing_data`) — jamais un simple recoupement
+>    partiel, jamais deux membres différents, jamais deux portées
+>    différentes. Le titre de l'entrée projetée est dérivé de `advisor_text`
+>    de la ou des question(s) réellement manquante(s) (résolu via
+>    `buildQuestionIndex`), **jamais** du titre arbitraire d'une des règles
+>    techniquement bloquées. Le statut projeté est ACTIF dès qu'au moins une
+>    ligne brute du groupe est encore active, ÉCARTÉ seulement si toutes le
+>    sont — jamais figé, pour ne jamais faire réapparaître comme actif un
+>    constat déjà traité par le conseiller.
+> 3. **La projection ne supprime ni ne modifie aucune ligne brute** — une
+>    entrée projetée porte un `projection_id` synthétique (`missing:...`,
+>    jamais un id réel de `advisory_findings`) et une liste `source_finding_ids`
+>    (traçabilité vers les lignes brutes fusionnées, jamais une garantie
+>    d'exhaustivité substitutive à `advisory_findings` lui-même) — elle n'a
+>    JAMAIS de champ `id`. Toute action qui a besoin d'un id réel (écarter un
+>    constat via `dismissFinding`, lier un constat à une recommandation via
+>    `advisoryRecommendations.js`) doit lire `advisory_findings` directement,
+>    jamais consommer `projection_id` comme un id réel.
+> 4. **`missing_information` n'est pas directement une recommandation** —
+>    contrairement aux autres `finding_type` (`fact`, `warning`, `gap`,
+>    `detected_need`, `solution_category`), une information manquante n'est
+>    jamais écartée ni transformée en recommandation depuis l'écran des
+>    constats (`client/src/pages/SessionFindings.jsx`) : l'action proposée
+>    est « Compléter l'information » (retour vers l'espace questionnaire,
+>    avec lien direct vers la question précise quand un tel lien stable
+>    existe — jamais construit pour une référence de portée membre, qui n'a
+>    par nature pas d'instance unique résolvable).
+> 5. **Réutilisabilité pour LOT 7B** — `projectFindings` est conçue sans
+>    aucune dépendance à Express ni SQLite, uniquement des champs de finding
+>    en entrée et une fonction `describeMissingRef` injectée : un futur module
+>    de synthèse de recommandations (LOT 7B, non construit à ce jour) devra
+>    consommer exactement la même projection plutôt que de réimplémenter son
+>    propre regroupement.
+>
+> **`synthesis.active_findings_count` change de sémantique** (voir §3quater) :
+> il compte désormais les entrées PROJETÉES (cartes visibles par le
+> conseiller), **jamais** les lignes techniques brutes. `synthesis.raw_active_findings_count`
+> (ajout additif, non affiché par l'interface actuelle) est un compteur
+> SÉPARÉ, celui-là bien du nombre de lignes `advisory_findings` réellement
+> actives, avant toute déduplication de présentation.
 
 ## 9. Empêcher les recommandations silencieuses
 

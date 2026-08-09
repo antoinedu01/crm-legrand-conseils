@@ -940,11 +940,46 @@ journalisé (`session rouverte (amendement)`, voir `SECURITY_PRIVACY.md`).
       }
     },
     "global_state": "up_to_date",
-    "synthesis": { "active_findings_count": 4, "active_conflicts_count": 0,
+    "synthesis": { "active_findings_count": 4, "active_conflicts_count": 0, "raw_active_findings_count": 6,
       "domains_current": ["health", "life_pension"], "domains_excluded_stale": [] },
     "actions": { "can_launch_analysis": true, "can_dismiss_findings": true, "can_create_recommendation": true }
   }
   ```
+> **Projection de présentation des `missing_information` — « Option D »
+> (décision humaine, cadrage LOT 7A sujet 1)** — `findings[]` ci-dessus est
+> désormais une PROJECTION conseiller, jamais les lignes `advisory_findings`
+> brutes telles quelles : plusieurs findings bruts `finding_type =
+> "missing_information"` bloqués par EXACTEMENT la même donnée manquante,
+> pour le même membre (ou la même portée foyer), sont fusionnés en UNE
+> entrée. Cette fusion ne touche JAMAIS les lignes en base (aucune écriture,
+> aucune suppression) — `GET .../rule-executions/:id` (drill-down technique)
+> et `GET .../findings/history` continuent d'exposer les lignes brutes
+> intégralement, sans aucune projection.
+>
+> Conséquence de contrat pour une entrée `missing_information` fusionnée :
+> - **aucun champ `id`** (jamais un id réel de `advisory_findings`) ;
+> - **`projection_id`** (chaîne `"missing:..."`, stable pour un même groupe
+>   logique, à utiliser comme clé React côté client — jamais comme id pour
+>   `POST .../findings/:id/dismiss` ni pour lier une recommandation) ;
+> - **`source_finding_ids`** : liste des ids bruts réellement fusionnés
+>   (traçabilité/navigation uniquement, jamais une garantie d'exhaustivité
+>   substitutive à `advisory_findings`) ;
+> - `title` dérivé de `advisor_text` de la ou des question(s) réellement
+>   manquante(s), jamais du titre d'une règle ;
+> - `status` reflète le groupe (`active` si au moins une ligne brute du
+>   groupe est encore active, `dismissed` seulement si toutes le sont).
+>
+> Tout autre `finding_type` (`fact`/`warning`/`gap`/`detected_need`/
+> `solution_category`) traverse cette projection strictement inchangé
+> (même `id` réel, même référence d'objet).
+>
+> `synthesis.active_findings_count` compte les entrées de CETTE projection
+> (cartes visibles par le conseiller), pas les lignes brutes.
+> `synthesis.raw_active_findings_count` (ajout additif, non affiché par
+> l'interface actuelle) totalise lui les lignes `advisory_findings`
+> réellement actives, avant déduplication — les deux compteurs divergent
+> normalement dès qu'un groupe `missing_information` fusionne plusieurs
+> lignes brutes.
 - **`actions.can_create_recommendation`** (ajouté GATE LOT 7B ciblé §2B) :
   même prédicat `isSessionWritable` que `recommendation_capabilities.create`
   (`GET .../sessions/:id`) et `assertSessionWritable`/`computeAllowedActions`
