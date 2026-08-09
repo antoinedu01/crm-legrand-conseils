@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import db from '../db.js';
+import { audit } from '../audit.js';
 import { AdvisoryError } from '../advisoryHouseholds.js';
 import {
   listSessions, getSessionDetail, createSession, updateSessionMetadata,
@@ -9,7 +11,9 @@ import {
 import {
   executeRuleSetForSession, executeApplicableRuleSetsForSession, listExecutions, getExecutionDetail,
   listActiveFindings, listFindingsHistory, dismissFinding, getSessionFindingsWorkspace,
+  getProjectedSessionFindings, hasFrozenSensitiveRefInFindings, auditSensitiveDataAccessIfNeeded,
 } from '../advisoryRuleExecutions.js';
+import { buildHealthSynthesis } from '../advisoryHealthSynthesis.js';
 
 export const advisorySessionsRouter = Router();
 
@@ -21,6 +25,17 @@ function handle(res, fn) {
     if (err instanceof AdvisoryError) {
       const body = { error: err.message };
       if (err.missing) body.missing = err.missing;
+      // `code` (même convention que server/routes/advisoryRecommendations.js
+      // §3) : identifiant machine stable, optionnel, jamais inventé ici —
+      // simplement transmis tel quel si l'erreur d'origine en porte un
+      // (ex. HEALTH_SYNTHESIS_UNSUPPORTED_VERSION, SYNTH-API §3 : « laisser
+      // remonter le 409 du moteur sans traduction destructive »).
+      if (err.code) body.code = err.code;
+      // `details` : objet technique optionnel attaché par certaines erreurs
+      // (ex. expected_questionnaire_version/actual_questionnaire_version) —
+      // jamais construit ici, jamais de donnée de santé, seulement transmis
+      // si présent sur l'erreur d'origine.
+      if (err.details) body.details = err.details;
       return res.status(err.status).json(body);
     }
     throw err;
@@ -76,6 +91,77 @@ advisorySessionsRouter.get('/:id/workspace', (req, res) => {
 advisorySessionsRouter.get('/:id/findings-workspace', (req, res) => {
   noStore(res);
   handle(res, () => res.json(getSessionFindingsWorkspace(req.params.id, req)));
+});
+
+// Audit — frontière HTTP uniquement (SYNTH-API §5, décision d'architecture
+// définitive) : `buildHealthSynthesis`/`getProjectedSessionFindings`
+// restent, eux, strictement sans audit (utilisables tels quels par un futur
+// appelant interne — ex. un générateur de brouillon de recommandation —
+// sans jamais produire cette action). Seule LA CONSULTATION HTTP réelle par
+// un humain est journalisée ici, avec le même patron de déduplication
+// temporelle (fenêtre 15 minutes) que `auditWorkspaceView`
+// (server/advisorySessions.js) et `auditFindingsWorkspaceView`
+// (server/advisoryRuleExecutions.js) — jamais le mécanisme générique
+// `audit()`, qui n'a pas de déduplication intégrée. Détails STRICTEMENT
+// minimisés (jamais une réponse de santé, une valeur franchise/care model,
+// un besoin complémentaire, un texte de finding ni le DTO complet) :
+// uniquement domaine, version de synthèse, état d'analyse et besoin de
+// réanalyse — l'identifiant de session est déjà porté par `entity_id`,
+// jamais dupliqué dans `details`.
+const HEALTH_SYNTHESIS_VIEW_DEDUP_MINUTES = 15;
+function auditHealthSynthesisView(req, sessionId, dto) {
+  const email = req?.session?.userEmail || 'système';
+  const recent = db
+    .prepare(
+      `SELECT id FROM audit_log WHERE user_email = ? AND action = 'consultation synthèse santé session'
+       AND entity = 'advisory_session' AND entity_id = ? AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1`
+    )
+    .get(email, sessionId, `-${HEALTH_SYNTHESIS_VIEW_DEDUP_MINUTES} minutes`);
+  if (recent) return;
+  audit(
+    req, 'consultation synthèse santé session', 'advisory_session', sessionId,
+    `domaine ${dto.domain} — synthesis_version ${dto.synthesis_version} — analysis_status ${dto.analysis_status} — requires_reanalysis ${dto.requires_reanalysis}`
+  );
+}
+
+// Synthèse Santé déterministe (SYNTH-API), calculée à la volée à chaque
+// appel — jamais persistée, jamais mise en cache (réponses potentiellement
+// médicales). `buildHealthSynthesis` porte déjà seule toute la logique de
+// contrôle d'accès en lecture (session/foyer introuvable → 404/400,
+// domaine non applicable → 400, version non supportée → 409
+// HEALTH_SYNTHESIS_UNSUPPORTED_VERSION) : cette route ne duplique RIEN de
+// cette logique, elle se contente de l'appeler et de transmettre le DTO
+// exactement tel quel (`res.json(dto)`, jamais de transformation) — même
+// politique d'accès en lecture que `/:id/findings-workspace` ci-dessus,
+// aucun droit plus permissif ni restriction supplémentaire. `req` n'est
+// JAMAIS passé à `buildHealthSynthesis` (signature `{ sessionId }`
+// uniquement) : le moteur reste utilisable indépendamment d'HTTP.
+//
+// Audit dérivé « consultation findings sensibles » (correction post-revue
+// compliance-privacy-reviewer, SYNTH-API) : la synthèse expose un contenu
+// DÉRIVÉ des mêmes findings Santé que `/findings-workspace`/`listActiveFindings`
+// ci-dessus, sans jamais réexposer `used_inputs_ref` elle-même — même
+// précédent que les Lots 4A/4B/7A (`docs/advisory/SECURITY_PRIVACY.md`) :
+// toute route de lecture exposant un tel contenu applique le MÊME critère
+// dérivé (`hasFrozenSensitiveRefInFindings`) et le MÊME audit
+// (`auditSensitiveDataAccessIfNeeded`, action `consultation findings
+// sensibles`, déduplication 15 minutes), jamais un second mécanisme
+// redéfini ici. `getProjectedSessionFindings` est rappelée une seconde
+// fois (après le succès de `buildHealthSynthesis`, jamais avant : aucun
+// audit tant que la synthèse n'a pas réellement été construite) pour
+// obtenir les findings bruts nécessaires à ce seul calcul — redondance de
+// lecture déjà assumée ailleurs dans ce même moteur (voir le commentaire
+// de `getProjectedSessionFindings`, server/advisoryRuleExecutions.js),
+// jamais une seconde logique de projection.
+advisorySessionsRouter.get('/:id/health-synthesis', (req, res) => {
+  noStore(res);
+  handle(res, () => {
+    const dto = buildHealthSynthesis({ sessionId: req.params.id });
+    auditHealthSynthesisView(req, req.params.id, dto);
+    const { raw } = getProjectedSessionFindings(req.params.id, { domain: 'health' });
+    auditSensitiveDataAccessIfNeeded(req, req.params.id, 'health', hasFrozenSensitiveRefInFindings(raw));
+    res.json(dto);
+  });
 });
 
 advisorySessionsRouter.post('/:id/start', (req, res) => {

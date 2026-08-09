@@ -1074,6 +1074,85 @@ journalisé (`session rouverte (amendement)`, voir `SECURITY_PRIVACY.md`).
   retournée porte `sensitivity_at_execution = true` (même politique que
   les 4 routes de lecture du Lot 4A).
 
+### `GET /api/advisory/sessions/:id/health-synthesis`
+> **Implémenté au sous-lot SYNTH-API** (`server/routes/advisorySessions.js`),
+> pour exposer en lecture le moteur pur `buildHealthSynthesis`
+> (`server/advisoryHealthSynthesis.js`, sous-lot SYNTH-BE1 — voir
+> `docs/advisory/HEALTH_SYNTHESIS.md` pour l'architecture et le contenu
+> détaillé du DTO). La route ne fait qu'appeler
+> `buildHealthSynthesis({ sessionId })` (jamais `req`) et retransmettre le
+> DTO retourné **tel quel** (`res.json(dto)`) : elle ne duplique, ne
+> recalcule ni ne filtre aucune donnée métier — le moteur reste l'unique
+> source de vérité, y compris pour le contrôle d'accès en lecture (délégué
+> intégralement à `getProjectedSessionFindings`, déjà utilisé par
+> `GET .../findings-workspace` ci-dessus).
+- **Politique d'accès** : EXACTEMENT la même que `GET .../findings-workspace`
+  — aucun droit plus permissif, aucune restriction supplémentaire. Un foyer
+  archivé reste lisible dans les mêmes conditions ; le statut de la session
+  n'est jamais une restriction artificielle.
+- **Réponse (200)** — DTO transmis sans transformation, mêmes clés
+  racine que celles produites par `buildHealthSynthesis` :
+  ```json
+  {
+    "synthesis_version": 1,
+    "session_id": 1,
+    "domain": "health",
+    "analysis_status": "current",
+    "requires_reanalysis": false,
+    "source_state_at": "...",
+    "members": [ /* voir docs/advisory/HEALTH_SYNTHESIS.md */ ],
+    "household_summary": {
+      "franchise_orientations_present": ["..."],
+      "members_with_missing_information": [12]
+    }
+  }
+  ```
+  Aucun champ n'est retiré (`historical`, `no_longer_active`, `provenance`,
+  les identifiants source `used_inputs_ref`/`source_answer_ids_used`/
+  `source_finding_ids_all` restent tous présents — ils font partie du
+  contrat technique) et aucun champ n'est ajouté (en particulier, jamais de
+  `generated_at` : la synthèse est calculée à la volée à chaque appel,
+  jamais persistée ni mise en cache serveur).
+- **`analysis_status`** — `current`/`stale`/`not_run` sont TOUS des `200`
+  normaux, jamais transformés en erreur HTTP ; `requires_reanalysis` vaut
+  `true` pour `stale` et `not_run`, `false` pour `current`. La route ne
+  relance jamais automatiquement une analyse.
+- **Erreurs** : `404` session introuvable (ou foyer disparu) ; `400`
+  domaine de session non applicable (ni `health` ni `mixed`) ; `409` code
+  `HEALTH_SYNTHESIS_UNSUPPORTED_VERSION` si le questionnaire Santé ou la
+  dernière exécution Santé de la session utilise une version non prise en
+  charge par le moteur (`details` technique du moteur transmis tel quel,
+  jamais reconstruit par la route — voir
+  `docs/advisory/HEALTH_SYNTHESIS.md`). Ces trois cas sont entièrement
+  produits par `buildHealthSynthesis`/`getProjectedSessionFindings` ; la
+  route ne duplique aucune de ces vérifications.
+- **Cache** : `Cache-Control: no-store, private` (même convention que
+  `.../findings-workspace` — réponse potentiellement médicale).
+- **Audit** : `consultation synthèse santé session` (déduplication 15
+  minutes, même mécanisme que `consultation espace constats session`
+  ci-dessus), créée UNIQUEMENT après une synthèse construite avec succès —
+  jamais sur 404/400/409. Détails limités à `session_id` (implicite via
+  `entity_id`, jamais dupliqué), `domain`, `synthesis_version`,
+  `analysis_status`, `requires_reanalysis` — jamais une réponse de santé,
+  une valeur franchise/modèle de soins, un besoin complémentaire ou le DTO
+  complet. `buildHealthSynthesis`/`getProjectedSessionFindings`
+  eux-mêmes restent strictement sans audit (décision d'architecture :
+  un futur appelant interne, par exemple un générateur de brouillon de
+  recommandation, doit pouvoir les invoquer sans jamais produire cette
+  ligne de traçabilité — seule une consultation HTTP réelle est
+  journalisée).
+- **Audit dérivé `consultation findings sensibles`** (correction post-revue
+  compliance-privacy-reviewer, même précédent que les 4 routes du Lot 4A et
+  `.../findings-workspace` ci-dessus) : la synthèse expose un contenu
+  DÉRIVÉ des mêmes findings Santé que ces routes (sans jamais réexposer
+  `used_inputs_ref` elle-même) — le même critère dérivé s'applique donc :
+  dès qu'au moins une référence figée (`sensitivity_at_execution = true`)
+  a contribué à la synthèse, une seconde ligne d'audit `consultation
+  findings sensibles` est journalisée (même fonction partagée
+  `auditSensitiveDataAccessIfNeeded`/`hasFrozenSensitiveRefInFindings`,
+  `server/advisoryRuleExecutions.js`, même déduplication 15 minutes),
+  également uniquement après un succès, jamais sur erreur.
+
 ### `GET /api/advisory/sessions/:id/findings`
 - **Implémenté au Lot 4A.** Liste des findings **actifs** (`status =
   'active'`) de la dernière exécution non supersédée, triés par priorité

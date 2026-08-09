@@ -691,6 +691,31 @@ changement de nature nécessitant une revue dédiée, hors périmètre actuel).
     connue documentée), `onOpenOther` et pile de modales (3/3) — détail
     complet dans `LOT7B_MANUAL_UI_CHECKLIST.md` « Round 4 ».
 
+- **SYNTH-API — `GET /api/advisory/sessions/:id/health-synthesis`** (route
+  de lecture exposant le moteur pur `buildHealthSynthesis`, voir
+  `docs/advisory/HEALTH_SYNTHESIS.md`) :
+  - `buildHealthSynthesis`/`getProjectedSessionFindings` restent
+    strictement sans audit (décision d'architecture), seule la route HTTP
+    journalise une consultation humaine réelle — `consultation synthèse
+    santé session`, créée UNIQUEMENT après une synthèse construite avec
+    succès, jamais sur 404/400/409, même déduplication 15 minutes que
+    `consultation espace constats session`. Détails strictement minimisés :
+    `domain`/`synthesis_version`/`analysis_status`/`requires_reanalysis`
+    uniquement — jamais une réponse de santé, une valeur franchise/modèle
+    de soins, un besoin complémentaire ni le DTO complet.
+  - **Défaut confirmé et corrigé lors de la revue `compliance-privacy-reviewer`** :
+    la synthèse expose un contenu DÉRIVÉ des mêmes findings Santé que
+    `.../findings-workspace`/les quatre routes du Lot 4A, sans jamais
+    réexposer `used_inputs_ref` elle-même — la route ne journalisait
+    initialement jamais l'audit dérivé `consultation findings sensibles`
+    que ces routes appliquent déjà dès qu'une réponse sensible figée a
+    contribué au résultat, rompant silencieusement ce précédent. Corrigé :
+    `hasFrozenSensitiveRefInFindings`/`auditSensitiveDataAccessIfNeeded`
+    (`server/advisoryRuleExecutions.js`) exportées pour être réutilisées
+    telles quelles depuis la route (jamais un second mécanisme redéfini) ;
+    même critère dérivé, même action d'audit, même déduplication 15
+    minutes, également uniquement après succès.
+
 ## 7. Verrouillage de session
 
 - Reprend le mécanisme existant (`express-session`, 8h, cookie httpOnly,

@@ -911,7 +911,12 @@ const SENSITIVE_DATA_VIEW_DEDUP_MINUTES = 15;
 // en direct sur `advisory_questions.sensitive` ici. Une reclassification
 // ultérieure d'une question (sensible <-> non-sensible) ne change donc
 // jamais rétroactivement la décision d'audit d'une exécution historique.
-function hasFrozenSensitiveRefInFindings(findings) {
+// Exportée (SYNTH-API, revue compliance-privacy-reviewer) pour que
+// `GET .../health-synthesis` (server/routes/advisorySessions.js) applique le
+// MÊME critère dérivé qu'ici plutôt que de le redéfinir — la synthèse Santé
+// expose un contenu dérivé de ces mêmes findings, sans jamais exposer
+// `used_inputs_ref` elle-même.
+export function hasFrozenSensitiveRefInFindings(findings) {
   return findings.some((f) => (f.used_inputs_ref || []).some((ref) => ref.kind === 'answer' && ref.sensitivity_at_execution === true));
 }
 
@@ -923,7 +928,11 @@ function hasFrozenSensitiveRefInSnapshot(snapshot) {
   return (snapshot.answers_used || []).some((a) => a.sensitivity_at_execution === true && Array.isArray(a.entries) && a.entries.length > 0);
 }
 
-function auditSensitiveDataAccessIfNeeded(req, sessionId, domain, hasSensitiveInput) {
+// Exportée (SYNTH-API, revue compliance-privacy-reviewer) pour la même
+// raison que `hasFrozenSensitiveRefInFindings` ci-dessus — même action
+// d'audit `consultation findings sensibles`, même déduplication 15 minutes,
+// jamais un second mécanisme concurrent défini ailleurs.
+export function auditSensitiveDataAccessIfNeeded(req, sessionId, domain, hasSensitiveInput) {
   if (!hasSensitiveInput) return;
   const email = req?.session?.userEmail || 'système';
   const recent = db
