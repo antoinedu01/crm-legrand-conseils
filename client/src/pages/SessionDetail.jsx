@@ -89,6 +89,16 @@ export default function SessionDetail() {
               Ouvrir les recommandations
             </button>
           )}
+          {/* Accès Synthèse (SYNTH-UI1 §A) : dès que le domaine est Santé ou
+              mixte -- JAMAIS conditionné à `status === 'completed'` comme les
+              deux boutons ci-dessus, la page supporte volontairement
+              current/stale/not_run et doit rester accessible même sur une
+              session Santé pas encore analysée. */}
+          {(data.domain === 'health' || data.domain === 'mixed') && (
+            <button onClick={() => navigate(`/diagnostic-360/sessions/${id}/health-synthesis`)}>
+              Ouvrir la synthèse
+            </button>
+          )}
           <button className="primary" onClick={() => navigate(`/diagnostic-360/sessions/${id}/workspace`)}>
             Ouvrir l'espace de rendez-vous
           </button>

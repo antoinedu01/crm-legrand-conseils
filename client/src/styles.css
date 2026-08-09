@@ -434,6 +434,43 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .declaration-group label.check:hover { background: var(--wash); }
 .declaration-group label.check input { flex-shrink: 0; width: 20px; height: 20px; }
 
+/* ---------- Synthèse Santé (SYNTH-UI1) -- même patron visuel que
+   .wksp-member-switch/.seg (SessionWorkspace.jsx) pour le commutateur
+   membre, page distincte donc classes propres. ---------- */
+.synth-member-tabs {
+  position: sticky; top: 0; z-index: 2; background: var(--page);
+  display: flex; gap: 4px; padding: 6px 0 14px; margin-bottom: 4px; flex-wrap: wrap;
+}
+.synth-member-tabs button { padding: 10px 12px; font-size: 12.5px; min-height: 40px; }
+.synth-member-tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (max-width: 900px) {
+  /* Défilement horizontal contenu plutôt qu'un retour à la ligne qui
+     consommerait trop de hauteur avec plusieurs membres (§15) -- même
+     `min-width: 0` que `.wksp-rail` (constat GATE LOT 4B, débordement de
+     page sinon). */
+  .synth-member-tabs { position: static; flex-wrap: nowrap; overflow-x: auto; min-width: 0; padding-bottom: 8px; }
+}
+
+.synth-status-band { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+
+.synth-block-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.synth-block-head h2 { margin-bottom: 0; }
+/* Correction post-revue client-meeting-ux : `var(--warning)` brut mesure
+   ~1.8:1 sur --page/--surface en thème clair (bien sous le seuil non-texte
+   3:1), exactement le défaut déjà évité ailleurs dans ce fichier pour ce
+   même token (`.alert.warn` ci-dessus utilise délibérément #8a6100 en clair
+   et ne bascule sur `var(--warning)` qu'en thème sombre) -- même patron
+   repris ici à l'identique plutôt que réintroduire le défaut déjà corrigé. */
+.synth-vigilance-icon { color: #8a6100; }
+@media (prefers-color-scheme: dark) { .synth-vigilance-icon { color: var(--warning); } }
+
+.synth-field { margin-bottom: 12px; }
+.synth-field:last-child { margin-bottom: 0; }
+
+.synth-compact-list { margin-top: 10px; }
+.synth-compact-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 13px; }
+.synth-compact-row:last-child { border-bottom: none; }
+
 .muted { color: var(--muted); }
 .right { text-align: right; }
 .mt { margin-top: 14px; }

@@ -222,6 +222,11 @@ export default function SessionFindings() {
         <div className="actions">
           <button className="ghost" onClick={() => navigate(`/diagnostic-360/sessions/${id}/workspace`)}>Ouvrir l'espace de rendez-vous</button>
           <button className="ghost" onClick={() => navigate(`/diagnostic-360/sessions/${id}/recommendations`)}>Ouvrir les recommandations</button>
+          {/* Accès Synthèse (SYNTH-UI1 §A/§13) : dès que le domaine est Santé
+              ou mixte, jamais conditionné au statut de la session. */}
+          {(session.domain === 'health' || session.domain === 'mixed') && (
+            <button className="ghost" onClick={() => navigate(`/diagnostic-360/sessions/${id}/health-synthesis`)}>Ouvrir la synthèse</button>
+          )}
           <button className="primary" disabled={!actions.can_launch_analysis || analyzing} onClick={launchAnalysis}>
             {analyzing ? 'Analyse en cours…' : "Lancer l'analyse"}
           </button>

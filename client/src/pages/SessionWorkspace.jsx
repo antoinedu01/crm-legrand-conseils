@@ -489,6 +489,13 @@ export default function SessionWorkspace() {
           ))}
           {actions.can_complete && <button className="primary" disabled={transitioning} onClick={handleOpenFinalize}>Vérifier avant de finaliser</button>}
           {actions.can_amend && <button onClick={() => setAmendTarget({})}>Corriger une réponse</button>}
+          {/* Accès Synthèse (SYNTH-UI1 §A/§13) : dès que le domaine est Santé
+              ou mixte, jamais conditionné au statut de la session. */}
+          {(session.domain === 'health' || session.domain === 'mixed') && (
+            <button className="ghost" onClick={() => navigate(`/diagnostic-360/sessions/${id}/health-synthesis`)}>
+              Ouvrir la synthèse
+            </button>
+          )}
         </div>
       </div>
 

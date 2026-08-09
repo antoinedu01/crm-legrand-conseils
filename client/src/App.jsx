@@ -20,6 +20,7 @@ import SessionDetail from './pages/SessionDetail.jsx';
 import SessionWorkspace from './pages/SessionWorkspace.jsx';
 import SessionFindings from './pages/SessionFindings.jsx';
 import SessionRecommendations from './pages/SessionRecommendations.jsx';
+import SessionHealthSynthesis from './pages/SessionHealthSynthesis.jsx';
 import DataRetention from './pages/DataRetention.jsx';
 
 const NAV = [
@@ -145,6 +146,7 @@ function AuthenticatedShell({ auth, refresh }) {
           <Route path="/diagnostic-360/sessions/:id/workspace" element={<SessionWorkspace />} />
           <Route path="/diagnostic-360/sessions/:id/findings" element={<SessionFindings />} />
           <Route path="/diagnostic-360/sessions/:id/recommendations" element={<SessionRecommendations />} />
+          <Route path="/diagnostic-360/sessions/:id/health-synthesis" element={<SessionHealthSynthesis />} />
           <Route path="/diagnostic-360/retention" element={<DataRetention />} />
           <Route path="/conformite" element={<Compliance />} />
           <Route path="/parametres" element={<Settings user={auth.user} onSaved={refresh} />} />

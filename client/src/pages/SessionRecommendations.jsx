@@ -193,6 +193,13 @@ export default function SessionRecommendations() {
         </div>
         <div className="actions">
           <button className="ghost" onClick={() => guardedNavigate(`/diagnostic-360/sessions/${id}/findings`)}>Ouvrir les constats</button>
+          {/* Accès Synthèse (SYNTH-UI1 §A/§13) : dès que le domaine est Santé
+              ou mixte, jamais conditionné au statut de la session.
+              `guardedNavigate` (même garde que « Ouvrir les constats »
+              ci-dessus) : cette page peut porter un formulaire non enregistré. */}
+          {(session.domain === 'health' || session.domain === 'mixed') && (
+            <button className="ghost" onClick={() => guardedNavigate(`/diagnostic-360/sessions/${id}/health-synthesis`)}>Ouvrir la synthèse</button>
+          )}
           {canCreateRecommendation && screen.kind === 'list' && (
             <button className="primary" onClick={() => setScreen({ kind: 'create', findingIds: [], domain: null })}>Nouvelle recommandation</button>
           )}
