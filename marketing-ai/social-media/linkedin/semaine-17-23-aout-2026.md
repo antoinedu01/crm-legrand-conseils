@@ -111,6 +111,7 @@ Si vous êtes indépendant·e en Suisse romande et que vous n'avez jamais vraime
   - Ne pas ajouter de montants, seuils ou délais sans source. `Vérification humaine obligatoire` si un chiffre est introduit.
 - **KPI principal** : portée + clics vers le site (et demandes d'analyse à terme).
 - **Statut** : `Version finale — prête pour validation humaine`.
+- **Report** : « Reporté à septembre 2026 — date à définir. » (note ajoutée le 09/08/2026). Ce contenu n'est ni supprimé ni réécrit ; sa diffusion initialement envisagée le 20/08/2026 est repoussée à septembre 2026, date exacte non encore fixée. Un nouveau contenu distinct, SOC-LI-005, a été créé pour la semaine du 10 au 16 août 2026 — voir `marketing-ai/social-media/linkedin/semaine-10-16-aout-2026.md`.
 
 ---
 
