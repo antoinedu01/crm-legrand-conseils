@@ -14,9 +14,17 @@
 // QA_MODE=v1   : seed v1 (+ v2 si QA_E2E_SEED_V2=1), publie UNIQUEMENT
 //   diagnostic-sante-phase1 v1 ; regles-sante-phase1 v1 seulement si
 //   QA_E2E_V1_RULESET=1 est explicitement demandé (scénario K).
+//
+// QA_PERSISTENT=1 (QA-INFRA1-HARDEN) : bascule le provisioning du compte
+// conseiller d'un mot de passe fixe (usage éphémère ci-dessus : base
+// temporaire jamais exposée, supprimée après le test) vers un mot de passe
+// obligatoirement fourni par QA_ADVISER_PASSWORD -- jamais de secret fixe
+// utilisable sur un environnement QA persistant. Voir
+// docs/advisory/QA_DEPLOYMENT.md §6 pour la justification complète.
 
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
 
@@ -57,6 +65,28 @@ if (resolvedDataDir === '/' || resolvedDataDir === REPO_ROOT) {
   refuse(`CRM_DATA_DIR (${resolvedDataDir}) est un chemin manifestement incorrect.`);
 }
 
+// Garde-fou anti-erreur-opérateur (constat revue conformité QA-INFRA1-HARDEN
+// §3) : le mode par défaut (mot de passe fixe éphémère) ne doit jamais
+// pouvoir être invoqué contre un chemin qui SEMBLE destiné à persister --
+// sans quoi une simple omission de QA_PERSISTENT=1 lors d'un provisioning
+// réel sur le futur VPS QA créerait silencieusement un compte avec le mot
+// de passe de test fixe. Fail-closed par défaut : hors du répertoire
+// temporaire du système, QA_PERSISTENT=1 (+ QA_ADVISER_PASSWORD) devient
+// obligatoire.
+const PERSISTENT = process.env.QA_PERSISTENT === '1';
+if (!PERSISTENT) {
+  const tmpRoot = path.resolve(os.tmpdir());
+  const isUnderTmp = resolvedDataDir === tmpRoot || resolvedDataDir.startsWith(`${tmpRoot}${path.sep}`);
+  if (!isUnderTmp) {
+    refuse(
+      `CRM_DATA_DIR (${resolvedDataDir}) n'est pas sous le répertoire temporaire du système (${tmpRoot}). ` +
+      `Un chemin hors du dossier temporaire suggère un environnement destiné à persister : ` +
+      `QA_PERSISTENT=1 (et QA_ADVISER_PASSWORD) est alors obligatoire -- le mot de passe fixe ` +
+      `éphémère est réservé aux bases temporaires supprimées après usage.`
+    );
+  }
+}
+
 const mode = process.env.QA_MODE;
 if (mode !== 'main' && mode !== 'v1') {
   refuse("QA_MODE doit valoir 'main' ou 'v1'.");
@@ -79,8 +109,26 @@ const { publishVersion } = await import(path.join(REPO_ROOT, 'server', 'advisory
 const { publishRuleSet } = await import(path.join(REPO_ROOT, 'server', 'advisoryRules.js'));
 
 const ADVISER_EMAIL = 'conseiller.qa@example.invalid';
-const ADVISER_PASSWORD = 'QaE2eTest#2026Local!';
 const ADVISER_NAME = 'QA Conseiller Test';
+
+let ADVISER_PASSWORD;
+if (PERSISTENT) {
+  // Environnement QA persistant (potentiellement exposé) : aucun mot de
+  // passe fixe n'est acceptable ici -- doit être fourni par l'opérateur,
+  // jamais committé, jamais affiché ci-dessous.
+  ADVISER_PASSWORD = process.env.QA_ADVISER_PASSWORD;
+  if (!ADVISER_PASSWORD || !ADVISER_PASSWORD.trim()) {
+    refuse('QA_PERSISTENT=1 exige QA_ADVISER_PASSWORD (mot de passe fourni explicitement, jamais une valeur par défaut pour un environnement persistant).');
+  }
+} else {
+  // Usage éphémère existant (QA-E2E1 et tests automatisés locaux) : base
+  // temporaire créée et supprimée dans la même exécution, jamais exposée --
+  // mot de passe fixe conservé UNIQUEMENT pour ce cas, pour ne pas casser
+  // les flux déjà validés (ex. scripts/qa-health-e2e-playwright.mjs), et
+  // explicitement jamais réutilisable sur un environnement persistant
+  // (bloqué par la branche QA_PERSISTENT ci-dessus).
+  ADVISER_PASSWORD = 'QaE2eTest#2026Local!';
+}
 
 const existingUsers = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 if (existingUsers === 0) {
@@ -88,7 +136,7 @@ if (existingUsers === 0) {
   db.prepare('INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)').run(
     ADVISER_EMAIL.toLowerCase(), ADVISER_NAME, hash
   );
-  console.log(`Compte conseiller QA créé : ${ADVISER_EMAIL}`);
+  console.log(`Compte conseiller QA créé : ${ADVISER_EMAIL}${PERSISTENT ? ' (mot de passe : fourni via QA_ADVISER_PASSWORD, jamais affiché ici)' : ''}`);
 } else {
   console.log('Un compte existe déjà sur cette base isolée — provisioning déjà exécuté, réutilisation.');
 }
@@ -168,10 +216,18 @@ const questions = db.prepare(
 ).all(targetVersion.id);
 const questionIdsByStableKey = Object.fromEntries(questions.map((q) => [q.stable_key, q.id]));
 
+// En mode persistant, le manifeste reste sur le disque de l'hôte QA au-delà
+// de cette seule exécution : le mot de passe n'y est jamais écrit en clair
+// (contrairement au mode éphémère, où le manifeste vit dans un répertoire
+// temporaire supprimé par le script Playwright appelant juste après usage).
 const manifest = {
   mode,
   dataDir: resolvedDataDir,
-  adviser: { email: ADVISER_EMAIL, password: ADVISER_PASSWORD, name: ADVISER_NAME },
+  adviser: {
+    email: ADVISER_EMAIL,
+    password: PERSISTENT ? null : ADVISER_PASSWORD,
+    name: ADVISER_NAME,
+  },
   questionnaireStableKey: QUESTIONNAIRE_STABLE_KEY,
   ruleSetStableKey: RULE_SET_STABLE_KEY,
   targetVersionNumber,

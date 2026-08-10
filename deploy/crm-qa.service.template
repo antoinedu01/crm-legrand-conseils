@@ -1,0 +1,64 @@
+# Gabarit systemd pour l'environnement QA (jamais la production).
+#
+# Ce fichier n'est PAS installé tel quel : `deploy/install-qa.sh` (mode
+# --apply uniquement) le lit et remplace les jetons __QA_XXX__ ci-dessous par
+# la configuration QA effective (garde-fous + barrière --apply appliqués
+# avant toute substitution), puis écrit le résultat dans
+# /etc/systemd/system/__QA_SERVICE__.service. Ce gabarit est la source
+# unique de vérité du service QA : ne dupliquez pas ce contenu ailleurs pour
+# éviter toute divergence avec le script.
+#
+# NODE_ENV (décision QA-INFRA1-HARDEN §5, voir docs/advisory/QA_DEPLOYMENT.md) :
+# aucun comportement de sécurité de ce dépôt ne dépend de NODE_ENV -- QA
+# utilise donc la MÊME valeur que la production (`production`, par défaut de
+# `install-qa.sh`), pour que QA tourne exactement comme la production tourne
+# réellement. L'isolement vis-à-vis de la production repose uniquement sur
+# User/WorkingDirectory/CRM_DATA_DIR/le nom du service ci-dessous -- jamais
+# sur NODE_ENV.
+[Unit]
+Description=CRM Legrand Conseils — Environnement QA (__QA_HOSTNAME_LABEL__)
+After=network.target
+
+[Service]
+User=__QA_USER__
+WorkingDirectory=__QA_APP_DIR__
+Environment=NODE_ENV=__QA_NODE_ENV__
+Environment=PORT=__QA_PORT__
+Environment=CRM_DATA_DIR=__QA_DATA_DIR__
+# Fichier optionnel (le tiret initial signifie : ne pas échouer s'il est
+# absent ou vide) pour des secrets QA propres (ex. SESSION_SECRET), jamais
+# commités, permissions 600 root:root -- voir docs/advisory/QA_DEPLOYMENT.md
+# §7. Sans ce fichier, l'application génère et persiste elle-même un secret
+# de session dans CRM_DATA_DIR/.session-secret (server/app.js) : ce fichier
+# reste donc facultatif dans la plupart des cas.
+EnvironmentFile=-__QA_ENV_FILE__
+ExecStart=__NODE_BIN__ server/index.js
+Restart=on-failure
+RestartSec=3
+
+# --- Durcissement systemd -----------------------------------------------
+# NoNewPrivileges : le process et ses enfants ne peuvent jamais gagner de
+# privilèges supplémentaires (setuid, capabilities, etc).
+NoNewPrivileges=true
+# PrivateTmp : /tmp et /var/tmp propres à cette unité, invisibles des autres
+# process du système -- Node/npm n'ont besoin d'aucun /tmp partagé ici.
+PrivateTmp=true
+# ProtectSystem=strict : la quasi-totalité de l'arborescence (dont /usr,
+# /boot, /etc) devient en lecture seule pour ce service, sauf les chemins
+# listés dans ReadWritePaths ci-dessous -- plus strict que `full`.
+ProtectSystem=strict
+# ProtectHome=read-only : /home, /root, /run/user en lecture seule --
+# /home/__QA_USER__/app (le code) reste donc LISIBLE (nécessaire : Node doit
+# charger ses propres fichiers) mais jamais inscriptible au runtime, ce qui
+# est le comportement voulu (le code ne doit jamais s'auto-modifier).
+# ReadWritePaths ci-dessous a la PRIORITÉ sur ProtectHome pour le chemin
+# exact qu'il liste (comportement documenté de systemd.exec) : c'est ce qui
+# rend spécifiquement CRM_DATA_DIR inscriptible malgré ProtectHome=read-only.
+ProtectHome=read-only
+ReadWritePaths=__QA_DATA_DIR__
+# UMask : fichiers créés par le process (ex. .session-secret, crm.sqlite)
+# non lisibles par le groupe/les autres par défaut.
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
