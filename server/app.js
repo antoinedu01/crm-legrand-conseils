@@ -23,6 +23,7 @@ import { todayRouter } from './routes/today.js';
 import { publicRouter } from './routes/public.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { acquisitionAnalyticsRouter } from './routes/acquisition-analytics.js';
+import { appointmentsRouter } from './routes/appointments.js';
 import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +141,7 @@ app.use('/api/prospects', requireAuth, prospectsRouter);
 app.use('/api/today', requireAuth, todayRouter);
 app.use('/api/campaigns', requireAuth, campaignsRouter);
 app.use('/api/acquisition/analytics', requireAuth, acquisitionAnalyticsRouter);
+app.use('/api/appointments', requireAuth, appointmentsRouter);
 
 // Sauvegarde complète de la base (copie cohérente via l'API backup de SQLite)
 app.get('/api/backup', requireAuth, async (req, res) => {
