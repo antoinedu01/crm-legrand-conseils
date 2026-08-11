@@ -72,22 +72,48 @@ n'existe, à ce jour, que pour les 5 premières tables — voir
 SQLite unique — en cas d'erreur en cours de migration, SQLite annule
 l'ensemble du bloc, ce qui limite le risque d'un schéma à moitié migré.)*
 
-## Version 9 (réservée — Acquisition OS)
+## Version 9 (Acquisition OS — implémentée, lot A2a)
 
-**Statut : réservation de numéro uniquement. Aucune migration v9 n'existe à
-ce jour dans `server/db.js`.** Cette section documente l'attribution du
-prochain numéro de version disponible, pas une migration réelle.
+**Statut : implémentée.** La réservation notationnelle posée au Lot A0 est
+désormais une migration réelle dans `server/db.js` (bloc
+`if (version < 9)`), sur la branche `feature/acquisition-os`
+(worktree `/home/user/crm-legrand-conseils-acquisition`). Elle appartient à
+Acquisition OS et **ne doit être réutilisée par aucune autre branche**
+(en particulier pas par `feature/lead-generation-engine`, qui reste sur la
+réservation v7 ci-dessous).
 
-Récapitulatif des numéros déjà engagés, pour éviter toute collision :
+Récapitulatif des numéros engagés, pour éviter toute collision :
 
 | Version | Statut | Portée |
 |---|---|---|
 | 7 | **Réservée** | Branche historique non fusionnée `feature/lead-generation-engine` (Bloc 4 « partenaires/recommandations »). Ne pas réutiliser ce numéro pour un autre module tant que cette branche n'est pas tranchée. |
 | 8 | **Utilisée** | Tables satellites de contrats par branche d'assurance (voir section « Version 8 » ci-dessus), déjà présente dans `server/db.js` de ce dépôt. |
-| 9 | **Réservée pour Acquisition OS** | Travail en cours sur `feature/acquisition-os` (worktree `/home/user/crm-legrand-conseils-acquisition`). Aucune table, aucune colonne, aucun bloc `if (version < 9)` n'existe encore. |
+| 9 | **Utilisée — Acquisition OS** | Table `appointments` (rendez-vous réels, datés, rattachés à `clients`). Lot A2a, `server/routes/`, aucune API/UI/intégration pipeline dans ce lot. |
 
-**Règle explicite** : aucune migration Acquisition OS ne doit utiliser les
-numéros 7 ou 8. Toute future migration réelle pour Acquisition OS
-commencera à `user_version = 9`. Cette réservation est purement
-documentaire à ce stade (Lot A0) — elle ne modifie ni ne touche
-`server/db.js`.
+**Objectif** : rendez-vous réels et datés, distincts du plan d'action
+quotidien (`today.js`, non persistant) et des tâches (`tasks`, sans heure).
+Rattaché à `clients.id` — pas de nouvelle entité prospect créée.
+
+**Table créée** : `appointments` — `id`, `client_id` (FK `clients(id)`,
+sans `ON DELETE CASCADE`, cohérent avec l'absence de suppression physique
+des clients dans tout le schéma), `starts_at`/`ends_at` (TEXT, format
+`datetime('now')` du projet, contrainte `CHECK (ends_at > starts_at)`),
+`status` (TEXT, défaut `booked`, sans CHECK — comme tous les autres statuts
+texte du schéma, validé côté API), `appointment_type` (TEXT, défaut
+`other`), `location_type` (TEXT, défaut `in_person`), `location`,
+`meeting_url`, `notes`, `created_at`/`updated_at`.
+
+**Index créés** : `idx_appointments_client` (recherche par client),
+`idx_appointments_starts_at` (tri/recherche par date),
+`idx_appointments_status` (filtrage par statut).
+
+**Compatibilité** : migration strictement additive — aucune table ni colonne
+existante n'est modifiée. Base déjà en version 8 : migre proprement vers 9.
+
+**Réversibilité** : un `DROP TABLE appointments` est possible sans casser le
+reste du schéma (aucune autre table n'y fait référence en clé étrangère à
+ce jour).
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire ; cette
+migration n'a, à ce jour, jamais été exécutée sur la base de production —
+elle n'existe que sur `feature/acquisition-os`.

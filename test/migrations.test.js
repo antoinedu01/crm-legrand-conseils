@@ -187,12 +187,12 @@ function insertFixtureContract(db, branch = 'lamal') {
   return contract.lastInsertRowid;
 }
 
-test('migration v8 — une base neuve atteint directement user_version = 8', async () => {
+test('chaîne de migrations — une base neuve atteint user_version = 9', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
 });
 
-test('migration v8 — une base héritée en v6 est migrée vers v8 sans perte de données', async () => {
+test('chaîne de migrations — une base héritée en v6 atteint v9 sans perte de données', async () => {
   const dir = tempDir();
   const legacy = buildLegacyV6Database(dir);
   const company = legacy.prepare('INSERT INTO companies (name) VALUES (?)').run('Compagnie de test');
@@ -205,7 +205,7 @@ test('migration v8 — une base héritée en v6 est migrée vers v8 sans perte d
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
 
   const preserved = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contract.lastInsertRowid);
   assert.equal(preserved.branch, 'lamal');
@@ -216,14 +216,14 @@ test('migration v8 — une base héritée en v6 est migrée vers v8 sans perte d
   assert.equal(preserved.review_next_date, null);
 });
 
-test("migration v8 — idempotence : un second import de la même base n'échoue pas et reste en v8", async () => {
+test("chaîne de migrations — idempotence après migration jusqu'en v9", async () => {
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
 });
 
-test('migration v8 — idempotence réelle : une table déjà créée avant la fin de la migration n\'empêche pas la reprise', async () => {
+test('chaîne de migrations — idempotence réelle avec schéma déjà partiellement présent', async () => {
   const dir = tempDir();
   const legacy = buildLegacyV6Database(dir);
   // Simule un arrêt du processus après création partielle du schéma v8
@@ -239,7 +239,7 @@ test('migration v8 — idempotence réelle : une table déjà créée avant la f
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 8);
+  assert.equal(db.pragma('user_version', { simple: true }), 9);
 });
 
 test('migration v8 — les trois colonnes communes existent sur contracts', async () => {

@@ -489,6 +489,41 @@ if (version < 8) {
   migrate();
 }
 
+// Version 9 réservée à Acquisition OS (branche feature/acquisition-os,
+// worktree /home/user/crm-legrand-conseils-acquisition) — voir
+// docs/MIGRATIONS.md et docs/ACQUISITION_OS_GUARDRAILS.md. Ne pas
+// réutiliser ce numéro pour un autre module.
+if (version < 9) {
+  // Rendez-vous réels, datés et persistants, rattachés à un client déjà
+  // existant dans clients (particulier ou prospect) — aucune nouvelle
+  // entité prospect n'est créée. Schéma volontairement minimal (lot A2a) :
+  // aucune API, aucune intégration pipeline dans ce lot.
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'booked',
+        appointment_type TEXT NOT NULL DEFAULT 'other',
+        location_type TEXT NOT NULL DEFAULT 'in_person',
+        location TEXT,
+        meeting_url TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (ends_at > starts_at)
+      );
+      CREATE INDEX IF NOT EXISTS idx_appointments_client ON appointments(client_id);
+      CREATE INDEX IF NOT EXISTS idx_appointments_starts_at ON appointments(starts_at);
+      CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+    `);
+    db.pragma('user_version = 9');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
