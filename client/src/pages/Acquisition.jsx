@@ -4,21 +4,6 @@ import { api } from '../api.js';
 import { useAsync, Badge, Empty, Modal, Field } from '../components/ui.jsx';
 import { fmtDate, fmtCHF, COMMISSION_STATUS } from '../labels.js';
 
-function Overview() {
-  return (
-    <div className="card">
-      <h2>Prospects & pipeline</h2>
-      <p className="muted">
-        Le suivi des prospects, le scoring et le pipeline commercial restent gérés depuis la page
-        Développement.
-      </p>
-      <div className="mt">
-        <Link to="/developpement">Voir les prospects & le pipeline →</Link>
-      </div>
-    </div>
-  );
-}
-
 const STATUS_LABELS = {
   booked: 'Réservé',
   confirmed: 'Confirmé',
@@ -68,6 +53,9 @@ function byStartsAtAsc(a, b) {
 }
 function byStartsAtDesc(a, b) {
   return byStartsAtAsc(b, a);
+}
+function isBookedOrConfirmed(appt) {
+  return appt.status === 'booked' || appt.status === 'confirmed';
 }
 
 const GROUPS = [
@@ -507,6 +495,176 @@ function AttributionAnalytics() {
   );
 }
 
+// Indicateurs RDV de la Vue d'ensemble : définitions volontairement propres
+// à cet écran (pas une redéfinition des groupes de l'onglet Rendez-vous,
+// voir server/routes/acquisition-analytics.js pour l'esprit — ici c'est un
+// pur indicateur d'interface). "Aujourd'hui" reprend la même règle que le
+// groupe Aujourd'hui de A3b (tout statut sauf annulé/no-show). "À venir" est
+// volontairement plus étroit (booked/confirmed uniquement, jour strictement
+// futur) : un indicateur "commercialement pertinent", pas un inventaire
+// complet — classify()/groupAppointments() (A3b) ne sont pas modifiés.
+function Overview({ setTab }) {
+  const summaryQ = useAsync(() => api.get('/api/acquisition/analytics/summary'), []);
+  const appointmentsQ = useAsync(() => api.get('/api/appointments'), []);
+  const campaignsQ = useAsync(() => api.get('/api/campaigns'), []);
+
+  function refreshAll() {
+    summaryQ.reload();
+    appointmentsQ.reload();
+    campaignsQ.reload();
+  }
+
+  const today = localDayKey(new Date());
+  const appointments = appointmentsQ.data || [];
+  const todayCount = appointments.filter(
+    (a) => a.status !== 'cancelled' && a.status !== 'no_show' && dayKeyOf(a.starts_at) === today
+  ).length;
+  const upcomingCount = appointments.filter(
+    (a) => isBookedOrConfirmed(a) && dayKeyOf(a.starts_at) > today
+  ).length;
+  // "Aujourd'hui restant / futur" : comparaison au niveau du jour uniquement
+  // (comme partout ailleurs dans ce fichier), pas de comparaison à l'heure
+  // près — cohérent avec l'absence de logique d'heure "maintenant" ailleurs
+  // dans Acquisition.jsx.
+  const nextAppointments = appointments
+    .filter((a) => isBookedOrConfirmed(a) && dayKeyOf(a.starts_at) >= today)
+    .sort(byStartsAtAsc)
+    .slice(0, 5);
+
+  const campaigns = campaignsQ.data || [];
+  const recentCampaigns = campaigns.slice(0, 3);
+
+  return (
+    <>
+      <div className="toolbar">
+        <div className="grow" />
+        <button className="ghost small" onClick={refreshAll}>Actualiser</button>
+      </div>
+
+      <div className="tiles mb">
+        <div className="tile">
+          <div className="label">Leads</div>
+          <div className="value">
+            {summaryQ.loading ? '…' : summaryQ.error ? '—' : formatNumber(summaryQ.data.leads.total)}
+          </div>
+        </div>
+        <div className="tile">
+          <div className="label">Clients convertis</div>
+          <div className="value">
+            {summaryQ.loading ? '…' : summaryQ.error ? '—' : formatNumber(summaryQ.data.clients.total_converted)}
+          </div>
+          {!summaryQ.loading && !summaryQ.error && (
+            <div className="hint">dont {formatNumber(summaryQ.data.clients.unattributed)} non attribué(s)</div>
+          )}
+        </div>
+        <div className="tile">
+          <div className="label">Contrats</div>
+          <div className="value">
+            {summaryQ.loading ? '…' : summaryQ.error ? '—' : formatNumber(summaryQ.data.contracts.total)}
+          </div>
+          {!summaryQ.loading && !summaryQ.error && (
+            <div className="hint">dont {formatNumber(summaryQ.data.contracts.unattributed)} non attribué(s)</div>
+          )}
+        </div>
+        <div className="tile">
+          <div className="label">Commissions</div>
+          <div className="value">
+            {summaryQ.loading ? '…' : summaryQ.error ? '—' : fmtCHF(summaryQ.data.commissions.total_amount)}
+          </div>
+        </div>
+        <div className="tile">
+          <div className="label">RDV aujourd'hui</div>
+          <div className="value">{appointmentsQ.loading ? '…' : appointmentsQ.error ? '—' : formatNumber(todayCount)}</div>
+        </div>
+        <div className="tile">
+          <div className="label">RDV à venir</div>
+          <div className="value">{appointmentsQ.loading ? '…' : appointmentsQ.error ? '—' : formatNumber(upcomingCount)}</div>
+        </div>
+        <div className="tile">
+          <div className="label">Campagnes</div>
+          <div className="value">{campaignsQ.loading ? '…' : campaignsQ.error ? '—' : formatNumber(campaigns.length)}</div>
+        </div>
+      </div>
+      {summaryQ.error && <div className="alert error">{summaryQ.error}</div>}
+
+      <div className="grid cols-2 mb">
+        <div className="card">
+          <h2>Prochains rendez-vous</h2>
+          {appointmentsQ.error && <div className="alert error">{appointmentsQ.error}</div>}
+          {appointmentsQ.loading ? (
+            <p className="muted">Chargement…</p>
+          ) : appointmentsQ.error ? null : nextAppointments.length === 0 ? (
+            <Empty>Aucun rendez-vous à venir.</Empty>
+          ) : (
+            <table className="data">
+              <thead>
+                <tr><th>Quand</th><th>Client</th><th>Type</th><th>Statut</th><th></th></tr>
+              </thead>
+              <tbody>
+                {nextAppointments.map((a) => (
+                  <tr key={a.id}>
+                    <td>{fmtDate(dayKeyOf(a.starts_at))} {timeOf(a.starts_at)}</td>
+                    <td><Link to={`/clients/${a.client_id}`}>{a.client_name || `Client #${a.client_id}`}</Link></td>
+                    <td>{APPOINTMENT_TYPE_LABELS[a.appointment_type] || a.appointment_type}</td>
+                    <td><Badge value={a.status} label={STATUS_LABELS[a.status] || a.status} /></td>
+                    <td><Link to={`/clients/${a.client_id}`}>Ouvrir le client</Link></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>Campagnes récentes</h2>
+          {campaignsQ.error && <div className="alert error">{campaignsQ.error}</div>}
+          {campaignsQ.loading ? (
+            <p className="muted">Chargement…</p>
+          ) : campaignsQ.error ? null : recentCampaigns.length === 0 ? (
+            <Empty>Aucune campagne enregistrée.</Empty>
+          ) : (
+            <table className="data">
+              <thead>
+                <tr><th>Nom</th><th>Canal</th><th>Statut</th></tr>
+              </thead>
+              <tbody>
+                {recentCampaigns.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.name}</td>
+                    <td>{c.channel_name || 'Non attribué'}</td>
+                    <td><Badge value={c.status} label={c.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Prospects & pipeline</h2>
+        <p className="muted">
+          Le suivi des prospects, le scoring et le pipeline commercial restent gérés depuis la page
+          Développement.
+        </p>
+        <div className="mt">
+          <Link to="/developpement">Voir les prospects & le pipeline →</Link>
+        </div>
+      </div>
+
+      <div className="card mt">
+        <h2>Actions rapides</h2>
+        <div className="toolbar">
+          <button className="small" onClick={() => setTab('rdv')}>Voir les rendez-vous</button>
+          <button className="small" onClick={() => setTab('campagnes')}>Voir les campagnes</button>
+          <button className="small" onClick={() => setTab('analytics')}>Voir les analytics</button>
+          <Link to="/developpement">Voir les prospects & le pipeline →</Link>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function Acquisition() {
   const [tab, setTab] = useState('apercu');
   return (
@@ -531,7 +689,7 @@ export default function Acquisition() {
           Analytics
         </button>
       </div>
-      {tab === 'apercu' && <Overview />}
+      {tab === 'apercu' && <Overview setTab={setTab} />}
       {tab === 'rdv' && <Appointments />}
       {tab === 'campagnes' && <Campaigns />}
       {tab === 'analytics' && <AttributionAnalytics />}
