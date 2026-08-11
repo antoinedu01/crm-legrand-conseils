@@ -71,3 +71,23 @@ n'existe, à ce jour, que pour les 5 premières tables — voir
 `CONTRATS_ASSURANCE_SUISSE.md`. Cette migration s'exécute dans une transaction
 SQLite unique — en cas d'erreur en cours de migration, SQLite annule
 l'ensemble du bloc, ce qui limite le risque d'un schéma à moitié migré.)*
+
+## Version 9 (réservée — Acquisition OS)
+
+**Statut : réservation de numéro uniquement. Aucune migration v9 n'existe à
+ce jour dans `server/db.js`.** Cette section documente l'attribution du
+prochain numéro de version disponible, pas une migration réelle.
+
+Récapitulatif des numéros déjà engagés, pour éviter toute collision :
+
+| Version | Statut | Portée |
+|---|---|---|
+| 7 | **Réservée** | Branche historique non fusionnée `feature/lead-generation-engine` (Bloc 4 « partenaires/recommandations »). Ne pas réutiliser ce numéro pour un autre module tant que cette branche n'est pas tranchée. |
+| 8 | **Utilisée** | Tables satellites de contrats par branche d'assurance (voir section « Version 8 » ci-dessus), déjà présente dans `server/db.js` de ce dépôt. |
+| 9 | **Réservée pour Acquisition OS** | Travail en cours sur `feature/acquisition-os` (worktree `/home/user/crm-legrand-conseils-acquisition`). Aucune table, aucune colonne, aucun bloc `if (version < 9)` n'existe encore. |
+
+**Règle explicite** : aucune migration Acquisition OS ne doit utiliser les
+numéros 7 ou 8. Toute future migration réelle pour Acquisition OS
+commencera à `user_version = 9`. Cette réservation est purement
+documentaire à ce stade (Lot A0) — elle ne modifie ni ne touche
+`server/db.js`.
