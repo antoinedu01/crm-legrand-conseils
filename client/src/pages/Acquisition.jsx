@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAsync, Badge, Empty } from '../components/ui.jsx';
+import { useAsync, Badge, Empty, Modal, Field } from '../components/ui.jsx';
 import { fmtDate } from '../labels.js';
 
 function Overview() {
@@ -176,6 +176,133 @@ function Appointments() {
   );
 }
 
+function CampaignForm({ initial, channels, onSaved, onClose }) {
+  const [form, setForm] = useState({
+    name: initial?.name || '',
+    channel_id: initial?.channel_id != null ? String(initial.channel_id) : '',
+    status: initial?.status || 'brouillon',
+  });
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(null);
+    const name = form.name.trim();
+    const status = form.status.trim();
+    // Validation UX minimale seulement — le backend reste l'autorité finale
+    // (server/routes/campaigns.js: validateCampaign). On bloque toutefois un
+    // statut vide ici : côté serveur, une chaîne vide est convertie en NULL
+    // avant la validation "non vide" (pick() transforme '' en null), et
+    // status est NOT NULL en base (server/db.js) — un statut vide
+    // provoquerait donc une erreur SQL brute plutôt qu'un message propre.
+    if (!name) return setError('Le nom de la campagne est requis.');
+    if (!status) return setError('Le statut ne peut pas être vide.');
+    setSubmitting(true);
+    try {
+      const payload = { name, channel_id: form.channel_id, status };
+      if (initial?.id) await api.put(`/api/campaigns/${initial.id}`, payload);
+      else await api.post('/api/campaigns', payload);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={initial?.id ? 'Modifier la campagne' : 'Nouvelle campagne'} onClose={onClose}>
+      {error && <div className="alert error">{error}</div>}
+      <form onSubmit={submit}>
+        <div className="form-grid">
+          <Field label="Nom" full>
+            <input required value={form.name} onChange={set('name')} />
+          </Field>
+          <Field label="Canal">
+            <select value={form.channel_id} onChange={set('channel_id')}>
+              <option value="">Non attribué</option>
+              {(channels || []).map((ch) => (
+                <option key={ch.id} value={ch.id}>{ch.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Statut">
+            <input required value={form.status} onChange={set('status')} placeholder="brouillon" />
+          </Field>
+        </div>
+        <div className="actions">
+          <button type="button" onClick={onClose}>Annuler</button>
+          <button className="primary" disabled={submitting}>{initial?.id ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function Campaigns() {
+  const [editing, setEditing] = useState(null);
+  const { data: campaigns, loading, error, reload } = useAsync(() => api.get('/api/campaigns'), []);
+  const { data: channels, reload: reloadChannels } = useAsync(() => api.get('/api/channels'), []);
+
+  function refreshAll() {
+    reload();
+    reloadChannels();
+  }
+
+  return (
+    <>
+      <div className="toolbar">
+        <div className="grow" />
+        <button className="ghost small" onClick={refreshAll}>Actualiser</button>{' '}
+        <button className="primary" onClick={() => setEditing({})}>+ Nouvelle campagne</button>
+      </div>
+      {error && <div className="alert error">{error}</div>}
+      <div className="card">
+        {loading ? (
+          <p className="muted">Chargement…</p>
+        ) : (campaigns || []).length === 0 ? (
+          <Empty>Aucune campagne enregistrée.</Empty>
+        ) : (
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Canal</th>
+                <th>Statut</th>
+                <th>Créée le</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td>{c.channel_name || 'Non attribué'}</td>
+                  <td><Badge value={c.status} label={c.status} /></td>
+                  <td>{fmtDate(c.created_at.slice(0, 10))}</td>
+                  <td className="right">
+                    <button className="small" onClick={() => setEditing(c)}>Modifier</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {editing !== null && (
+        <CampaignForm
+          initial={editing.id ? editing : undefined}
+          channels={channels}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); }}
+        />
+      )}
+    </>
+  );
+}
+
 export default function Acquisition() {
   const [tab, setTab] = useState('apercu');
   return (
@@ -202,7 +329,7 @@ export default function Acquisition() {
       </div>
       {tab === 'apercu' && <Overview />}
       {tab === 'rdv' && <Appointments />}
-      {tab === 'campagnes' && <ComingSoon label="Campagnes" />}
+      {tab === 'campagnes' && <Campaigns />}
       {tab === 'analytics' && <ComingSoon label="Analytics" />}
     </>
   );
