@@ -12,10 +12,12 @@ import Tasks from './pages/Tasks.jsx';
 import Compliance from './pages/Compliance.jsx';
 import Settings from './pages/Settings.jsx';
 import Development from './pages/Development.jsx';
+import Acquisition from './pages/Acquisition.jsx';
 
 const NAV = [
   ['/', '📊', 'Tableau de bord'],
   ['/developpement', '📈', 'Développement'],
+  ['/acquisition', '🎯', 'Acquisition'],
   ['/clients', '👥', 'Clients'],
   ['/contrats', '📄', 'Contrats'],
   ['/commissions', '💰', 'Commissions'],
@@ -74,6 +76,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/developpement" element={<Development />} />
+          <Route path="/acquisition" element={<Acquisition />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/clients/:id" element={<ClientDetail />} />
           <Route path="/contrats" element={<Contracts />} />
