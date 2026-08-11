@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
 import { loadRules, computeScore } from '../scoring.js';
+import { syncPipelineOnAppointmentBooked } from '../appointments-pipeline.js';
 
 export const todayRouter = Router();
 
@@ -283,11 +284,12 @@ todayRouter.post('/result', (req, res) => {
     } else if (result === 'rdv_pris' && client) {
       db.prepare('INSERT INTO tasks (title, due_date, priority, client_id) VALUES (?, ?, ?, ?)').run(
         `Préparer et confirmer le RDV avec ${name}`, due(1), 'haute', client.id);
-      if (client.status === 'prospect') {
-        const lead = db.prepare('SELECT client_id FROM lead_details WHERE client_id = ?').get(client.id);
-        if (lead) db.prepare("UPDATE lead_details SET pipeline_stage = 'rdv', updated_at = datetime('now') WHERE client_id = ?").run(client.id);
-        else db.prepare("INSERT INTO lead_details (client_id, pipeline_stage) VALUES (?, 'rdv')").run(client.id);
-      }
+      // Unique autorité pour cette règle (voir server/appointments-pipeline.js) :
+      // nouveau/contacte -> rdv ; jamais de régression depuis
+      // analyse/offre/signe/perdu ; lead_details absent -> créé avec rdv.
+      // Ne crée aucun appointment réel : today.js ne dispose d'aucune date
+      // ni heure pour ce "rendez-vous pris" déclaratif.
+      syncPipelineOnAppointmentBooked(db, client.id);
       next = `Bravo ! Le prospect passe à l'étape « RDV fixé » et une tâche de préparation a été créée pour demain.`;
     } else if (result === 'a_relancer' && client) {
       db.prepare('INSERT INTO tasks (title, due_date, priority, client_id) VALUES (?, ?, ?, ?)').run(
