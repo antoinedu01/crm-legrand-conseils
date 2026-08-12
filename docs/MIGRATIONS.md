@@ -735,3 +735,70 @@ LAMal/LCA, non-régression des autres branches, absence de montant codé en
 dur par assureur, environnement de démonstration isolé
 (`server/seed-commission-demo.js`, refuse explicitement de cibler
 `data/crm.sqlite`).)*
+
+## Version 16
+
+**Objectif** : Acquisition OS — rendez-vous réels et datés, distincts du
+plan d'action quotidien (`today.js`, non persistant) et des tâches
+(`tasks`, sans heure). Portée depuis la branche historique
+`feature/acquisition-os` (worktree `/home/user/crm-legrand-conseils-acquisition`,
+lot A2a) vers cette base d'intégration (`integration/acquisition-advisory-v1`),
+**par portage manuel du contenu, pas par cherry-pick** — le commit d'origine
+touchait un `docs/MIGRATIONS.md` qui a évolué indépendamment sur cette base
+(module Diagnostic 360, versions 9 à 15). Numéro attribué après
+revérification du plafond réel de migration sur l'ensemble des branches
+`origin/*` au moment de cette migration : aucune branche ne dépassait alors
+la version 15, aucun numéro n'était réservé à l'avance (voir
+`docs/ACQUISITION_OS_GUARDRAILS.md`, §10).
+
+**Rattaché à `clients.id`** — aucune nouvelle entité prospect créée.
+**Distinct de `advisory_sessions`** (Diagnostic 360) : `advisory_sessions`
+est un mécanisme de collecte de données structurées (questionnaire de
+diagnostic sur un foyer), sans notion de rendez-vous daté avec lieu/durée ;
+`appointments` reste la table de rendez-vous datés d'Acquisition OS. Les
+deux coexistent, sans lien de schéma entre elles (voir
+`docs/ACQUISITION_OS_GUARDRAILS.md`, §6).
+
+**Table créée** : `appointments` — `id`, `client_id` (FK `clients(id)`,
+sans `ON DELETE CASCADE`, cohérent avec l'absence de suppression physique
+des clients dans tout le schéma), `starts_at`/`ends_at` (TEXT, format
+`datetime('now')` du projet, contrainte `CHECK (ends_at > starts_at)`),
+`status` (TEXT, défaut `booked`, sans CHECK — comme tous les autres statuts
+texte du schéma, validé côté API), `appointment_type` (TEXT, défaut
+`other`), `location_type` (TEXT, défaut `in_person`), `location`,
+`meeting_url`, `notes`, `created_at`/`updated_at`.
+
+**Index créés** : `idx_appointments_client` (recherche par client),
+`idx_appointments_starts_at` (tri/recherche par date),
+`idx_appointments_status` (filtrage par statut).
+
+**Compatibilité** : migration strictement additive — aucune table ni colonne
+existante n'est modifiée, y compris les tables du module Diagnostic 360
+(versions 9 à 14) et de `commissions` (version 15). Base déjà en version 15 :
+migre proprement vers 16.
+
+**Réversibilité** : un `DROP TABLE appointments` est possible sans casser le
+reste du schéma (aucune autre table n'y fait référence en clé étrangère à
+ce jour).
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire ; cette
+migration n'a, à ce jour, jamais été exécutée sur la base de production —
+elle n'existe que sur la branche d'intégration
+`integration/acquisition-advisory-v1`.
+
+**Périmètre explicitement exclu de ce lot** : aucune API (`server/routes/`),
+aucun montage dans `server/app.js`, aucun pipeline
+(`server/appointments-pipeline.js`), aucune intégration à `today.js`, aucune
+interface (`client/src/*`). Ces briques restent à porter dans des lots
+d'intégration ultérieurs, distincts de celui-ci.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 16)`. Testée dans `test/migrations.test.js` et
+`test/appointments-migration.test.js` : base neuve, base historique v15
+réelle migrée vers v16 (préservation des données, tables Diagnostic 360 et
+colonnes `commissions` v15 intactes), idempotence, table et colonnes
+attendues, contrainte FK vers `clients`, plusieurs rendez-vous par client,
+valeurs par défaut, index attendus, contrainte CHECK `ends_at > starts_at`,
+absence volontaire de CHECK sur les colonnes-énumération, coexistence
+complète avec `households`/`advisory_sessions`/`commissions`/`campaigns`/
+`clients` sur une base vierge.)*

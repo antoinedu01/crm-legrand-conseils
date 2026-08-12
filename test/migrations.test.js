@@ -752,16 +752,17 @@ test('migration v11 — index unique partiel : redémarrages répétés (3x) res
   }
 });
 
-// Rescopé à la migration 15 (correction du modèle de commission LAMal/LCA) :
-// la frontière « aucun bloc ultérieur » se déplace mécaniquement à chaque
-// nouvelle migration ajoutée — même précédent que le déplacement 11→12,
-// puis 12→13, puis 13→14, puis 14→15 documenté ici.
-test('migration v15 — absence de migration 16 : la dernière version de schéma reste 15, aucun bloc de migration ultérieur', async () => {
+// Rescopé à la migration 16 (Acquisition OS — table `appointments`, portée
+// depuis feature/acquisition-os) : la frontière « aucun bloc ultérieur » se
+// déplace mécaniquement à chaque nouvelle migration ajoutée — même
+// précédent que le déplacement 11→12, puis 12→13, puis 13→14, puis 14→15,
+// puis 15→16 documenté ici.
+test('migration v16 — absence de migration 17 : la dernière version de schéma reste 16, aucun bloc de migration ultérieur', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 15, 'la base neuve doit culminer exactement à la version 15, pas au-delà');
+  assert.equal(db.pragma('user_version', { simple: true }), 16, 'la base neuve doit culminer exactement à la version 16, pas au-delà');
   const dbJsSource = fs.readFileSync(dbModulePath, 'utf8');
-  assert.ok(!/version\s*<\s*16/.test(dbJsSource), 'aucun bloc "if (version < 16)" ne doit exister');
-  assert.ok(!/user_version\s*=\s*16/.test(dbJsSource), 'aucun "user_version = 16" ne doit exister dans server/db.js');
+  assert.ok(!/version\s*<\s*17/.test(dbJsSource), 'aucun bloc "if (version < 17)" ne doit exister');
+  assert.ok(!/user_version\s*=\s*17/.test(dbJsSource), 'aucun "user_version = 17" ne doit exister dans server/db.js');
 });
 
 // Correctif SQL ciblé (second GATE, avant commit) : garantie SQLite
@@ -1650,4 +1651,114 @@ test('migration v13 — échec contrôlé : finding historique avec rule_id orph
   assert.ok(!after.prepare("SELECT * FROM sqlite_master WHERE type = 'index' AND name = 'idx_advisory_rule_sets_one_published_per_domain'").get(), 'index non créé après un rollback');
   assert.equal(after.prepare('SELECT id FROM advisory_findings WHERE id = ?').get(findingId).id, findingId, 'la ligne existante reste inchangée, jamais supprimée');
   after.close();
+});
+
+// --- Migration 16 (Acquisition OS — table `appointments`) ------------------
+//
+// Portée manuellement depuis feature/acquisition-os (lot A2a, commit
+// 69a6bde) vers cette base d'intégration — voir docs/MIGRATIONS.md,
+// "Version 16", et docs/ACQUISITION_OS_GUARDRAILS.md. Les scénarios détaillés
+// (table/colonnes/FK/index/CHECK/idempotence) vivent dans le fichier dédié
+// test/appointments-migration.test.js, à l'identique du fichier historique
+// A2a. Les deux scénarios ci-dessous sont ceux explicitement exigés en plus,
+// spécifiques à l'intégration sur cette base (coexistence réelle avec le
+// module Diagnostic 360 et le schéma `commissions` v15) :
+//   1. une base v15 RÉELLE (produite par le vrai server/db.js, jamais une
+//      fixture reconstruite à la main) migre proprement vers v16 ;
+//   2. une base vierge atteint v16 avec toutes les briques en coexistence.
+
+// Même principe que buildLegacyV10Database/buildLegacyV11Database/
+// buildLegacyV13Database ci-dessus : construit une base à jour par le VRAI
+// code de migration (fidélité garantie sur tout le module Diagnostic 360 et
+// le schéma `commissions` v15), puis retire uniquement la table ajoutée par
+// la migration 16 et refixe `user_version = 15` — jamais une base v15
+// reconstruite table par table à la main.
+async function buildLegacyV15Database(dataDir) {
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-migration-v15-scratch-'));
+  const scratchDb = await importFreshDb(scratchDir);
+  const scratchFile = path.join(scratchDir, 'crm.sqlite');
+  scratchDb.close();
+
+  const file = path.join(dataDir, 'crm.sqlite');
+  fs.copyFileSync(scratchFile, file);
+  const db = new Database(file);
+  db.exec(`DROP TABLE appointments;`);
+  db.pragma('user_version = 15');
+  db.close();
+}
+
+test('migration v16 — base historique v15 réelle : version finale 16, Diagnostic 360 et commissions v15 préservés, appointments créée avec ses index, aucune perte de données', async () => {
+  const dir = tempDir();
+  await buildLegacyV15Database(dir);
+
+  const legacyCheck = new Database(path.join(dir, 'crm.sqlite'));
+  assert.equal(legacyCheck.pragma('user_version', { simple: true }), 15, 'la base de départ doit être une vraie base v15, pas au-delà');
+  assert.ok(
+    legacyCheck.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'advisory_sessions'").get(),
+    'la base v15 de départ doit déjà contenir advisory_sessions (Diagnostic 360)'
+  );
+  const legacyCommissionCols = legacyCheck.prepare('PRAGMA table_info(commissions)').all().map((c) => c.name);
+  assert.ok(legacyCommissionCols.includes('expected_amount_chf'));
+  assert.ok(legacyCommissionCols.includes('received_amount_chf'));
+  const countsBefore = allTableCounts(legacyCheck);
+  legacyCheck.close();
+
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 16, 'la migration doit amener exactement à la version 16');
+
+  // Diagnostic 360 (versions 9 à 14) reste intégralement présent.
+  for (const table of [
+    'households', 'household_members', 'advisory_questionnaires', 'advisory_sessions',
+    'advisory_rule_sets', 'advisory_recommendations', 'advisory_retention_policies',
+  ]) {
+    assert.ok(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table),
+      `table ${table} (Diagnostic 360) doit rester présente après la migration 16`
+    );
+  }
+
+  // Le schéma commissions v15 reste intact (colonnes renommées/ajoutées non perdues).
+  const commissionCols = db.prepare('PRAGMA table_info(commissions)').all().map((c) => c.name);
+  for (const col of ['expected_amount_chf', 'received_amount_chf', 'commission_mode', 'reversal_of_commission_id']) {
+    assert.ok(commissionCols.includes(col), `colonne commissions.${col} (v15) doit rester présente après la migration 16`);
+  }
+
+  // appointments créée avec ses index.
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'appointments'").get());
+  const indexes = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'appointments'")
+    .all()
+    .map((r) => r.name);
+  for (const name of ['idx_appointments_client', 'idx_appointments_starts_at', 'idx_appointments_status']) {
+    assert.ok(indexes.includes(name), `index ${name} manquant après la migration 16`);
+  }
+
+  // Aucune donnée perdue sur les tables déjà existantes en v15.
+  const countsAfter = allTableCounts(db);
+  for (const [table, count] of Object.entries(countsBefore)) {
+    assert.equal(countsAfter[table], count, `perte de données détectée sur ${table} après la migration 16`);
+  }
+  assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
+  assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
+});
+
+test("migration v16 — idempotence : un second import d'une base migrée depuis v15 reste en v16 sans dupliquer appointments", async () => {
+  const dir = tempDir();
+  await buildLegacyV15Database(dir);
+  await importFreshDb(dir);
+  const db = await importFreshDb(dir);
+  assert.equal(db.pragma('user_version', { simple: true }), 16);
+  const appointmentTables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'appointments'")
+    .all();
+  assert.equal(appointmentTables.length, 1, 'la table appointments ne doit jamais être dupliquée par un second import');
+});
+
+test('migration v16 — base vierge : coexistence complète appointments / Diagnostic 360 / commissions / campagnes / clients', async () => {
+  const db = await importFreshDb(tempDir());
+  assert.equal(db.pragma('user_version', { simple: true }), 16);
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
+  for (const table of ['appointments', 'households', 'advisory_sessions', 'commissions', 'campaigns', 'clients']) {
+    assert.ok(table && tables.includes(table), `table ${table} doit exister sur une base vierge migrée en v16`);
+  }
 });

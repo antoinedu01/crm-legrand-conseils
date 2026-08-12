@@ -1546,6 +1546,48 @@ if (version < 15) {
   migrate();
 }
 
+// Migration 16 — Acquisition OS : rendez-vous réels et datés (table
+// `appointments`), portés depuis la branche historique `feature/acquisition-
+// os` (worktree `/home/user/crm-legrand-conseils-acquisition`, lot A2a,
+// commit 69a6bde) vers cette base d'intégration. Numéro attribué après
+// revérification du plafond réel de toutes les branches `origin/*` au
+// moment de cette migration (aucune branche ne dépasse alors la version 15) —
+// jamais un numéro réservé à l'avance. Schéma strictement identique à celui
+// du lot A2a d'origine : `client_id` référence `clients(id)` (sans
+// `ON DELETE CASCADE`, cohérent avec l'absence de suppression physique des
+// clients dans tout le schéma) ; aucune colonne, aucune contrainte, aucun
+// index vers `advisory_sessions`, `households` ou toute autre table du
+// module Diagnostic 360 — les deux concepts restent distincts (voir
+// docs/ACQUISITION_OS_GUARDRAILS.md, §6). Purement additive : aucune table
+// ni colonne existante n'est modifiée. Aucune API, aucun montage
+// server/app.js, aucun pipeline, aucune UI dans ce lot.
+if (version < 16) {
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER NOT NULL REFERENCES clients(id),
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'booked',
+        appointment_type TEXT NOT NULL DEFAULT 'other',
+        location_type TEXT NOT NULL DEFAULT 'in_person',
+        location TEXT,
+        meeting_url TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK (ends_at > starts_at)
+      );
+      CREATE INDEX IF NOT EXISTS idx_appointments_client ON appointments(client_id);
+      CREATE INDEX IF NOT EXISTS idx_appointments_starts_at ON appointments(starts_at);
+      CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+    `);
+    db.pragma('user_version = 16');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
