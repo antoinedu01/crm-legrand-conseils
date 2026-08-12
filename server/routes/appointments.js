@@ -25,6 +25,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
 import { assert, inEnum, checkTextFields } from '../validate.js';
+import { syncPipelineOnAppointmentBooked } from '../appointments-pipeline.js';
 
 export const appointmentsRouter = Router();
 
@@ -167,12 +168,32 @@ appointmentsRouter.post('/', (req, res) => {
   const client = db.prepare('SELECT id FROM clients WHERE id = ?').get(data.client_id);
   if (!client) return res.status(400).json({ error: 'Client introuvable.' });
 
+  // Statut final réellement enregistré : si `status` n'est pas fourni, le
+  // défaut SQL 'booked' du schéma (figé, migration v16) s'applique — connu
+  // ici sans requête supplémentaire, puisque validateContent() garantit déjà
+  // que toute valeur explicitement fournie appartient à STATUSES.
+  const finalStatus = data.status || 'booked';
+  const shouldSyncPipeline = finalStatus === 'booked';
+
   const fields = Object.keys(data);
-  const info = db
-    .prepare(`INSERT INTO appointments (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
-    .run(...fields.map((f) => data[f]));
-  audit(req, 'création rendez-vous', 'appointment', info.lastInsertRowid, `client #${data.client_id} ${data.starts_at}`);
-  res.status(201).json({ id: info.lastInsertRowid });
+  // Une seule transaction locale : création de l'appointment et
+  // synchronisation pipeline éventuelle (A2d1) forment une seule opération
+  // atomique lorsqu'une synchronisation est requise — même pattern que
+  // public.js (db.transaction(() => {...}) défini localement dans le
+  // handler). Aucune autre synchronisation que « status final = booked »
+  // n'est déclenchée dans ce lot ; PUT n'appelle jamais le service.
+  const tx = db.transaction(() => {
+    const info = db
+      .prepare(`INSERT INTO appointments (${fields.join(', ')}) VALUES (${fields.map(() => '?').join(', ')})`)
+      .run(...fields.map((f) => data[f]));
+    const sync = shouldSyncPipeline ? syncPipelineOnAppointmentBooked(db, data.client_id) : null;
+    return { id: info.lastInsertRowid, sync };
+  });
+  const { id, sync } = tx();
+
+  const syncDetail = sync && sync.changed ? ` — pipeline ${sync.previousStage} → ${sync.nextStage}` : '';
+  audit(req, 'création rendez-vous', 'appointment', id, `client #${data.client_id} ${data.starts_at}${syncDetail}`);
+  res.status(201).json({ id });
 });
 
 appointmentsRouter.put('/:id', (req, res) => {
