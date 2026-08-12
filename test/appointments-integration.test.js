@@ -13,11 +13,15 @@
 // 16 » et M0c3) — corrigé ci-dessous, aucune assertion métier modifiée.
 //
 // Le test historique n°5 (« le montage ne modifie pas
-// /api/acquisition/analytics/summary ») est volontairement OMIS ici : ce
-// routeur (lot A6b) n'a jamais été importé sur cette base d'intégration
-// (voir M0c4, « ANALYTICS NON IMPORTÉ ») — un portage verbatim échouerait
-// (404) sans rapport avec ce lot. Les 6 autres scénarios sont portés à
-// l'identique.
+// /api/acquisition/analytics/summary ») avait été volontairement OMIS en
+// M0c5 : Analytics n'était alors pas encore importé sur cette base
+// d'intégration (voir M0c4, « ANALYTICS NON IMPORTÉ »). Restauré ici en
+// M0c11, maintenant qu'Analytics V2 est monté (M0c10/M0c11) — adapté au
+// contrat V2 (`commissions.expected_amount`/`received_amount`, pas
+// l'ancien `total_amount`), sans dupliquer les 15 tests métier déjà
+// couverts par test/acquisition-analytics.test.js ni les 7 tests de
+// montage déjà couverts par test/acquisition-analytics-integration.test.js
+// — ce scénario reste une non-régression cross-feature minimale.
 //
 // Base de test isolée via CRM_DATA_DIR (dossier temporaire), exactement
 // comme test/api.test.js : le chargement de server/app.js exécute la
@@ -81,6 +85,13 @@ test('le montage de /api/appointments ne modifie pas /api/campaigns', async () =
   const res = await request(app).get('/api/campaigns').set('Cookie', cookie);
   assert.equal(res.status, 200);
   assert.ok(Array.isArray(res.body));
+});
+
+test('le montage de /api/appointments ne modifie pas /api/acquisition/analytics/summary', async () => {
+  const res = await request(app).get('/api/acquisition/analytics/summary').set('Cookie', cookie);
+  assert.equal(res.status, 200);
+  assert.equal(typeof res.body.commissions.expected_amount, 'number');
+  assert.equal(typeof res.body.commissions.received_amount, 'number');
 });
 
 test('le montage de /api/appointments ne modifie pas le comportement de /api/public/lead', async () => {
