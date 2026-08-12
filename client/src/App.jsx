@@ -13,6 +13,7 @@ import Tasks from './pages/Tasks.jsx';
 import Compliance from './pages/Compliance.jsx';
 import Settings from './pages/Settings.jsx';
 import Development from './pages/Development.jsx';
+import Acquisition from './pages/Acquisition.jsx';
 import Households from './pages/Households.jsx';
 import HouseholdDetail from './pages/HouseholdDetail.jsx';
 import Sessions from './pages/Sessions.jsx';
@@ -26,6 +27,7 @@ import DataRetention from './pages/DataRetention.jsx';
 const NAV = [
   ['/', '📊', 'Tableau de bord'],
   ['/developpement', '📈', 'Développement'],
+  ['/acquisition', '🎯', 'Acquisition'],
   ['/clients', '👥', 'Clients'],
   ['/contrats', '📄', 'Contrats'],
   ['/commissions', '💰', 'Commissions'],
@@ -133,6 +135,7 @@ function AuthenticatedShell({ auth, refresh }) {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/developpement" element={<Development />} />
+          <Route path="/acquisition" element={<Acquisition />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/clients/:id" element={<ClientDetail />} />
           <Route path="/contrats" element={<Contracts />} />
