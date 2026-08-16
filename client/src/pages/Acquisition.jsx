@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAsync, Badge, Empty, Modal, Field } from '../components/ui.jsx';
-import { fmtDate } from '../labels.js';
+import { fmtDate, fmtCHF, COMMISSION_STATUS } from '../labels.js';
 
 function Overview() {
   return (
@@ -15,14 +15,6 @@ function Overview() {
       <div className="mt">
         <Link to="/developpement">Voir les prospects & le pipeline →</Link>
       </div>
-    </div>
-  );
-}
-
-function ComingSoon({ label }) {
-  return (
-    <div className="card">
-      <Empty>Le module {label} sera disponible dans une prochaine étape.</Empty>
     </div>
   );
 }
@@ -303,6 +295,234 @@ function Campaigns() {
   );
 }
 
+// Formatage local des compteurs (leads/clients/contrats) — CHF est délégué
+// à fmtCHF (labels.js), déjà utilisé partout ailleurs dans le CRM ; pas de
+// raison d'en dupliquer la logique ici. null/undefined restent "—" plutôt
+// que d'être transformés en 0, qui aurait un sens différent.
+const numberFormatter = new Intl.NumberFormat('fr-CH');
+function formatNumber(n) {
+  return n == null ? '—' : numberFormatter.format(n);
+}
+
+function SummaryTiles({ summary }) {
+  const byStatus = Object.entries(summary.commissions.by_status || {});
+  return (
+    <div className="tiles mb">
+      <div className="tile">
+        <div className="label">Leads</div>
+        <div className="value">{formatNumber(summary.leads.total)}</div>
+      </div>
+      <div className="tile">
+        <div className="label">Clients convertis</div>
+        <div className="value">{formatNumber(summary.clients.total_converted)}</div>
+        <div className="hint">dont {formatNumber(summary.clients.unattributed)} non attribué(s)</div>
+      </div>
+      <div className="tile">
+        <div className="label">Contrats</div>
+        <div className="value">{formatNumber(summary.contracts.total)}</div>
+        <div className="hint">dont {formatNumber(summary.contracts.unattributed)} non attribué(s)</div>
+      </div>
+      <div className="tile">
+        <div className="label">Commissions attendues</div>
+        <div className="value">{fmtCHF(summary.commissions.expected_amount)}</div>
+        <div className="hint">{fmtCHF(summary.commissions.received_amount)} encaissés</div>
+        {byStatus.length > 0 && (
+          // Vue diagnostique par statut (V2) : jamais sommée pour retrouver
+          // le total ci-dessus — `cancelled` y reste visible avec son
+          // montant historique brut, alors qu'il est exclu du total
+          // principal (server/routes/acquisition-analytics.js).
+          <div className="hint" style={{ marginTop: 4 }}>
+            {byStatus.map(([status, data]) => (
+              <div key={status}>
+                {COMMISSION_STATUS[status] || status} ({data.count}) : attendu {fmtCHF(data.expected_amount)} / encaissé {fmtCHF(data.received_amount)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="tile">
+        <div className="label">Coûts d'acquisition bruts</div>
+        <div className="value">{fmtCHF(summary.channel_costs.total_amount)}</div>
+      </div>
+    </div>
+  );
+}
+
+// Tri : commissions ATTENDUES décroissantes (métrique principale V2, voir
+// summary.commissions.expected_amount ci-dessus), départage déterministe
+// par nom de campagne (évite un ordre instable entre deux rechargements en
+// cas d'égalité).
+function byExpectedCommissionsDesc(a, b) {
+  return b.expected_commissions_amount - a.expected_commissions_amount || a.campaign_name.localeCompare(b.campaign_name, 'fr-CH');
+}
+
+function CampaignsPerformanceTable({ data }) {
+  const rows = [...(data?.campaigns || [])].sort(byExpectedCommissionsDesc);
+  const unattributed = data?.unattributed;
+  return (
+    <>
+      {rows.length === 0 ? (
+        <Empty>Aucune campagne enregistrée.</Empty>
+      ) : (
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Campagne</th>
+              <th>Canal</th>
+              <th className="num">Leads</th>
+              <th className="num">Clients</th>
+              <th className="num">Contrats</th>
+              <th className="num">Commissions attendues</th>
+              <th className="num">Commissions encaissées</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.campaign_id}>
+                <td>{c.campaign_name} <Badge value={c.campaign_status} label={c.campaign_status} /></td>
+                <td>{c.channel_name || 'Non attribué'}</td>
+                <td className="num">{formatNumber(c.leads)}</td>
+                <td className="num">{formatNumber(c.clients_converted)}</td>
+                <td className="num">{formatNumber(c.contracts)}</td>
+                <td className="num">{fmtCHF(c.expected_commissions_amount)}</td>
+                <td className="num">{fmtCHF(c.received_commissions_amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {unattributed && (
+        // unattributed n'a pas de champ "leads" côté backend (voir
+        // server/routes/acquisition-analytics.js) : jamais affiché comme 0.
+        <p className="muted mt" style={{ fontSize: 13 }}>
+          Non attribué (sans campagne) : {formatNumber(unattributed.clients_total)} client(s) converti(s) ·{' '}
+          {formatNumber(unattributed.contracts)} contrat(s) · {fmtCHF(unattributed.expected_commissions_amount)} attendus ·{' '}
+          {fmtCHF(unattributed.received_commissions_amount)} encaissés.
+        </p>
+      )}
+    </>
+  );
+}
+
+function ChannelsPerformanceTable({ data }) {
+  // Ordre backend conservé tel quel (ch.active DESC, ch.sort, ch.name) —
+  // aucune préférence de tri n'a été demandée pour cette table.
+  const rows = data?.channels || [];
+  const unattributed = data?.unattributed;
+  return (
+    <>
+      {rows.length === 0 ? (
+        <Empty>Aucun canal enregistré.</Empty>
+      ) : (
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Canal</th>
+              <th className="num">Leads</th>
+              <th className="num">Clients</th>
+              <th className="num">Contrats</th>
+              <th className="num">Commissions attendues</th>
+              <th className="num">Commissions encaissées</th>
+              <th className="num">Coûts bruts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((ch) => (
+              <tr key={ch.channel_id} style={ch.active ? undefined : { opacity: 0.6 }}>
+                <td>{ch.channel_name}{!ch.active && <span className="muted"> · inactif</span>}</td>
+                <td className="num">{formatNumber(ch.leads)}</td>
+                <td className="num">{formatNumber(ch.clients_converted)}</td>
+                <td className="num">{formatNumber(ch.contracts)}</td>
+                <td className="num">{fmtCHF(ch.expected_commissions_amount)}</td>
+                <td className="num">{fmtCHF(ch.received_commissions_amount)}</td>
+                <td className="num">{fmtCHF(ch.costs_total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {unattributed && (
+        // unattributed n'a ni "leads" ni "costs_total" côté backend : jamais
+        // affichés comme 0.
+        <p className="muted mt" style={{ fontSize: 13 }}>
+          Non attribué (sans canal) : {formatNumber(unattributed.clients_total)} client(s) converti(s) ·{' '}
+          {formatNumber(unattributed.contracts)} contrat(s) · {fmtCHF(unattributed.expected_commissions_amount)} attendus ·{' '}
+          {fmtCHF(unattributed.received_commissions_amount)} encaissés.
+        </p>
+      )}
+    </>
+  );
+}
+
+function AttributionAnalytics() {
+  const summaryQ = useAsync(() => api.get('/api/acquisition/analytics/summary'), []);
+  const campaignsQ = useAsync(() => api.get('/api/acquisition/analytics/campaigns'), []);
+  const channelsQ = useAsync(() => api.get('/api/acquisition/analytics/channels'), []);
+
+  function refreshAll() {
+    summaryQ.reload();
+    campaignsQ.reload();
+    channelsQ.reload();
+  }
+
+  // Les 3 endpoints renvoient le même tableau `caveats` (voir
+  // server/routes/acquisition-analytics.js), mais on déduplique par égalité
+  // stricte de chaîne plutôt que de supposer qu'ils resteront identiques.
+  const caveats = useMemo(() => {
+    const all = [
+      ...(summaryQ.data?.caveats || []),
+      ...(campaignsQ.data?.caveats || []),
+      ...(channelsQ.data?.caveats || []),
+    ];
+    return [...new Set(all)];
+  }, [summaryQ.data, campaignsQ.data, channelsQ.data]);
+
+  return (
+    <>
+      <div className="toolbar">
+        <div className="grow" />
+        <button className="ghost small" onClick={refreshAll}>Actualiser</button>
+      </div>
+
+      {summaryQ.error && <div className="alert error">{summaryQ.error}</div>}
+      {summaryQ.loading ? (
+        <p className="muted">Chargement…</p>
+      ) : summaryQ.data && <SummaryTiles summary={summaryQ.data} />}
+
+      <div className="card mt">
+        <h2>Performance par campagne</h2>
+        {campaignsQ.error && <div className="alert error">{campaignsQ.error}</div>}
+        {campaignsQ.loading ? (
+          <p className="muted">Chargement…</p>
+        ) : (
+          <CampaignsPerformanceTable data={campaignsQ.data} />
+        )}
+      </div>
+
+      <div className="card mt">
+        <h2>Performance par canal</h2>
+        {channelsQ.error && <div className="alert error">{channelsQ.error}</div>}
+        {channelsQ.loading ? (
+          <p className="muted">Chargement…</p>
+        ) : (
+          <ChannelsPerformanceTable data={channelsQ.data} />
+        )}
+      </div>
+
+      {caveats.length > 0 && (
+        <div className="card mt">
+          <h2>À propos des données</h2>
+          <ul className="mt" style={{ margin: 0, paddingLeft: 18 }}>
+            {caveats.map((c) => (
+              <li key={c} className="muted" style={{ fontSize: 13, marginBottom: 6 }}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Acquisition() {
   const [tab, setTab] = useState('apercu');
   return (
@@ -330,7 +550,7 @@ export default function Acquisition() {
       {tab === 'apercu' && <Overview />}
       {tab === 'rdv' && <Appointments />}
       {tab === 'campagnes' && <Campaigns />}
-      {tab === 'analytics' && <ComingSoon label="Analytics" />}
+      {tab === 'analytics' && <AttributionAnalytics />}
     </>
   );
 }
