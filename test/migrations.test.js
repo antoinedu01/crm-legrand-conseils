@@ -752,17 +752,17 @@ test('migration v11 — index unique partiel : redémarrages répétés (3x) res
   }
 });
 
-// Rescopé à la migration 16 (Acquisition OS — table `appointments`, portée
-// depuis feature/acquisition-os) : la frontière « aucun bloc ultérieur » se
-// déplace mécaniquement à chaque nouvelle migration ajoutée — même
-// précédent que le déplacement 11→12, puis 12→13, puis 13→14, puis 14→15,
-// puis 15→16 documenté ici.
-test('migration v16 — absence de migration 17 : la dernière version de schéma reste 16, aucun bloc de migration ultérieur', async () => {
+// Rescopé à la migration 17 (Acquisition A4.1 — socle DB attribution :
+// campaigns.key + table lead_attribution) : la frontière « aucun bloc
+// ultérieur » se déplace mécaniquement à chaque nouvelle migration ajoutée
+// — même précédent que le déplacement 11→12, puis 12→13, puis 13→14, puis
+// 14→15, puis 15→16, puis 16→17 documenté ici.
+test('migration v17 — absence de migration 18 : la dernière version de schéma reste 17, aucun bloc de migration ultérieur', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 16, 'la base neuve doit culminer exactement à la version 16, pas au-delà');
+  assert.equal(db.pragma('user_version', { simple: true }), 17, 'la base neuve doit culminer exactement à la version 17, pas au-delà');
   const dbJsSource = fs.readFileSync(dbModulePath, 'utf8');
-  assert.ok(!/version\s*<\s*17/.test(dbJsSource), 'aucun bloc "if (version < 17)" ne doit exister');
-  assert.ok(!/user_version\s*=\s*17/.test(dbJsSource), 'aucun "user_version = 17" ne doit exister dans server/db.js');
+  assert.ok(!/version\s*<\s*18/.test(dbJsSource), 'aucun bloc "if (version < 18)" ne doit exister');
+  assert.ok(!/user_version\s*=\s*18/.test(dbJsSource), 'aucun "user_version = 18" ne doit exister dans server/db.js');
 });
 
 // Correctif SQL ciblé (second GATE, avant commit) : garantie SQLite
@@ -1704,7 +1704,7 @@ test('migration v16 — base historique v15 réelle : version finale 16, Diagnos
   legacyCheck.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 16, 'la migration doit amener exactement à la version 16');
+  assert.equal(db.pragma('user_version', { simple: true }), 17, 'la migration doit amener exactement à la version 17 (16 puis, dans la même passe, 17)');
 
   // Diagnostic 360 (versions 9 à 14) reste intégralement présent.
   for (const table of [
@@ -1747,7 +1747,7 @@ test("migration v16 — idempotence : un second import d'une base migrée depuis
   await buildLegacyV15Database(dir);
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 16);
+  assert.equal(db.pragma('user_version', { simple: true }), 17);
   const appointmentTables = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'appointments'")
     .all();
@@ -1756,9 +1756,9 @@ test("migration v16 — idempotence : un second import d'une base migrée depuis
 
 test('migration v16 — base vierge : coexistence complète appointments / Diagnostic 360 / commissions / campagnes / clients', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 16);
+  assert.equal(db.pragma('user_version', { simple: true }), 17);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name);
   for (const table of ['appointments', 'households', 'advisory_sessions', 'commissions', 'campaigns', 'clients']) {
-    assert.ok(table && tables.includes(table), `table ${table} doit exister sur une base vierge migrée en v16`);
+    assert.ok(table && tables.includes(table), `table ${table} doit exister sur une base vierge migrée en v16 (et, dans la même passe, v17)`);
   }
 });

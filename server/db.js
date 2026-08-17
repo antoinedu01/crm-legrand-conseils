@@ -1588,6 +1588,84 @@ if (version < 16) {
   migrate();
 }
 
+// Migration 17 — Acquisition A4.1 : socle DB uniquement pour l'attribution
+// marketing future (campaign_key stable + table `lead_attribution`).
+// Purement additive : aucune table ni colonne existante n'est modifiée,
+// aucune donnée existante n'est perdue ou réécrite. Ce lot ne touche ni
+// server/routes/public.js, ni server/routes/campaigns.js, ni
+// server/routes/acquisition-analytics.js, ni le frontend — seul le schéma
+// est préparé ; la résolution UTM/click-id et la génération de clé de
+// campagne viendront dans un lot ultérieur (A4.2/A4.3).
+//
+// campaigns.key : clé de tracking stable et opaque, INDÉPENDANTE de
+// campaigns.name (le nom affiché peut changer sans jamais invalider un
+// lien de tracking déjà distribué). Ajoutée nullable — SQLite interdit une
+// contrainte UNIQUE/PRIMARY KEY inline sur une colonne ajoutée via
+// `ALTER TABLE ADD COLUMN` — puis l'unicité est appliquée séparément via un
+// index UNIQUE : les NULL multiples (campagnes existantes, jamais
+// backfillées dans ce lot) restent mutuellement distincts pour SQLite et
+// ne collisionnent donc jamais entre eux, seule une valeur non-NULL dupliquée
+// serait rejetée. Format cible prévu pour un lot futur : `cmp_<token>`,
+// non imposé ici par une contrainte CHECK puisqu'aucune génération n'existe
+// encore.
+//
+// lead_attribution : table dédiée, additive à lead_details (dont le rôle et
+// les colonnes channel_id/campaign_id restent totalement inchangés dans ce
+// lot — la stratégie de synchronisation entre les deux sera décidée en
+// A4.2/A4.3). Relation 1:1 avec clients (client_id UNIQUE). Modèle
+// mono-touch uniquement : ni historique, ni multi-touch dans ce lot.
+// Champs "raw_*"/UTM/click-id capturent fidèlement ce qui a été reçu même
+// quand campaign_id/channel_id restent NULL (résolution échouée ou absente)
+// — un tracking inconnu ne doit jamais empêcher la capture ni, plus tard,
+// la création d'un lead. Aucune colonne, aucune contrainte, aucun index
+// vers advisory_sessions/households ou toute autre table Diagnostic 360.
+// Aucune contrainte ON DELETE CASCADE, cohérent avec le reste du schéma
+// (appointments, contracts) et avec l'absence de suppression physique des
+// clients.
+if (version < 17) {
+  const migrate = db.transaction(() => {
+    function hasColumn(table, column) {
+      return db.prepare(`PRAGMA table_info("${table}")`).all().some((c) => c.name === column);
+    }
+
+    if (!hasColumn('campaigns', 'key')) {
+      db.exec(`ALTER TABLE campaigns ADD COLUMN key TEXT`);
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_key ON campaigns(key)`);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS lead_attribution (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER NOT NULL UNIQUE REFERENCES clients(id),
+        campaign_id INTEGER REFERENCES campaigns(id),
+        channel_id INTEGER REFERENCES channels(id),
+
+        raw_campaign_key TEXT,
+        raw_channel_key TEXT,
+
+        utm_source TEXT,
+        utm_medium TEXT,
+        utm_campaign TEXT,
+        utm_content TEXT,
+        utm_term TEXT,
+
+        gclid TEXT,
+        fbclid TEXT,
+
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_lead_attribution_campaign ON lead_attribution(campaign_id);
+      CREATE INDEX IF NOT EXISTS idx_lead_attribution_channel ON lead_attribution(channel_id);
+      CREATE INDEX IF NOT EXISTS idx_lead_attribution_gclid ON lead_attribution(gclid);
+      CREATE INDEX IF NOT EXISTS idx_lead_attribution_fbclid ON lead_attribution(fbclid);
+    `);
+
+    db.pragma('user_version = 17');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {
