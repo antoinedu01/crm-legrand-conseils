@@ -221,6 +221,79 @@ function CampaignForm({ initial, channels, onSaved, onClose }) {
   );
 }
 
+// Clé de tracking d'une campagne (A4.4/A4.5) : rendu compact, jamais
+// éditable — la génération est TOUJOURS côté serveur (POST /api/campaigns
+// pour une nouvelle campagne, POST /:id/ensure-key pour une campagne legacy
+// key=NULL), ce composant ne fait qu'afficher/copier/déclencher.
+function CampaignKeyCell({ campaign, onEnsureKey }) {
+  const [feedback, setFeedback] = useState(null); // 'copied' | 'copy-error' | null
+  const [revealed, setRevealed] = useState(false);
+  const [ensuring, setEnsuring] = useState(false);
+  const [ensureError, setEnsureError] = useState(null);
+
+  async function copy() {
+    // Aucun hack document.execCommand (absent du reste du dépôt) : à défaut
+    // de l'API Clipboard, on révèle simplement la clé complète pour une
+    // sélection manuelle (§8), jamais une tentative de contournement.
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      setRevealed(true);
+      setFeedback('copy-error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(campaign.key);
+      setFeedback('copied');
+      setTimeout(() => setFeedback((f) => (f === 'copied' ? null : f)), 2000);
+    } catch {
+      setRevealed(true);
+      setFeedback('copy-error');
+    }
+  }
+
+  async function generate() {
+    setEnsureError(null);
+    setEnsuring(true);
+    try {
+      await onEnsureKey(campaign.id);
+    } catch (err) {
+      setEnsureError(err.message);
+    } finally {
+      setEnsuring(false);
+    }
+  }
+
+  if (campaign.key == null) {
+    return (
+      <div>
+        <span className="muted" style={{ fontSize: 12 }}>Clé non générée</span>
+        <div className="mt">
+          <button className="ghost small" onClick={generate} disabled={ensuring}>
+            {ensuring ? 'Génération…' : 'Générer la clé'}
+          </button>
+        </div>
+        {ensureError && <div className="alert error mt" style={{ fontSize: 12 }}>{ensureError}</div>}
+      </div>
+    );
+  }
+
+  const shortKey = campaign.key.length > 13 ? `${campaign.key.slice(0, 12)}…` : campaign.key;
+
+  return (
+    <div>
+      <span style={{ fontFamily: 'monospace', fontSize: 12 }} title={campaign.key}>
+        {revealed ? campaign.key : shortKey}
+      </span>{' '}
+      <button className="ghost small" onClick={copy}>Copier</button>
+      {feedback === 'copied' && <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>Copié</span>}
+      {feedback === 'copy-error' && (
+        <div className="muted mt" style={{ fontSize: 12 }}>
+          Copie automatique indisponible — la clé complète est affichée ci-dessus, sélectionnez-la pour la copier manuellement.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Campaigns() {
   const [editing, setEditing] = useState(null);
   const { data: campaigns, loading, error, reload } = useAsync(() => api.get('/api/campaigns'), []);
@@ -229,6 +302,15 @@ function Campaigns() {
   function refreshAll() {
     reload();
     reloadChannels();
+  }
+
+  // Campagne legacy (key=NULL) : génération explicite côté serveur
+  // uniquement (POST /:id/ensure-key, jamais côté client) — reload() du
+  // listing existant réutilisé tel quel après succès (§6), au même titre
+  // qu'après une création/modification de campagne.
+  async function ensureKey(id) {
+    await api.post(`/api/campaigns/${id}/ensure-key`);
+    reload();
   }
 
   return (
@@ -252,6 +334,7 @@ function Campaigns() {
                 <th>Canal</th>
                 <th>Statut</th>
                 <th>Créée le</th>
+                <th>Clé tracking</th>
                 <th></th>
               </tr>
             </thead>
@@ -262,6 +345,7 @@ function Campaigns() {
                   <td>{c.channel_name || 'Non attribué'}</td>
                   <td><Badge value={c.status} label={c.status} /></td>
                   <td>{fmtDate(c.created_at.slice(0, 10))}</td>
+                  <td><CampaignKeyCell campaign={c} onEnsureKey={ensureKey} /></td>
                   <td className="right">
                     <button className="small" onClick={() => setEditing(c)}>Modifier</button>
                   </td>
