@@ -124,9 +124,9 @@ export const ANALYSIS_STATUS_TONES = {
 // d'information n'est jamais présenté comme une erreur (cohérent avec le
 // vocabulaire imposé, §6 SYNTH-UI0).
 export const COMPLETENESS_LABELS = {
-  complete: 'Informations complètes',
-  partial: 'Informations partielles',
-  blocked_by_missing_information: 'Informations incomplètes',
+  complete: 'Synthèse principale complète',
+  partial: 'Synthèse principale partielle',
+  blocked_by_missing_information: 'Synthèse principale incomplète',
 };
 export const COMPLETENESS_TONES = {
   complete: 'good',
