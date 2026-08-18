@@ -106,11 +106,26 @@ async function createHousehold(page, lastName, firstName) {
   await page.getByRole('button', { name: '+ Créer une nouvelle personne' }).click();
   await page.getByLabel('Nom', { exact: true }).fill(lastName);
   if (firstName) await page.getByLabel('Prénom').fill(firstName);
+  await page.getByLabel('Date de naissance').fill('1990-01-01');
   await page.getByRole('button', { name: 'Enregistrer' }).click();
   // Retour à la modale foyer : créer directement.
   await page.getByRole('button', { name: 'Créer le foyer' }).click();
-  // Possible écran intermédiaire "already_in_households" -> jamais attendu ici (personne neuve).
-  await page.waitForURL(/\/diagnostic-360\/foyers\/\d+$/, { timeout: 10000 });
+
+  // HouseholdCreateForm peut volontairement demander une confirmation
+  // intermédiaire lorsque l'API signale already_in_households.
+  const detailUrl = /\/diagnostic-360\/foyers\/\d+$/;
+  const continueButton = page.getByRole('button', { name: 'Continuer vers le foyer' });
+
+  const outcome = await Promise.race([
+    page.waitForURL(detailUrl, { timeout: 10000 }).then(() => 'detail'),
+    continueButton.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'continue'),
+  ]);
+
+  if (outcome === 'continue') {
+    await continueButton.click();
+    await page.waitForURL(detailUrl, { timeout: 10000 });
+  }
+
   const url = page.url();
   return Number(url.match(/foyers\/(\d+)$/)[1]);
 }
@@ -666,6 +681,7 @@ async function runScenarioK(browser) {
   await page.getByRole('button', { name: '+ Nouveau foyer' }).click();
   await page.getByRole('button', { name: '+ Créer une nouvelle personne' }).click();
   await page.getByLabel('Nom', { exact: true }).fill('QA Nissim VersionV1');
+  await page.getByLabel('Date de naissance').fill('1990-01-01');
   await page.getByRole('button', { name: 'Enregistrer' }).click();
   await page.getByRole('button', { name: 'Créer le foyer' }).click();
   await page.waitForURL(/\/diagnostic-360\/foyers\/\d+$/);
@@ -711,18 +727,22 @@ async function main() {
   record('INVARIANT-recommendations-baseline', true, `count avant A→J = ${recoBefore}`);
 
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
-  await login(page);
 
   const order = ['G', 'D', 'E', 'B', 'C', 'A', 'F', 'H', 'I', 'J'];
   for (const key of order) {
     if (!wanted(key)) continue;
+
+    const page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
     try {
+      await login(page);
       await scenarioFns[key](page);
     } catch (err) {
       record(key, false, `EXCEPTION: ${err.message}`);
       console.error(err);
+    } finally {
+      await page.close().catch(() => {});
     }
+
     const recoNow = countRecommendations();
     if (recoNow !== recoBefore) {
       record(`INVARIANT-recommendations-after-${key}`, false, `count=${recoNow} attendu=${recoBefore}`);
