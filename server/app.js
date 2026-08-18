@@ -110,12 +110,18 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Limitation de débit globale sur l'API
+// Limitation de débit globale sur l'API.
+// Bypass strictement réservé au harness E2E isolé : les deux conditions
+// doivent être présentes simultanément. Le comportement normal reste 600/5 min.
+const bypassApiRateLimitForE2E =
+  process.env.NODE_ENV === 'test' && process.env.QA_E2E_ALLOW === '1';
+
 app.use(
   '/api',
   rateLimit({
     windowMs: 5 * 60 * 1000,
     limit: 600,
+    skip: () => bypassApiRateLimitForE2E,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Trop de requêtes. Réessayez dans quelques minutes.' },
