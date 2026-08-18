@@ -214,9 +214,9 @@ function MemberSynthesis({ member, analysisStatus }) {
       </div>
 
       <div className="card mb">
-        <h2>Informations manquantes</h2>
+        <h2>Informations nécessaires à cette synthèse</h2>
         {missingInfo.length === 0 ? (
-          <Empty>Aucune information manquante pour ce membre.</Empty>
+          <Empty>Toutes les informations nécessaires à cette synthèse sont renseignées. D’autres points à compléter peuvent apparaître dans les constats.</Empty>
         ) : (
           <ul className="missing-list">
             {missingInfo.map((m) => <li key={m.key}>{m.label}</li>)}

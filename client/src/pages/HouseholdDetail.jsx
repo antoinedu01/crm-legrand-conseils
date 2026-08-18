@@ -405,7 +405,7 @@ export default function HouseholdDetail() {
       <div className="page-head">
         <div>
           <button className="ghost small" onClick={() => navigate('/diagnostic-360/foyers')}>← Foyers</button>
-          <h1>{data.label || 'Foyer sans nom'}</h1>
+          <h1>{data.label || `Foyer ${data.members?.find((m) => m.member_role === 'principal')?.display_name || `#${data.id}`}`}</h1>
           <div className="sub">
             <Badge value={data.status} label={HOUSEHOLD_STATUS[data.status]} />
           </div>
