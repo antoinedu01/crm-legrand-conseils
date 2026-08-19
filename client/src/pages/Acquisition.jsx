@@ -225,7 +225,7 @@ function CampaignForm({ initial, channels, onSaved, onClose }) {
 // éditable — la génération est TOUJOURS côté serveur (POST /api/campaigns
 // pour une nouvelle campagne, POST /:id/ensure-key pour une campagne legacy
 // key=NULL), ce composant ne fait qu'afficher/copier/déclencher.
-function CampaignKeyCell({ campaign, onEnsureKey }) {
+function CampaignKeyCell({ campaign, onEnsureKey, onCreateLink }) {
   const [feedback, setFeedback] = useState(null); // 'copied' | 'copy-error' | null
   const [revealed, setRevealed] = useState(false);
   const [ensuring, setEnsuring] = useState(false);
@@ -283,7 +283,8 @@ function CampaignKeyCell({ campaign, onEnsureKey }) {
       <span style={{ fontFamily: 'monospace', fontSize: 12 }} title={campaign.key}>
         {revealed ? campaign.key : shortKey}
       </span>{' '}
-      <button className="ghost small" onClick={copy}>Copier</button>
+      <button className="ghost small" onClick={copy}>Copier</button>{' '}
+      <button className="ghost small" onClick={() => onCreateLink(campaign)}>Créer un lien</button>
       {feedback === 'copied' && <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>Copié</span>}
       {feedback === 'copy-error' && (
         <div className="muted mt" style={{ fontSize: 12 }}>
@@ -294,8 +295,172 @@ function CampaignKeyCell({ campaign, onEnsureKey }) {
   );
 }
 
+// Générateur d'URL de tracking (A4.6) : fonction PURE, ne dépend ni de
+// React ni du DOM — uniquement des API Web standard URL/URLSearchParams
+// (jamais de concaténation manuelle de chaîne, §9). campaign_key est
+// toujours fournie par l'appelant depuis campaign.key (jamais saisie par
+// l'utilisateur, §6) et remplace systématiquement toute valeur déjà
+// présente dans l'URL de destination — le CRM reste source de vérité
+// (§10). Un UTM laissé vide ne touche JAMAIS une valeur déjà présente dans
+// l'URL de destination (ni ajout, ni suppression) ; un UTM renseigné la
+// remplace toujours (§10/§11) — décision actée avant écriture. Aucun
+// domaine par défaut : destinationUrl est entièrement fournie par
+// l'appelant (§3). channel_key n'est volontairement pas géré ici — voir
+// commentaire de CampaignLinkModal ci-dessous.
+function buildCampaignTrackingUrl({
+  destinationUrl,
+  campaignKey,
+  utmSource,
+  utmMedium,
+  utmCampaign,
+  utmContent,
+  utmTerm,
+}) {
+  if (!campaignKey) throw new Error('Clé de campagne manquante.');
+
+  let url;
+  try {
+    url = new URL(String(destinationUrl || '').trim());
+  } catch {
+    throw new Error('URL de destination invalide. Utilisez une URL complète, ex. https://exemple.test/page.');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Seules les URL http:// ou https:// sont acceptées.');
+  }
+
+  url.searchParams.set('campaign_key', campaignKey);
+
+  const utmFields = {
+    utm_source: utmSource,
+    utm_medium: utmMedium,
+    utm_campaign: utmCampaign,
+    utm_content: utmContent,
+    utm_term: utmTerm,
+  };
+  for (const [param, value] of Object.entries(utmFields)) {
+    const trimmed = String(value || '').trim();
+    if (trimmed) url.searchParams.set(param, trimmed);
+  }
+
+  return url.toString();
+}
+
+// Modale de génération de lien (A4.6) : utilitaire frontend STATELESS —
+// aucune persistance DB, aucun appel réseau (§16) ; fermer la modale perd
+// simplement l'état local (URL/UTM saisis), comme prévu. Réutilise
+// Modal/Field (mêmes conventions que CampaignForm) et le pattern clipboard
+// validé en M0c28 (CampaignKeyCell ci-dessus). channel_key n'est
+// volontairement PAS ajouté automatiquement dans ce lot (§7) : l'API
+// Campaigns n'expose de toute façon que channel_name (voir GET /:id,
+// server/routes/campaigns.js — jamais channels.key), et le resolver
+// retrouve déjà le canal d'une campagne via campaign_key seul. gclid/fbclid
+// ne sont volontairement pas proposés ici (§17) : ces identifiants sont
+// ajoutés par les plateformes publicitaires elles-mêmes, jamais saisis à la
+// main.
+function CampaignLinkModal({ campaign, onClose }) {
+  const [destinationUrl, setDestinationUrl] = useState('');
+  const [utmSource, setUtmSource] = useState('');
+  const [utmMedium, setUtmMedium] = useState('');
+  const [utmCampaign, setUtmCampaign] = useState('');
+  const [utmContent, setUtmContent] = useState('');
+  const [utmTerm, setUtmTerm] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState(null); // 'copied' | 'copy-error' | null
+
+  // Recalcul réactif à chaque frappe — aucun bouton "Générer" nécessaire ;
+  // une URL de destination vide n'affiche ni résultat ni erreur (état
+  // initial neutre, pas un échec de validation).
+  const { generatedUrl, error } = useMemo(() => {
+    if (!destinationUrl.trim()) return { generatedUrl: null, error: null };
+    try {
+      return {
+        generatedUrl: buildCampaignTrackingUrl({
+          destinationUrl,
+          campaignKey: campaign.key,
+          utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+        }),
+        error: null,
+      };
+    } catch (err) {
+      return { generatedUrl: null, error: err.message };
+    }
+  }, [destinationUrl, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, campaign.key]);
+
+  async function copyLink() {
+    if (!generatedUrl) return;
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      setCopyFeedback('copy-error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(generatedUrl);
+      setCopyFeedback('copied');
+      setTimeout(() => setCopyFeedback((f) => (f === 'copied' ? null : f)), 2000);
+    } catch {
+      setCopyFeedback('copy-error');
+    }
+  }
+
+  return (
+    <Modal title="Créer un lien de tracking" onClose={onClose} wide>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Campagne : <strong>{campaign.name}</strong>
+        <br />
+        Clé : <span style={{ fontFamily: 'monospace' }}>{campaign.key}</span>
+      </p>
+      <div className="form-grid">
+        <Field label="URL de destination" full>
+          <input
+            placeholder="https://exemple.test/page"
+            value={destinationUrl}
+            onChange={(e) => setDestinationUrl(e.target.value)}
+          />
+        </Field>
+        <Field label="UTM source">
+          <input value={utmSource} onChange={(e) => setUtmSource(e.target.value)} />
+        </Field>
+        <Field label="UTM medium">
+          <input value={utmMedium} onChange={(e) => setUtmMedium(e.target.value)} />
+        </Field>
+        <Field label="UTM campaign">
+          <input value={utmCampaign} onChange={(e) => setUtmCampaign(e.target.value)} />
+        </Field>
+        <Field label="UTM content">
+          <input value={utmContent} onChange={(e) => setUtmContent(e.target.value)} />
+        </Field>
+        <Field label="UTM term">
+          <input value={utmTerm} onChange={(e) => setUtmTerm(e.target.value)} />
+        </Field>
+      </div>
+
+      {error && <div className="alert error mt">{error}</div>}
+
+      {generatedUrl && (
+        <div className="mt">
+          <Field label="URL générée" full>
+            <input readOnly value={generatedUrl} onFocus={(e) => e.target.select()} />
+          </Field>
+        </div>
+      )}
+
+      <div className="actions">
+        {copyFeedback === 'copied' && <span className="muted" style={{ fontSize: 12 }}>Lien copié</span>}
+        {copyFeedback === 'copy-error' && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            Copie automatique indisponible — sélectionnez le champ ci-dessus pour copier manuellement.
+          </span>
+        )}
+        <button type="button" onClick={onClose}>Fermer</button>
+        <button type="button" className="primary" disabled={!generatedUrl} onClick={copyLink}>
+          Copier le lien
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function Campaigns() {
   const [editing, setEditing] = useState(null);
+  const [linkingCampaign, setLinkingCampaign] = useState(null);
   const { data: campaigns, loading, error, reload } = useAsync(() => api.get('/api/campaigns'), []);
   const { data: channels, reload: reloadChannels } = useAsync(() => api.get('/api/channels'), []);
 
@@ -345,7 +510,9 @@ function Campaigns() {
                   <td>{c.channel_name || 'Non attribué'}</td>
                   <td><Badge value={c.status} label={c.status} /></td>
                   <td>{fmtDate(c.created_at.slice(0, 10))}</td>
-                  <td><CampaignKeyCell campaign={c} onEnsureKey={ensureKey} /></td>
+                  <td>
+                    <CampaignKeyCell campaign={c} onEnsureKey={ensureKey} onCreateLink={setLinkingCampaign} />
+                  </td>
                   <td className="right">
                     <button className="small" onClick={() => setEditing(c)}>Modifier</button>
                   </td>
@@ -362,6 +529,9 @@ function Campaigns() {
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); reload(); }}
         />
+      )}
+      {linkingCampaign !== null && (
+        <CampaignLinkModal campaign={linkingCampaign} onClose={() => setLinkingCampaign(null)} />
       )}
     </>
   );
