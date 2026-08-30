@@ -119,6 +119,45 @@ Aucun agent, aucun contenu ne doit promettre :
 
 ---
 
+## 4bis. Brief visuel obligatoire pour toute publication sociale
+
+> Ajouté le 30/08/2026, à la suite d'un constat sur les statistiques
+> LinkedIn réelles (profil personnel) : sur 4 posts, celui accompagné d'une
+> image a nettement dépassé les 3 posts texte seul en impressions.
+> L'échantillon est trop petit pour isoler l'effet de l'image de l'effet de
+> nouveauté du compte (premier post) — ce n'est **pas présenté comme une
+> règle prouvée**, mais c'est cohérent avec une pratique de base sur
+> LinkedIn/Instagram, d'où le changement de règle par défaut ci-dessous. Le
+> constat détaillé, avec ses limites, est documenté dans
+> `marketing-ai/analytics/observation-impact-visuel-posts-30-08-2026.md`.
+
+- **Plus aucune publication sociale texte seul à partir du 30/08/2026**,
+  sauf **exception justifiée et signalée comme telle** (motif explicite dans
+  le fichier de contenu concerné — jamais une omission silencieuse).
+- Chaque publication sociale doit être accompagnée d'un **brief visuel**
+  écrit — jamais un fichier image final produit par un agent. L'outil de
+  production réel (Canva, graphiste, IA image) n'est jamais présupposé par
+  un agent et reste un choix humain, une étape manuelle distincte de la
+  rédaction du brief.
+- **Un brief visuel doit préciser** :
+  - la composition (ce qui doit être visible en premier coup d'œil) ;
+  - la palette : **bleu marine / cyan**, cohérente avec l'identité déjà
+    utilisée sur les créas Meta ;
+  - la présence ou non de texte incrusté dans l'image, et lequel ;
+  - le(s) format(s) attendu(s) selon la plateforme (carré 1:1 pour
+    LinkedIn/Instagram feed, 9:16 pour Stories/Reels, 1,91:1 si partagé en
+    lien) ;
+  - le ton / l'ambiance (sobre, professionnel, jamais de fausse photo de
+    conseiller générique — cohérent avec les règles déjà établies pour
+    Meta) ;
+  - ce qu'il ne faut surtout pas montrer (ex. pas de tableau de chiffres non
+    sourcés, pas de visage stock générique).
+- Le modèle de référence pour la forme d'un brief visuel est
+  `marketing-ai/flyers/flyer-bilan-assurances-prevoyance.md` — un concept
+  complet, jamais le fichier image lui-même.
+
+---
+
 ## 5. Discipline Git et rendu de compte
 
 - Avant chaque lot de travail : exécuter **`git status`**.

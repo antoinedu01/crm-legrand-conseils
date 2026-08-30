@@ -57,6 +57,34 @@ Cadence : 3 à 5 séquences sur la semaine. Ci-dessous **4 séquences** prêtes.
 
 ---
 
+### Brief visuel (obligatoire — ajouté le 30/08/2026, cf. `CLAUDE.md` § 4bis)
+
+> Complète les « Visuel suggéré » de chaque séquence ci-dessus sans les
+> remplacer — brief conceptuel, pas un fichier image. Outil de production
+> non présupposé (Canva / graphiste / IA), décision humaine ultérieure.
+
+- **Composition** : un message par écran, centré, lisible en une seconde
+  (format story = défilement rapide). Séquence 1 : visage/logo en ouverture
+  pour ancrer « qui parle ». Séquences 2-3 : le sticker interactif
+  (sondage/question) reste l'élément dominant de l'écran, jamais noyé sous
+  du texte. Séquence 4 : le mockup du guide en évidence sur son propre
+  écran, jamais partagé avec un autre message.
+- **Palette** : bleu marine / cyan sur les 4 écrans, cohérence visuelle
+  d'une séquence à l'autre (même trame de fond) pour que la semaine se lise
+  comme un ensemble, pas 4 stories disparates.
+- **Texte incrusté** : oui sur chaque écran — reprendre exactement les
+  textes déjà indiqués par écran ci-dessus, jamais un texte reformulé au
+  moment de la création graphique.
+- **Format(s)** : 9:16 (1080 × 1920 px), format stories natif — seul format
+  pertinent ici (pas de déclinaison feed pour ce contenu).
+- **Ton / ambiance** : direct, chaleureux, plus spontané que le carrousel
+  feed (registre propre aux stories) — reste professionnel, jamais familier
+  au point de perdre en crédibilité.
+- **À ne pas montrer** : aucun chiffre (plafond, taux, délai — cf. notes de
+  conformité ci-dessous), aucun visage stock générique en séquence 1 (photo
+  réelle ou absence de visage, jamais une photo d'archive), aucune capture
+  d'écran d'un vrai profil client ou d'une vraie conversation.
+
 ### Notes de conformité (stories)
 - Toutes les réponses types sont **générales**, orientent vers un échange humain,
   et **ne délivrent jamais** de conseil personnalisé ni de recommandation de

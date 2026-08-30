@@ -72,6 +72,24 @@ Pour le prospect particulier :
 - Pas de jargon non expliqué ; pas de sensationnalisme ; pas d'urgence
   artificielle (« dernière chance », « offre limitée »).
 
+## 4bis. Identité visuelle et brief visuel obligatoire
+
+> Ajouté le 30/08/2026 (voir `CLAUDE.md` § 4bis pour la règle complète et sa
+> justification — constat sur les statistiques LinkedIn réelles, échantillon
+> restreint, à confirmer avec plus de données).
+
+- **Palette** : bleu marine / cyan, cohérente avec les créas déjà utilisées
+  sur Meta.
+- **Ton visuel** : sobre, professionnel — jamais de fausse photo de
+  conseiller générique, jamais de tableau de chiffres non sourcés.
+- **Plus aucune publication sociale texte seul par défaut** : chaque
+  publication doit désormais être accompagnée d'un brief visuel écrit
+  (composition, palette, texte incrusté, formats par plateforme, ton,
+  ce qu'il ne faut pas montrer) — jamais un fichier image final produit par
+  un agent, l'outil de production restant un choix humain distinct.
+- Exception possible mais toujours **justifiée et signalée explicitement**
+  dans le fichier de contenu, jamais une omission silencieuse.
+
 ## 5. Messages principaux
 
 **Slogan officiel** :

@@ -54,6 +54,34 @@ Enregistrez le post 🔖 pour le retrouver, et posez votre question en commentai
 
 - **Appel à l'action** : « Enregistrez ce post » + « Posez votre question en commentaire ».
 - **Brief graphique** : 6 slides 4:5, fond clair aux couleurs de la marque, une idée par slide, gros titres lisibles sur mobile, pictos simples (ampoule pour les idées reçues), logo discret en pied de slide. Pas de chiffres. Contraste élevé pour l'accessibilité.
+
+### Brief visuel (obligatoire — ajouté le 30/08/2026, cf. `CLAUDE.md` § 4bis)
+
+> Complète le « Brief graphique » ci-dessus sans le remplacer — brief
+> conceptuel, pas un fichier image. Outil de production non présupposé
+> (Canva / graphiste / IA), décision humaine ultérieure.
+
+- **Composition** : une slide = un message, lu en moins de 2 secondes. Sur
+  les slides « idée reçue » (2 à 4) : la phrase de l'idée reçue en haut,
+  barrée ou entre guillemets « discutables », la réponse en dessous, plus
+  petite et posée — jamais l'inverse (ne jamais laisser l'idée fausse comme
+  dernier élément lu sur l'écran).
+- **Palette** : bleu marine / cyan (identité déjà utilisée sur les créas
+  Meta) — fond clair dominant, accent bleu marine pour les titres, touche
+  cyan pour les pictos/liserés. Pas de dégradé criard, pas de fond sombre
+  pleine page.
+- **Texte incrusté** : oui, sur chaque slide — le titre/accroche de la
+  slide (voir contenu ci-dessus), jamais le paragraphe complet de la
+  légende (qui reste hors image, dans le texte du post).
+- **Format(s)** : 4:5 (1080 × 1350 px) pour le carrousel en feed — format
+  déjà retenu dans le brief graphique existant, confirmé ici comme le
+  format de référence Instagram/LinkedIn feed pour ce type de contenu.
+- **Ton / ambiance** : sobre, pédagogique, jamais moqueur envers le lecteur
+  qui croyait l'idée reçue — un ton « on démonte l'idée, pas la personne ».
+- **À ne pas montrer** : aucun visage stock générique, aucun tableau ou
+  graphique de chiffres (contenu volontairement sans donnée chiffrée),
+  aucun symbole monétaire mis en avant (CHF, %), aucune mise en scène
+  commerciale (poignée de main, calculette, contrat signé).
 - **Texte alternatif recommandé (alt)** : « Carrousel pédagogique de Legrand conseils Sàrl présentant trois idées reçues sur le 3e pilier suisse et expliquant la différence entre pilier 3a lié et 3b libre, sans données chiffrées. »
 - **Hashtags (limités et pertinents)** : #3ePilier #prévoyance #SuisseRomande #Vaud #Genève #assurance #financespersonnelles
 - **Sources utilisées** : notions structurelles (3a lié / 3b libre ; prévoyance individuelle en complément AVS + caisse de pension). *Aucune donnée chiffrée.*

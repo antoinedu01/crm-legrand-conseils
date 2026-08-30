@@ -61,6 +61,37 @@ Legrand conseils Sàrl · courtier indépendant · Vaud & Genève »
 
 - **Appel à l'action** : « Commentez “guide” pour être prévenu·e de sa sortie » / « Guide gratuit à venir — lien après mise en ligne ».
 - **Miniature proposée** : visage + gros texte « 3e pilier, simplement » sur fond de marque.
+
+### Brief visuel (obligatoire — ajouté le 30/08/2026, cf. `CLAUDE.md` § 4bis)
+
+> Complète les « Indications visuelles » et le « Texte affiché à l'écran »
+> ci-dessus sans les remplacer — un reel a déjà, par nature, un brief visuel
+> détaillé plan par plan ; cette section ajoute les éléments encore
+> manquants (palette explicite, format, ce qu'il ne faut pas montrer). Brief
+> conceptuel, pas un fichier vidéo — la production reste une étape humaine
+> distincte.
+
+- **Composition** : déjà détaillée plan par plan ci-dessus (visage → schéma
+  → split-screen 3a/3b → retour visage → mockup guide) — cohérente avec la
+  règle « un message dominant par plan ».
+- **Palette** : bleu marine / cyan pour tous les éléments graphiques
+  ajoutés en post-production (schéma des étages, pictos 3a/3b, mockup du
+  guide, miniature) — le plan filmé (personne face caméra) garde un
+  éclairage naturel, sans habillage colorimétrique forcé.
+- **Texte incrusté** : déjà listé ci-dessus (« Texte affiché à l'écran ») —
+  confirmé comme la liste définitive, sous-titrage intégral en plus (déjà
+  spécifié).
+- **Format(s)** : 9:16 (1080 × 1920 px), format Reel/Stories natif — seul
+  format pertinent pour une vidéo verticale ; prévoir un recadrage 1:1 de la
+  miniature si le reel est aussi partagé en post feed classique.
+- **Ton / ambiance** : posé, naturel, prononçable par une vraie personne
+  (déjà une contrainte du script) — jamais un ton publicitaire survolté ni
+  une musique de fond qui couvrirait la voix.
+- **À ne pas montrer** : aucun chiffre à l'image (cohérent avec le script
+  sans donnée chiffrée), aucun logo ou décor évoquant une compagnie
+  d'assurance précise, aucun texte affirmant qu'une option (3a/3b) est
+  « meilleure » — le split-screen doit rester visuellement neutre entre les
+  deux (même taille de police, même traitement graphique des deux côtés).
 - **Sources** : notions structurelles (étages de la prévoyance ; 3a lié / 3b libre). *Aucune donnée chiffrée.*
 - **Points nécessitant une validation humaine** :
   - Libellé « pilier lié / libre » et « traitement fiscal particulier » du 3a → source officielle (ch.ch / OFAS / AFC). `Vérification humaine obligatoire`.

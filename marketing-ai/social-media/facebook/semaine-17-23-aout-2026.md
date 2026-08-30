@@ -41,6 +41,39 @@ Avec Legrand conseils Sàrl, j'accompagne les familles de Suisse romande pour y 
   - *(La « check-list du foyer » n'existe pas encore — elle est prévue en Phase 3. Elle n'est donc **pas** proposée ici comme ressource disponible.)*
 - **Page du site envisagée** : page **Contact** (documentée comme existante dans le calendrier LOT 1). `URL de la page Contact à confirmer avant publication`.
 - **Visuel suggéré** : photo chaleureuse et sobre (parent et bébé, ambiance douce), sans mise en scène commerciale ; ou visuel « 3 points » aux couleurs de la marque.
+
+### Brief visuel (obligatoire — ajouté le 30/08/2026, cf. `CLAUDE.md` § 4bis)
+
+> Complète le « Visuel suggéré » ci-dessus sans le remplacer — brief
+> conceptuel, pas un fichier image. Outil de production non présupposé
+> (Canva / graphiste / IA), décision humaine ultérieure. Les deux options
+> ci-dessous restent ouvertes (photo ou visuel « 3 points ») — le choix
+> final reste humain ; ce brief détaille les deux pour ne fermer aucune
+> porte avant la décision.
+- **Composition — option photo** : sujet (parent + bébé) cadré serré,
+  regard doux, pas de texte incrusté lourd — juste un bandeau discret en
+  bas avec le nom « Legrand conseils Sàrl ». **Composition — option « 3
+  points »** : titre court en haut, les 3 points numérotés en colonne ou en
+  ligne, pictos simples (cœur/bouclier, calendrier, puzzle) plutôt que du
+  texte dense.
+- **Palette** : bleu marine / cyan pour l'option « 3 points » (pictos,
+  numéros, cadre) ; pour l'option photo, palette neutre et chaleureuse
+  (tons naturels), avec seulement le bandeau de marque en bleu marine/cyan.
+- **Texte incrusté** : minimal. Option photo : aucun texte ou juste le nom
+  de la marque. Option « 3 points » : titre court + les 3 mots-clés
+  (couverture nouveau-né / protection du revenu / cohérence globale),
+  jamais le paragraphe complet du post.
+- **Format(s)** : 1,91:1 (aperçu de lien/image large, format Facebook feed
+  standard) ; prévoir aussi un recadrage 1:1 si republié en story Facebook.
+- **Ton / ambiance** : chaleureux, local, sans alarmisme — cohérent avec le
+  ton du texte (sujet famille/naissance traité avec douceur). Jamais de
+  mise en scène commerciale (poignée de main, signature de contrat).
+- **À ne pas montrer** : aucun visage de bébé identifiable issu d'une
+  banque d'images à connotation publicitaire/pharma, aucun symbole médical
+  (stéthoscope, croix hospitalière — sujet santé traité sans imagerie
+  médicale), aucun chiffre ou délai affiché à l'image (le délai de 3 mois
+  reste uniquement dans le texte, déjà signalé `Vérification humaine
+  obligatoire`).
 - **Sources utilisées** : notions générales (couverture maladie du nouveau-né, protection du revenu du foyer, risque de doublons/lacunes). *Aucune donnée chiffrée.*
 - **Affirmations à vérifier** :
   - Modalités et délais d'affiliation maladie d'un nouveau-né en Suisse → source officielle (OFSP). `Vérification humaine obligatoire`.
