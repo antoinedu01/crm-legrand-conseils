@@ -11,6 +11,7 @@ import { LcaFields } from '../components/contracts/LcaFields.jsx';
 import { buildLifeBlock, composeLifePayload, LIFE_COMPATIBLE_BRANCHES, LIFE_INITIAL_FIELDS } from '../components/contracts/lifePayload.js';
 import { LifeFields } from '../components/contracts/LifeFields.jsx';
 import { estimateLifeAcquisitionCommission, LifeCommissionError } from '../components/contracts/lifeCommissionEstimate.js';
+import { computePolicyTermYears } from '../components/contracts/policyTermFromDates.js';
 import { FIXED_ONLY_BRANCHES } from '../components/contracts/fixedCommissionBranches.js';
 
 const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
@@ -175,6 +176,21 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     setLifeMode(lifeModeBeforeRemoval || 'unchanged');
     setLifeModeBeforeRemoval(null);
   }
+
+  // Préremplit automatiquement la durée contractuelle Vie (policy_term_years)
+  // à partir des dates de début/échéance du contrat dès que les deux sont
+  // renseignées, plutôt que de la redemander systématiquement à l'utilisateur.
+  // Ne s'applique que si le champ est encore vide : une fois rempli
+  // (automatiquement ou manuellement), il reste modifiable à la main et
+  // n'est plus jamais écrasé par un changement de date ultérieur.
+  useEffect(() => {
+    if (!LIFE_COMPATIBLE_BRANCHES.includes(form.branch)) return;
+    if (lifeFields.policy_term_years !== '') return;
+    const computed = computePolicyTermYears(form.start_date, form.end_date);
+    if (computed !== null) {
+      setLifeFields((f) => (f.policy_term_years === '' ? { ...f, policy_term_years: String(computed) } : f));
+    }
+  }, [form.branch, form.start_date, form.end_date]);
 
   useEffect(() => {
     api.get('/api/clients').then((rows) => setClients(rows.filter((c) => c.status !== 'anonymise')));
