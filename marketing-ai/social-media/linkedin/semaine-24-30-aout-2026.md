@@ -1,7 +1,17 @@
 # LinkedIn — Semaine du 24 au 30 août 2026
 
+> **Mise à jour du 30/08/2026** : publication confirmée par Antoine Legrand
+> (« je l'ai déjà publié oui »), à la date initialement prévue du 27/08/2026.
+> Voir `marketing-ai/content-calendar/registre-editorial-central.csv`
+> (ligne SOC-LI-006, `statut_publication=Publié`,
+> `date_publication=2026-08-27`). URL du post non communiquée à ce stade. Le
+> paragraphe ci-dessous, rédigé avant la publication, est conservé tel quel
+> comme trace historique du contenu tel qu'il a été validé.
+
 > **Nouveau contenu — en attente de revue de conformité et de validation
-> humaine**. Créé le 26/08/2026 dans le cadre de la mission « Créer SOC-LI-006
+> humaine** *(statut au moment de la rédaction, avant publication — voir la
+> mise à jour du 30/08/2026 ci-dessus)*. Créé le 26/08/2026 dans le cadre de
+> la mission « Créer SOC-LI-006
 > sans modifier les publications existantes », sur la branche
 > `feature/marketing-source-reconciliation-v1`.
 > Diffusion envisagée le 27/08/2026, sur le **profil LinkedIn personnel du
@@ -86,8 +96,10 @@ Et vous, qu'attendez-vous en priorité d'un conseiller en assurance : qu'il vous
   `marketing-ai/compliance/revue-conformite-soc-li-006.md`.
 - **KPI principal** : portée + commentaires (CTA de type question ouverte,
   sans lien vers le site).
-- **Statut** : `Nouveau contenu — en attente de revue de conformité et de
-  validation humaine`.
+- **Statut** : `Publié` *(mis à jour le 30/08/2026 — validé le 26/08/2026,
+  publié le 27/08/2026 tel que prévu, confirmation humaine recueillie le
+  30/08/2026 ; statut au moment de la rédaction : « Nouveau contenu — en
+  attente de revue de conformité et de validation humaine »)*.
 
 ---
 
@@ -98,5 +110,8 @@ Et vous, qu'attendez-vous en priorité d'un conseiller en assurance : qu'il vous
   mission.
 - Texte, CTA et hashtags transmis intégralement par Antoine Legrand le
   26/08/2026 — reproduits tels quels, sans reformulation.
-- Aucune validation humaine, aucune publication, aucune programmation à ce
-  stade.
+- Validation humaine enregistrée le 26/08/2026 (voir
+  `marketing-ai/compliance/validation-humaine-soc-li-006.md`). Publication
+  confirmée le 30/08/2026 par Antoine Legrand, à la date initialement
+  prévue du 27/08/2026 — voir
+  `marketing-ai/compliance/confirmation-publication-soc-li-006.md`.
