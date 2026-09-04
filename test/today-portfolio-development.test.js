@@ -1,11 +1,17 @@
-// Tests d'intégration du chantier « développement de portefeuille » (Lot 1).
-// Deux volets :
+// Tests d'intégration du chantier « développement de portefeuille »
+// (Lots 1 et 3). Trois volets :
 //  - couverture des deux règles déjà en production dans server/routes/today.js
 //    (`vente_complementaire`, `anniversaire_contrat`) qui n'avaient encore
-//    aucun test avant ce lot ;
-//  - les deux nouvelles règles ajoutées par ce lot (`manque_prevoyance`,
+//    aucun test avant le Lot 1 ;
+//  - les deux règles ajoutées par le Lot 1 (`manque_prevoyance`,
 //    `manque_sante`), généralisation de `vente_complementaire` aux groupes
-//    de branches LAMal/LCA <-> vie_3a/vie_3b.
+//    de branches LAMal/LCA <-> vie_3a/vie_3b — testées ici avec des primes
+//    volontairement sous les seuils du Lot 3, pour isoler la détection de
+//    base de la priorisation ;
+//  - la priorisation par seuil de prime ajoutée par le Lot 3 (section
+//    dédiée en bas de fichier) : priorité 'normale' au-dessus du seuil
+//    (LAMal/LCA >= 1'500 CHF/an, vie_3a/3b >= 4'000 CHF/an, sur la prime du
+//    groupe déjà détenu), 'basse' en dessous — jamais 'haute'.
 // Base de test isolée dans un dossier temporaire (CRM_DATA_DIR), comme
 // test/api.test.js.
 import { test, before } from 'node:test';
@@ -115,7 +121,9 @@ test('anniversaire_contrat — un contrat dont l’anniversaire tombe dans 10 jo
 
 test('manque_prevoyance — client avec LAMal actif, sans aucun contrat 3a/3b actif', async () => {
   const clientId = await makeClient('SanteSeule');
-  await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 4000 });
+  // Prime volontairement sous le seuil de priorisation du Lot 3 (1'500) :
+  // ce test isole la détection de base, pas la priorisation (voir plus bas).
+  await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 800 });
 
   const action = await findAction(clientId, 'manque_prevoyance');
   assert.ok(action, 'le client avec seulement du LAMal est signalé');
@@ -139,7 +147,8 @@ test('manque_prevoyance — LCA seul (sans LAMal) déclenche aussi le signal', a
 
 test('manque_sante — client avec 3a actif, sans aucun contrat LAMal/LCA actif', async () => {
   const clientId = await makeClient('PrevoyanceSeule');
-  await makeContract({ branch: 'vie_3a', client_id: clientId, annual_premium: 5000 });
+  // Prime volontairement sous le seuil de priorisation du Lot 3 (4'000).
+  await makeContract({ branch: 'vie_3a', client_id: clientId, annual_premium: 1000 });
 
   const action = await findAction(clientId, 'manque_sante');
   assert.ok(action, 'le client avec seulement du 3a est signalé');
@@ -184,4 +193,73 @@ test('un client "entreprise" n’est jamais signalé (règle limitée aux partic
   await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 4000 });
 
   assert.equal(await findAction(clientId, 'manque_prevoyance'), undefined, 'les entreprises sont hors périmètre de ce signal');
+});
+
+// ------- priorisation par seuil de prime (Lot 3) -------
+
+test('manque_prevoyance — prime LAMal/LCA exactement au seuil (1\'500) : priorité normale', async () => {
+  const clientId = await makeClient('SeuilPrevoyancePile');
+  await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 1500 });
+
+  const action = await findAction(clientId, 'manque_prevoyance');
+  assert.ok(action);
+  assert.equal(action.priority, 'normale', 'le seuil est inclusif (>=), pas strictement supérieur');
+});
+
+test('manque_prevoyance — prime LAMal/LCA juste sous le seuil (1\'499) : priorité basse', async () => {
+  const clientId = await makeClient('SeuilPrevoyanceSous');
+  await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 1499 });
+
+  const action = await findAction(clientId, 'manque_prevoyance');
+  assert.ok(action);
+  assert.equal(action.priority, 'basse');
+});
+
+test('manque_prevoyance — le seuil se calcule sur la somme de plusieurs contrats du groupe, pas un seul', async () => {
+  const clientId = await makeClient('SeuilPrevoyanceSomme');
+  // Deux contrats de 800 CHF, aucun ne dépasse seul le seuil, la somme (1'600) si.
+  await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 800 });
+  await makeContract({ branch: 'lca', client_id: clientId, annual_premium: 800 });
+
+  const action = await findAction(clientId, 'manque_prevoyance');
+  assert.ok(action);
+  assert.equal(action.priority, 'normale', 'la somme des deux contrats (1\'600) dépasse le seuil de 1\'500');
+});
+
+test('manque_sante — prime vie_3a/3b exactement au seuil (4\'000) : priorité normale', async () => {
+  const clientId = await makeClient('SeuilSantePile');
+  await makeContract({ branch: 'vie_3a', client_id: clientId, annual_premium: 4000 });
+
+  const action = await findAction(clientId, 'manque_sante');
+  assert.ok(action);
+  assert.equal(action.priority, 'normale');
+});
+
+test('manque_sante — prime vie_3a/3b juste sous le seuil (3\'999) : priorité basse', async () => {
+  const clientId = await makeClient('SeuilSanteSous');
+  await makeContract({ branch: 'vie_3a', client_id: clientId, annual_premium: 3999 });
+
+  const action = await findAction(clientId, 'manque_sante');
+  assert.ok(action);
+  assert.equal(action.priority, 'basse');
+});
+
+test('la priorisation ne dépasse jamais "normale" : jamais "haute" même pour une prime très élevée', async () => {
+  const clientId = await makeClient('SeuilJamaisHaute');
+  await makeContract({ branch: 'vie_3a', client_id: clientId, annual_premium: 50000 });
+
+  const action = await findAction(clientId, 'manque_sante');
+  assert.ok(action);
+  assert.equal(action.priority, 'normale', '"haute" reste réservée aux échéances proches et aux prospects urgents');
+});
+
+test('un contrat résilié n’entre pas dans le calcul du seuil (held_premium ne compte que les contrats actifs)', async () => {
+  const clientId = await makeClient('SeuilContratResilie');
+  // Contrat résilié de 10'000 : ne doit jamais faire franchir le seuil.
+  await makeContract({ branch: 'lamal', client_id: clientId, annual_premium: 10000, status: 'resilie' });
+  await makeContract({ branch: 'lca', client_id: clientId, annual_premium: 800 });
+
+  const action = await findAction(clientId, 'manque_prevoyance');
+  assert.ok(action);
+  assert.equal(action.priority, 'basse', 'seul le contrat LCA actif (800) compte, pas le LAMal résilié (10\'000)');
 });
