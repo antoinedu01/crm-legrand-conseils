@@ -266,6 +266,53 @@ todayRouter.get('/', (req, res) => {
     }
   }
 
+  // Développement de portefeuille — échéances de contrat actionnables
+  // (Lot 2). Même fenêtre de 90 jours que le widget « Échéances sous 90
+  // jours » du tableau de bord (server/routes/dashboard.js, inchangé — il
+  // reste un coup d'œil informatif) ; ceci en est la version actionnable,
+  // dans le plan du jour. Fenêtre de dé-doublonnage volontairement plus
+  // courte (30 jours) que les autres règles de ce fichier : sur une
+  // échéance à 90 jours, laisser l'action disparaître pendant 180 jours
+  // comme `vente_complementaire` la ferait disparaître jusqu'après la date
+  // d'échéance elle-même. 30 jours permet à l'action de ressurgir une ou
+  // deux fois avant l'échéance réelle si elle n'a pas été résolue entre
+  // deux passages. Priorité : `haute` à moins de 30 jours de l'échéance
+  // (ou déjà dépassée), `normale` au-delà.
+  const expiringContracts = db
+    .prepare(
+      `SELECT ct.id, ct.end_date, ct.branch, ct.policy_number, ct.client_id,
+        c.type, c.first_name, c.last_name, c.company_name, co.name AS company_name
+       FROM contracts ct
+       JOIN clients c ON c.id = ct.client_id
+       JOIN companies co ON co.id = ct.company_id
+       WHERE ct.status = 'actif' AND ct.end_date IS NOT NULL
+         AND ct.end_date <= date('now', '+90 days') AND c.status != 'anonymise'`
+    )
+    .all();
+  for (const ct of expiringContracts) {
+    const key = `echeance:${ct.id}`;
+    if (!recentlyLogged(key, 30)) {
+      const daysLeft = Math.round(
+        (new Date(ct.end_date + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / 86_400_000
+      );
+      let reason;
+      if (daysLeft < 0) {
+        reason = `Échéance du contrat ${ct.policy_number || ct.branch} (${ct.company_name}) dépassée depuis ${Math.abs(daysLeft)} jour${Math.abs(daysLeft) > 1 ? 's' : ''}`;
+      } else if (daysLeft === 0) {
+        reason = `Échéance du contrat ${ct.policy_number || ct.branch} (${ct.company_name}) aujourd’hui`;
+      } else {
+        reason = `Échéance du contrat ${ct.policy_number || ct.branch} (${ct.company_name}) dans ${daysLeft} jour${daysLeft > 1 ? 's' : ''}`;
+      }
+      actions.push({
+        key, type: 'echeance_contrat', priority: daysLeft <= 30 ? 'haute' : 'normale',
+        date: ct.end_date,
+        client_id: ct.client_id, client_name: displayName(ct), contract_id: ct.id,
+        reason,
+        objective: 'Préparer une révision avant l’échéance plutôt que découvrir un départ après coup',
+      });
+    }
+  }
+
   // Demandes de recommandation : contrat signé il y a moins de 45 jours
   const freshContracts = db
     .prepare(
@@ -315,6 +362,18 @@ todayRouter.post('/result', (req, res) => {
       `INSERT INTO action_log (action_key, action_type, client_id, contract_id, result, notes)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(action_key, action_type || null, client_id || null, contract_id || null, result, note || null);
+
+    // Lot 2 — développement de portefeuille : horodate la dernière fois
+    // qu'un contrat proche de l'échéance a été traité depuis le plan du
+    // jour, uniquement pour ce type d'action précis et uniquement quand un
+    // résultat est explicitement logué ici par le conseiller (quel que
+    // soit le résultat choisi). Ne touche jamais review_next_date : aucune
+    // cadence ni planification automatique n'est introduite par ce lot.
+    if (action_type === 'echeance_contrat' && contract_id) {
+      db.prepare(
+        "UPDATE contracts SET review_last_date = date('now'), updated_at = datetime('now') WHERE id = ?"
+      ).run(contract_id);
+    }
 
     if (client) {
       db.prepare('INSERT INTO activities (client_id, type, content) VALUES (?, ?, ?)').run(
