@@ -216,13 +216,25 @@ todayRouter.get('/', (req, res) => {
   }
 
   // Développement de portefeuille — mono-produit santé <-> prévoyance
-  // (Lot 1). Même construction que la « Vente complémentaire » ci-dessus,
-  // dans les deux sens, sur les deux groupes de branches LAMal/LCA et
-  // vie_3a/vie_3b. Priorité toujours 'basse' à ce stade : la priorisation
-  // par seuil de prime (Lot 3) n'est pas encore branchée ici.
+  // (Lot 1, priorisation par seuil ajoutée en Lot 3). Même construction que
+  // la « Vente complémentaire » ci-dessus, dans les deux sens, sur les deux
+  // groupes de branches LAMal/LCA et vie_3a/vie_3b. `held_premium` est la
+  // somme des primes actives du groupe DÉJÀ détenu par le client (pas du
+  // groupe manquant) — sert de proxy de valeur/potentiel pour la
+  // priorisation, seuils différenciés par branche (décision humaine) :
+  // LAMal/LCA >= CHF 1'500/an, vie_3a/vie_3b >= CHF 4'000/an. Au-dessus du
+  // seuil -> priorité 'normale' ; en dessous -> 'basse', comme avant ce
+  // lot. Jamais 'haute' : réservée aux échéances proches et aux prospects
+  // urgents ailleurs dans ce fichier.
+  const PREVOYANCE_GAP_PREMIUM_THRESHOLD_CHF = 1500;
+  const SANTE_GAP_PREMIUM_THRESHOLD_CHF = 4000;
+
   const manquePrevoyance = db
     .prepare(
-      `SELECT c.id, c.type, c.first_name, c.last_name, c.company_name
+      `SELECT c.id, c.type, c.first_name, c.last_name, c.company_name,
+        (SELECT COALESCE(SUM(ct2.annual_premium), 0) FROM contracts ct2
+          WHERE ct2.client_id = c.id AND ct2.status = 'actif'
+            AND ct2.branch IN ('lamal', 'lca')) AS held_premium
        FROM clients c
        WHERE c.status = 'client' AND c.type = 'particulier'
          AND EXISTS (SELECT 1 FROM contracts ct WHERE ct.client_id = c.id
@@ -235,7 +247,8 @@ todayRouter.get('/', (req, res) => {
     const key = `manque_prevoyance:${c.id}`;
     if (!recentlyLogged(key, 180)) {
       actions.push({
-        key, type: 'manque_prevoyance', priority: 'basse',
+        key, type: 'manque_prevoyance',
+        priority: c.held_premium >= PREVOYANCE_GAP_PREMIUM_THRESHOLD_CHF ? 'normale' : 'basse',
         date: todayStr, client_id: c.id, client_name: displayName(c),
         reason: 'Client avec assurance maladie (LAMal/LCA), sans prévoyance liée ou libre (3a/3b)',
         objective: 'Proposer une analyse de la situation de prévoyance — après analyse complète des besoins',
@@ -245,7 +258,10 @@ todayRouter.get('/', (req, res) => {
 
   const manqueSante = db
     .prepare(
-      `SELECT c.id, c.type, c.first_name, c.last_name, c.company_name
+      `SELECT c.id, c.type, c.first_name, c.last_name, c.company_name,
+        (SELECT COALESCE(SUM(ct2.annual_premium), 0) FROM contracts ct2
+          WHERE ct2.client_id = c.id AND ct2.status = 'actif'
+            AND ct2.branch IN ('vie_3a', 'vie_3b')) AS held_premium
        FROM clients c
        WHERE c.status = 'client' AND c.type = 'particulier'
          AND EXISTS (SELECT 1 FROM contracts ct WHERE ct.client_id = c.id
@@ -258,7 +274,8 @@ todayRouter.get('/', (req, res) => {
     const key = `manque_sante:${c.id}`;
     if (!recentlyLogged(key, 180)) {
       actions.push({
-        key, type: 'manque_sante', priority: 'basse',
+        key, type: 'manque_sante',
+        priority: c.held_premium >= SANTE_GAP_PREMIUM_THRESHOLD_CHF ? 'normale' : 'basse',
         date: todayStr, client_id: c.id, client_name: displayName(c),
         reason: 'Client avec prévoyance liée ou libre (3a/3b), sans assurance maladie (LAMal/LCA) chez nous',
         objective: 'Proposer une analyse de la couverture maladie — après analyse complète des besoins',
