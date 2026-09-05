@@ -281,6 +281,25 @@ SOC-LI-002 pour publication manuelle. »
   `date_publication` — ces champs restent réservés à l'action humaine
   réelle, après publication effective.
 
+## 7sexies. Publication confirmée — SOC-LI-001 / SOC-LI-002 (05/09/2026)
+
+Le 05/09/2026, Antoine Legrand a confirmé directement dans la session en
+cours : « SOC-LI-001 et SOC-LI-002 sont publiés. »
+
+- `statut_publication` passe de `Non publié` à `Publié` pour les deux
+  lignes, conformément à la réserve posée en §7quinquies (« ces champs
+  restent réservés à l'action humaine réelle, après publication
+  effective »).
+- `date_publication` et l'URL réelle des deux posts (`url_finale`) **ne sont
+  pas renseignées** : la date exacte de mise en ligne et le lien n'ont pas
+  été communiqués à cette occasion. Ces champs restent à compléter par un
+  humain ou sur confirmation ultérieure — aucune date ni URL n'est
+  inventée.
+- Cette confirmation ne porte que sur la publication elle-même ; elle ne
+  rouvre pas la validation humaine du texte (acquise le 26/07/2026,
+  §7quinquies, sur le texte réécrit du 25/07/2026, §7quater) ni la revue de
+  conformité (`marketing-ai/compliance/revue-conformite-posts-lancement.md`).
+
 ## 7. Ce que ce registre ne fait pas
 
 - Il ne fixe **aucune** date de publication pour SEO-001 ou pour aucun contenu
