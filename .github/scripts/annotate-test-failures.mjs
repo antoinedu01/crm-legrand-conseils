@@ -32,6 +32,17 @@ for (let i = 0; i < lines.length; i += 1) {
 }
 
 const escape = (s) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
+// Totaux du rapport TAP (« # tests 412 », « # pass 412 »…) : toujours
+// publiés en note, pour voir d'un coup d'œil combien de tests ont tourné.
+const totals = {};
+for (const line of lines) {
+  const t = line.match(/^# (tests|pass|fail|cancelled|skipped|todo) (\d+)$/);
+  if (t) totals[t[1]] = Number(t[2]);
+}
+if (totals.tests != null) {
+  console.log(`::notice title=Tests::${totals.tests} tests — ${totals.pass ?? 0} réussis, ${totals.fail ?? 0} en échec, ${totals.skipped ?? 0} ignorés`);
+}
 for (const f of failures.slice(0, 10)) {
   console.log(`::error title=${escape(f.name).slice(0, 200)}::${escape(f.text.slice(0, 4000))}`);
 }

@@ -28,7 +28,7 @@ jobs:
           --test-reporter=spec --test-reporter-destination=stdout
           --test-reporter=tap --test-reporter-destination=test-results.tap
           "test/**/*.test.js"
-      - name: Annoter les tests en échec
-        if: failure()
+      - name: Résumé et annotations des tests
+        if: always()
         run: node .github/scripts/annotate-test-failures.mjs test-results.tap
       - run: npm run build
