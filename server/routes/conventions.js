@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
-import { assert } from '../validate.js';
+import { assert, isPositiveId } from '../validate.js';
 import {
   normalizeConventionInput, normalizeRateInput, getConvention, getRate, listConventions,
   listApplicableRates, rateUsageCount, financialFieldsChanged, planImport, applyImport, describePlan,
@@ -11,28 +11,52 @@ import {
 // jamais renvoyées hors de l'API authentifiée (montée derrière requireAuth).
 export const conventionsRouter = Router();
 
+// Nombre de lignes de la convention qui ont servi à un contrat ou à une
+// commission (conservation comptable : elles ne peuvent plus changer de
+// compagnie ni disparaître).
+function conventionUsage(conventionId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM convention_rates r
+       WHERE r.convention_id = ?
+         AND (EXISTS (SELECT 1 FROM contracts ct WHERE ct.convention_rate_id = r.id)
+              OR EXISTS (SELECT 1 FROM commissions cm WHERE cm.convention_rate_id = r.id))`
+    )
+    .get(conventionId).n;
+}
+
 conventionsRouter.get('/', (req, res) => {
   res.json(listConventions());
 });
 
 // Lignes applicables à un contrat (formulaire de contrat).
 conventionsRouter.get('/rates', (req, res) => {
-  const companyId = Number(req.query.company_id);
-  const { branch } = req.query;
-  if (!Number.isInteger(companyId) || companyId <= 0 || !branch) {
+  const { company_id: companyId, branch } = req.query;
+  if (!isPositiveId(companyId) || typeof branch !== 'string' || !branch) {
     return res.status(400).json({ error: 'Compagnie et branche sont requises.' });
   }
-  res.json(listApplicableRates({ company_id: companyId, branch, includeInactive: req.query.include_inactive === '1' }));
+  res.json(listApplicableRates({ company_id: Number(companyId), branch, includeInactive: req.query.include_inactive === '1' }));
 });
 
 // Import d'un fichier de conventions : aperçu (dry_run) puis application.
+// Non destructif : voir server/conventions.js (planImport) et
+// docs/CONVENTIONS.md. Seul `dry_run: false` écrit en base.
 conventionsRouter.post('/import', (req, res) => {
-  const { data, dry_run: dryRun, deactivate_others: deactivateOthers } = req.body || {};
-  const plan = planImport(data, { deactivateOthers: typeof deactivateOthers === 'boolean' ? deactivateOthers : undefined });
+  const {
+    data, dry_run: dryRun, deactivate_others: deactivateOthers, retire_missing: retireMissing,
+  } = req.body || {};
+  const plan = planImport(data, {
+    deactivateOthers: typeof deactivateOthers === 'boolean' ? deactivateOthers : undefined,
+    retireMissing: typeof retireMissing === 'boolean' ? retireMissing : undefined,
+  });
   if (dryRun !== false) return res.json({ dry_run: true, ...describePlan(plan) });
-  const summary = applyImport(plan);
+  const { summary, events } = applyImport(plan);
   audit(req, 'import conventions', 'convention', null,
-    `${summary.conventions_created} créée(s), ${summary.conventions_updated} mise(s) à jour, ${summary.companies_deactivated} compagnie(s) désactivée(s)`);
+    `${summary.conventions_created} convention(s) créée(s), ${summary.conventions_updated} mise(s) à jour ; `
+    + `lignes : ${summary.rates_created} créée(s), ${summary.rates_updated} mise(s) à jour, ${summary.rates_replaced} remplacée(s), `
+    + `${summary.rates_retired} désactivée(s) ; ${summary.companies_created} compagnie(s) créée(s), `
+    + `${summary.companies_deactivated} désactivée(s)`);
+  for (const event of events) audit(req, event.action, event.entity, event.id, event.details);
   res.json({ dry_run: false, ...describePlan(plan) });
 });
 
@@ -57,11 +81,8 @@ conventionsRouter.put('/:id', (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Convention introuvable.' });
   const data = normalizeConventionInput(req.body, existing);
   if (data.company_id !== existing.company_id) {
-    const used = db
-      .prepare(`SELECT COUNT(*) AS n FROM contracts ct JOIN convention_rates r ON r.id = ct.convention_rate_id
-                WHERE r.convention_id = ?`)
-      .get(existing.id).n;
-    assert(used === 0, 'Des contrats utilisent déjà cette convention : sa compagnie ne peut plus être changée.');
+    assert(conventionUsage(existing.id) === 0,
+      'Des contrats ou des commissions s’appuient déjà sur cette convention : sa compagnie ne peut plus être changée.');
   }
   const fields = Object.keys(data);
   db.prepare(`UPDATE conventions SET ${fields.map((f) => `${f} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`)
@@ -73,15 +94,7 @@ conventionsRouter.put('/:id', (req, res) => {
 conventionsRouter.delete('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM conventions WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Convention introuvable.' });
-  const used = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM convention_rates r
-       WHERE r.convention_id = ?
-         AND (EXISTS (SELECT 1 FROM contracts ct WHERE ct.convention_rate_id = r.id)
-              OR EXISTS (SELECT 1 FROM commissions cm WHERE cm.convention_rate_id = r.id))`
-    )
-    .get(existing.id).n;
-  if (used > 0) {
+  if (conventionUsage(existing.id) > 0) {
     return res.status(400).json({
       error: 'Des contrats ou des commissions s’appuient sur cette convention : passez-la au statut « résiliée » plutôt que de la supprimer.',
     });

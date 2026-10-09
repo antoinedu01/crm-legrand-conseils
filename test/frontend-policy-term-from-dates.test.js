@@ -34,3 +34,15 @@ test('échéance égale ou antérieure au début -> null (pas de durée négativ
 test('durée inférieure à un an -> null (pas de durée à 0 an)', () => {
   assert.equal(computePolicyTermYears('2026-01-01', '2026-06-01'), null);
 });
+
+test('même règle que le calcul des commissions de convention : échéance incluse', async () => {
+  const { wholeYearsCovered } = await import('../shared/conventionRules.js');
+  assert.equal(computePolicyTermYears('2026-10-01', '2029-09-30'), 3, 'du 01.10.2026 au 30.09.2029 = 3 ans');
+  assert.equal(computePolicyTermYears('2026-01-01', '2026-12-31'), 1, 'une année civile complète = 1 an');
+  for (const [start, end] of [
+    ['2026-01-01', '2036-01-01'], ['2026-06-15', '2036-06-01'], ['2026-06-01', '2036-06-15'],
+    ['2024-02-29', '2027-02-28'], ['2026-03-31', '2041-03-30'], ['2026-01-01', '2026-06-01'],
+  ]) {
+    assert.equal(computePolicyTermYears(start, end), wholeYearsCovered(start, end), `${start} → ${end}`);
+  }
+});

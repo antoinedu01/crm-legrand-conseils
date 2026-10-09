@@ -343,6 +343,140 @@ test('estimation de reprise selon la convention (lecture seule)', async () => {
   assert.equal(unavailable.body.available, false);
 });
 
+test('reprise : estimation réservée à la commission d’acquisition ; règle au prorata', async () => {
+  const companyId = await makeCompany('Assureur Pi SA');
+  const convId = await makeConvention(companyId);
+  const rateId = await makeRate(convId, {
+    branch: 'lca', label: 'Ligne Pi', basis: 'fixe', value: 240, clawback_mode: 'prorata', clawback_months: 24,
+  });
+  const created = await createContract({
+    company_id: companyId, branch: 'lca', annual_premium: 1000, convention_rate_id: rateId, start_date: '2026-01-01',
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const acquisition = commissionsOf(created.body.id)[0];
+  // 12 mois couverts sur 24 : la moitié de la commission est reprise.
+  const half = await auth(request(app).get(`/api/commissions/${acquisition.id}/clawback-estimate?coverage_end=2026-12-31`));
+  assert.equal(half.status, 200);
+  assert.equal(half.body.pct, 50);
+  assert.equal(half.body.suggested_amount, 120);
+  assert.equal(half.body.period_end, '2027-12-31');
+
+  const recurring = db
+    .prepare(`INSERT INTO commissions (contract_id, type, expected_amount_chf, status, commission_mode, convention_rate_id)
+              VALUES (?, 'recurrente', 10, 'expected', 'fixed_amount', ?)`)
+    .run(created.body.id, rateId).lastInsertRowid;
+  const onRecurring = await auth(request(app).get(`/api/commissions/${recurring}/clawback-estimate?coverage_end=2026-12-31`));
+  assert.equal(onRecurring.status, 200);
+  assert.equal(onRecurring.body.available, false, 'aucune estimation pour une récurrente');
+
+  const reversal = await auth(request(app).post(`/api/commissions/${acquisition.id}/reverse`)).send({ reversal_amount_chf: -120 });
+  assert.equal(reversal.status, 201, JSON.stringify(reversal.body));
+  const onReversal = await auth(request(app).get(`/api/commissions/${reversal.body.id}/clawback-estimate`));
+  assert.equal(onReversal.body.available, false, 'aucune estimation pour une ligne de reprise');
+
+  const impossible = await auth(request(app).get(`/api/commissions/${acquisition.id}/clawback-estimate?coverage_end=2027-02-30`));
+  assert.equal(impossible.status, 400, 'date impossible refusée');
+});
+
+test('identifiants et dates stricts : booléen, décimal, 31 février, fin avant le début', async () => {
+  const companyId = await makeCompany('Assureur Rho SA');
+  const convId = await makeConvention(companyId);
+  await makeRate(convId, { branch: 'lamal', label: 'Ligne Rho', basis: 'fixe', value: 50 });
+  for (const bad of [true, 1.5, '7abc', 0, -3]) {
+    const res = await createContract({ company_id: companyId, branch: 'lamal', annual_premium: 1000, convention_rate_id: bad });
+    assert.equal(res.status, 400, `convention_rate_id ${JSON.stringify(bad)} refusé`);
+  }
+  const boolCompany = await auth(request(app).post('/api/conventions')).send({ company_id: true, title: 'X' });
+  assert.equal(boolCompany.status, 400, 'company_id booléen refusé');
+  const feb31 = await auth(request(app).post('/api/conventions')).send({ company_id: companyId, title: 'X', effective_date: '2026-02-31' });
+  assert.equal(feb31.status, 400);
+  const reversed = await auth(request(app).post('/api/conventions')).send({
+    company_id: companyId, title: 'X', effective_date: '2026-07-01', end_date: '2026-06-30',
+  });
+  assert.equal(reversed.status, 400);
+  const rates = await auth(request(app).get('/api/conventions/rates?company_id=true&branch=lamal'));
+  assert.equal(rates.status, 400);
+});
+
+test('convention échue : lignes plus proposées, rattachement refusé, avertissement explicite', async () => {
+  const companyId = await makeCompany('Assureur Sigma Échu SA');
+  const convId = await makeConvention(companyId, { effective_date: '2020-01-01', end_date: '2021-12-31' });
+  const rateId = await makeRate(convId, { branch: 'lamal', label: 'Ligne échue', basis: 'fixe', value: 50 });
+
+  const applicable = await auth(request(app).get(`/api/conventions/rates?company_id=${companyId}&branch=lamal`));
+  assert.deepEqual(applicable.body, [], 'convention échue : aucune ligne proposée');
+  const all = await auth(request(app).get(`/api/conventions/rates?company_id=${companyId}&branch=lamal&include_inactive=1`));
+  assert.equal(all.body.length, 1);
+  assert.equal(all.body[0].convention_in_force, false);
+
+  const linked = await createContract({ company_id: companyId, branch: 'lamal', annual_premium: 1000, convention_rate_id: rateId });
+  assert.equal(linked.status, 400);
+  assert.match(linked.body.error, /a pris fin le 31\.12\.2021/);
+  const plain = await createContract({ company_id: companyId, branch: 'lamal', annual_premium: 1000 });
+  assert.equal(plain.status, 201);
+  assert.ok(plain.body.warnings.some((w) => /n’est plus en vigueur/.test(w)), JSON.stringify(plain.body.warnings));
+
+  const list = await auth(request(app).get('/api/conventions'));
+  assert.equal(list.body.find((c) => c.id === convId).in_force, false);
+});
+
+test('commission selon la convention : note sans détail de calcul ; récurrente de la ligne reprise par le contrat', async () => {
+  const companyId = await makeCompany('Assureur Tau Note SA');
+  const convId = await makeConvention(companyId);
+  const rateId = await makeRate(convId, { branch: 'rc_menage', label: 'Ménage fictif', basis: 'pct_prime_annuelle', value: 12, rec_rate: 4 });
+  const res = await createContract({ company_id: companyId, branch: 'rc_menage', annual_premium: 500, convention_rate_id: rateId });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.convention_commission.amount, 60);
+  assert.match(res.body.convention_commission.formula, /12/, 'le détail reste affiché au conseiller');
+  const [row] = commissionsOf(res.body.id);
+  assert.equal(row.expected_amount_chf, 60);
+  assert.doesNotMatch(row.notes || '', /\d|%|×|prime/, 'aucun taux ni calcul persisté dans la note');
+  assert.equal(db.prepare('SELECT rec_commission_rate FROM contracts WHERE id = ?').get(res.body.id).rec_commission_rate, 4);
+});
+
+test('prime unique : une base périodique ne produit jamais de montant approximatif', async () => {
+  const companyId = await makeCompany('Assureur Upsilon SA');
+  const convId = await makeConvention(companyId);
+  const rateId = await makeRate(convId, { branch: 'vie_3b', label: 'Ligne mensuelle', basis: 'mois_prime', value: 2 });
+  const res = await createContract({
+    company_id: companyId, branch: 'vie_3b', annual_premium: 50000, payment_frequency: 'unique', convention_rate_id: rateId,
+    life: { component_type: 'mixte', policy_term_years: 10 },
+  });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(commissionsOf(res.body.id).length, 0);
+  assert.ok(res.body.warnings.some((w) => /prime périodique/.test(w)), JSON.stringify(res.body.warnings));
+});
+
+test('ligne de barème : paramètres d’une autre base remis à vide, valeur informative admise pour « à confirmer »', async () => {
+  const companyId = await makeCompany('Assureur Phi SA');
+  const convId = await makeConvention(companyId);
+  const fixedId = await makeRate(convId, { branch: 'lca', label: 'Fixe avec reliquats', basis: 'fixe', value: 30, max_years: 10, valuation_pct: 50 });
+  const row = db.prepare('SELECT max_years, valuation_pct FROM convention_rates WHERE id = ?').get(fixedId);
+  assert.deepEqual({ ...row }, { max_years: null, valuation_pct: null });
+  await makeRate(convId, { branch: 'lca', label: 'Barème en attente', basis: 'a_confirmer', value: 150 });
+});
+
+test('usage d’une ligne : contrats et commissions comptés ; convention non déplaçable dès qu’une commission s’y rattache', async () => {
+  const companyId = await makeCompany('Assureur Chi SA');
+  const otherId = await makeCompany('Assureur Psi SA');
+  const convId = await makeConvention(companyId);
+  const rateId = await makeRate(convId, { branch: 'lca', label: 'Ligne Chi', basis: 'fixe', value: 20 });
+  const contract = await createContract({ company_id: companyId, branch: 'lca', annual_premium: 800 });
+  assert.equal(contract.status, 201, JSON.stringify(contract.body));
+  db.prepare(`INSERT INTO commissions (contract_id, type, expected_amount_chf, status, commission_mode, convention_rate_id)
+              VALUES (?, 'acquisition', 20, 'expected', 'fixed_amount', ?)`).run(contract.body.id, rateId);
+
+  const list = await auth(request(app).get('/api/conventions'));
+  const rate = list.body.find((c) => c.id === convId).rates.find((r) => r.id === rateId);
+  assert.equal(rate.contracts_count, 0);
+  assert.equal(rate.commissions_count, 1);
+  assert.equal(rate.usage_count, 1);
+
+  const move = await auth(request(app).put(`/api/conventions/${convId}`)).send({ company_id: otherId });
+  assert.equal(move.status, 400, JSON.stringify(move.body));
+  assert.equal(db.prepare('SELECT company_id FROM conventions WHERE id = ?').get(convId).company_id, companyId);
+});
+
 test('les routes conventions exigent une session authentifiée', async () => {
   const res = await request(app).get('/api/conventions');
   assert.equal(res.status, 401);

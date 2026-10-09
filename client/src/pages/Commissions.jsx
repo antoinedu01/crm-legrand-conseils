@@ -240,11 +240,13 @@ function ReverseForm({ commission, onSaved, onClose }) {
     return () => controller.abort();
   }, [commission.id, coverageEnd]);
 
+  // Tant que le conseiller n'a pas saisi de montant lui-même, le montant
+  // suit l'estimation — y compris quand elle tombe à zéro ou devient
+  // indisponible (jamais un ancien montant proposé resté affiché).
   useEffect(() => {
-    if (amountTouched || !estimate?.available) return;
-    if (estimate.suggested_amount != null && estimate.suggested_amount > 0) {
-      setAmount(String(estimate.suggested_amount));
-    }
+    if (amountTouched) return;
+    const suggested = estimate?.available ? estimate.suggested_amount : null;
+    setAmount(suggested != null && suggested > 0 ? String(suggested) : '');
   }, [estimate, amountTouched]);
 
   async function submit(e) {
@@ -338,7 +340,9 @@ export default function Commissions() {
   );
 
   useEffect(() => {
-    api.get('/api/companies').then((rows) => setCompanies(rows.filter((c) => c.active)));
+    // Toutes les compagnies, y compris désactivées : leurs commissions
+    // restent à encaisser et doivent pouvoir être filtrées.
+    api.get('/api/companies').then(setCompanies);
     api.get('/api/contracts').then(setContracts);
   }, []);
 
@@ -414,7 +418,7 @@ export default function Commissions() {
         </select>
         <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
           <option value="">Toutes les compagnies</option>
-          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}{c.active ? '' : ' (inactive)'}</option>)}
         </select>
         <input placeholder="Produit…" value={product} onChange={(e) => setProduct(e.target.value)} />
       </div>

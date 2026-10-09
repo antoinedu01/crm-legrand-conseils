@@ -197,7 +197,12 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
 
   useEffect(() => {
     api.get('/api/clients').then((rows) => setClients(rows.filter((c) => c.status !== 'anonymise')));
-    api.get('/api/companies').then((rows) => setCompanies(rows.filter((c) => c.active)));
+    // Compagnies actives, plus celle du contrat modifié même si elle a été
+    // désactivée depuis (sans quoi le formulaire ne pourrait plus être
+    // enregistré).
+    api.get('/api/companies').then((rows) => setCompanies(
+      rows.filter((c) => c.active || (initial?.company_id != null && String(c.id) === String(initial.company_id)))
+    ));
   }, []);
 
   // Pré-remplit les taux de commission avec ceux de la compagnie choisie
@@ -214,15 +219,30 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     }));
   }
 
-  // Avec une ligne de convention, c'est la convention qui fixe la commission :
-  // les taux génériques sont vidés à la création pour ne jamais coexister
-  // avec le barème (en modification, rien n'est recalculé ni effacé).
-  function pickConventionRate(rateId) {
-    setForm((f) => ({
-      ...f,
-      convention_rate_id: rateId,
-      ...(rateId && !initial?.id ? { acq_commission_rate: '', rec_commission_rate: '' } : {}),
-    }));
+  // Avec une ligne de convention, c'est la convention qui fixe la commission
+  // d'acquisition : le taux générique est vidé à la création pour ne jamais
+  // coexister avec le barème, et la commission récurrente reprend celle de
+  // la ligne (modifiable). En modification, rien n'est recalculé ni effacé.
+  function pickConventionRate(rateId, rate) {
+    setForm((f) => {
+      if (initial?.id) return { ...f, convention_rate_id: rateId };
+      if (rateId) {
+        return {
+          ...f,
+          convention_rate_id: rateId,
+          acq_commission_rate: '',
+          rec_commission_rate: rate?.rec_rate != null ? String(rate.rec_rate) : '',
+        };
+      }
+      // Retour à la saisie manuelle : taux par défaut de la compagnie.
+      const co = companies.find((c) => String(c.id) === String(f.company_id));
+      return {
+        ...f,
+        convention_rate_id: '',
+        acq_commission_rate: co ? co.default_acq_rate : '',
+        rec_commission_rate: co ? co.default_rec_rate : '',
+      };
+    });
   }
 
   async function submit(e) {
@@ -370,7 +390,9 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
           <Field label="Compagnie">
             <select required value={form.company_id} onChange={pickCompany}>
               <option value="">— Choisir —</option>
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}{c.active ? '' : ' (inactive)'}</option>
+              ))}
             </select>
           </Field>
           <Field label="Branche">
@@ -415,7 +437,14 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             isEdit={!!initial?.id}
             disabled={submitting}
           />
-          {hasConventionRate ? null : isFixedOnlyBranch ? (
+          {hasConventionRate ? (
+            isFixedOnlyBranch ? null : (
+              <Field label="Commission récurrente / portefeuille (%)">
+                <input type="number" min="0" step="any" value={form.rec_commission_rate ?? ''} onChange={set('rec_commission_rate')} />
+                <small className="muted">Pré-remplie selon la ligne de la convention, si elle en prévoit une.</small>
+              </Field>
+            )
+          ) : isFixedOnlyBranch ? (
             <Field label="Commission" full>
               <div className="alert warn" style={{ margin: 0 }}>
                 Aucun calcul automatique fondé sur la prime pour la LAMal/LCA : le montant, fixé par la

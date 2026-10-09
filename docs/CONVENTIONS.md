@@ -30,11 +30,12 @@ règle de reprise (extourne). Le CRM s'en sert pour :
 | `contracts.convention_rate_id` | Ligne de barème retenue pour le contrat (traçabilité). |
 | `commissions.convention_rate_id` | Ligne de barème qui a servi à calculer la commission. |
 
-Une ligne déjà utilisée par un contrat ou une commission ne peut plus être
-supprimée (clé étrangère, conservation comptable), ni voir sa base de calcul,
-ses montants ou sa règle de reprise modifiés : on la désactive et on crée une
-nouvelle ligne. Son libellé, ses conditions et son statut actif restent
-modifiables.
+Une ligne déjà utilisée par un contrat ou une commission (`usage_count`) ne
+peut plus être supprimée (clé étrangère, conservation comptable), ni voir sa
+base de calcul, ses montants ou sa règle de reprise modifiés : on la désactive
+et on crée une nouvelle ligne. Son libellé, ses conditions et son statut actif
+restent modifiables. Une convention dont une ligne a servi ne peut plus
+changer de compagnie.
 
 ## Bases de calcul
 
@@ -65,24 +66,38 @@ durée) n'est **jamais** remplacée par une valeur inventée.
 | `inconnu` | Règle non fournie : aucune estimation. |
 
 `GET /api/commissions/:id/clawback-estimate?coverage_end=AAAA-MM-JJ` renvoie la
-part reprise et le montant proposé (base : montant reçu, sinon attendu). C'est
-une estimation en lecture seule : la reprise reste créée par le conseiller
-(`POST /api/commissions/:id/reverse`), le décompte de la compagnie fait foi.
+part reprise et le montant proposé (base : montant reçu, sinon attendu), pour
+une commission **d'acquisition** uniquement (la règle de reprise d'une
+convention ne porte pas sur les récurrentes ni sur les ajustements). Sans
+`coverage_end` : date d'échéance d'un contrat résilié ou échu, sinon date du
+jour en Suisse. C'est une estimation en lecture seule : la reprise reste créée
+par le conseiller (`POST /api/commissions/:id/reverse`), le décompte de la
+compagnie fait foi.
 
 ## Effet sur les contrats
 
 - **Création avec `convention_rate_id`** : la ligne doit appartenir à une
-  convention **signée** de la même compagnie, pour la même branche, et être
+  convention **signée et en vigueur** (sans date de fin, ou date de fin pas
+  encore dépassée) de la même compagnie, pour la même branche, et être
   active. La commission attendue est créée en montant fixe (`fixed_amount`,
-  y compris en LAMal/LCA, où aucun taux générique n'est jamais appliqué), avec
-  la ligne d'origine et le détail du calcul en note. Les taux génériques du
-  contrat ne génèrent alors aucune autre commission. Si une donnée manque, le
-  contrat est créé sans commission et un avertissement l'explique.
+  y compris en LAMal/LCA, où aucun taux générique n'est jamais appliqué), liée
+  à la ligne d'origine. Sa note ne reprend **jamais** le détail du calcul (les
+  taux négociés suivraient la commission jusque dans l'export nLPD du
+  client) : le détail se recalcule à tout moment depuis la ligne liée et
+  s'affiche dans le formulaire du contrat. Les taux génériques du contrat ne
+  génèrent alors aucune autre commission ; la commission récurrente de la
+  ligne pré-remplit celle du contrat. Si une donnée manque (prime, durée,
+  barème à confirmer, base périodique sur une prime unique), le contrat est
+  créé sans commission et un avertissement l'explique.
+- **Durée du contrat** : une seule règle partout (formulaire, serveur,
+  commission) — années entières de couverture, dernier jour inclus
+  (`wholeYearsCovered`).
 - **Sans `convention_rate_id`** : comportement historique inchangé.
 - **Avertissements** : dès qu'au moins une convention existe dans le CRM, la
-  création d'un contrat chez une compagnie sans convention signée, ou dans une
-  branche que sa convention ne couvre pas, renvoie un avertissement (non
-  bloquant). Tant qu'aucune convention n'est saisie, aucun avertissement.
+  création d'un contrat chez une compagnie sans convention signée et en
+  vigueur, ou dans une branche que sa convention ne couvre pas, renvoie un
+  avertissement (non bloquant). Tant qu'aucune convention n'est saisie, aucun
+  avertissement.
 - **Modification** : changer de compagnie ou de branche alors qu'une ligne est
   liée est refusé, sauf si la même requête retire la ligne
   (`convention_rate_id: null`) ou en choisit une autre valide.
@@ -111,6 +126,7 @@ Toutes les écritures sont journalisées (`audit_log`), sans montant détaillé.
   "format": "crm-legrand-conventions",
   "version": 1,
   "deactivate_companies_without_convention": true,
+  "retire_missing_rates": false,
   "conventions": [
     {
       "company": { "name": "Compagnie Exemple SA", "aliases": ["Exemple"], "default_acq_rate": 0, "default_rec_rate": 0 },
@@ -120,6 +136,7 @@ Toutes les écritures sont journalisées (`audit_log`), sans montant détaillé.
       "effective_date": "2026-01-01",
       "client_followup": "compagnie",
       "obligations": "Pièces à joindre à chaque proposition…",
+      "_commentaire": "clé ignorée : tout champ commençant par « _ » est un commentaire",
       "rates": [
         { "branch": "lamal", "label": "Assurance de base", "basis": "fixe", "value": 10,
           "clawback_mode": "paliers", "clawback_steps": [{ "months": 12, "pct": 100 }] }
@@ -131,18 +148,48 @@ Toutes les écritures sont journalisées (`audit_log`), sans montant détaillé.
 
 (valeurs d'exemple sans rapport avec une convention réelle)
 
-- La compagnie est retrouvée par nom ou alias (casse et accents ignorés), sinon
-  créée. `default_acq_rate` / `default_rec_rate` remplacent les taux par défaut
-  génériques de la compagnie.
-- Une convention est reconnue par compagnie + titre ; une ligne par branche +
-  libellé. Une ligne utilisée dont les montants changent est **remplacée**
-  (l'ancienne est désactivée, jamais réécrite) ; une ligne absente du fichier
-  est désactivée.
-- `deactivate_companies_without_convention` (ou `deactivate_others` dans la
-  requête) désactive les compagnies qui n'ont aucune convention dans le
-  fichier — leurs contrats restent intacts.
-- Le fichier est entièrement validé avant toute écriture, puis appliqué dans
-  une seule transaction ; l'interface affiche d'abord un aperçu.
+L'import est **non destructif** et entièrement validé avant toute écriture,
+puis appliqué dans une seule transaction ; l'interface affiche d'abord un
+aperçu (`dry_run`, par défaut) avec, pour chaque convention et chaque ligne,
+l'action prévue et les champs modifiés.
+
+- **Champs connus seulement** : un champ inconnu (faute de frappe) fait
+  refuser le fichier, avec la convention et la ligne concernées. Une clé qui
+  commence par « _ » est un commentaire. En tête de fichier sont admis
+  `format`, `version`, `generated_at`, `note`,
+  `deactivate_companies_without_convention`, `retire_missing_rates` et
+  `conventions`.
+- **Compagnie** : retrouvée par son nom, puis par ses alias dans l'ordre
+  (casse, espaces et accents ignorés) ; le nom principal prime toujours sur
+  un alias, une compagnie déjà en base prime sur une compagnie du fichier.
+  Deux entrées du fichier qui désignent la même compagnie, par son nom ou un
+  alias, n'en créent qu'une. Sinon la compagnie est créée. Seuls les champs
+  fournis (`contact_*`, `finma_number`, `default_acq_rate`,
+  `default_rec_rate`) sont écrits. Une compagnie **inactive** n'est
+  réactivée que si l'une de ses conventions du fichier est **signée**.
+- **Convention** : reconnue par compagnie + titre exact (la plus récente en
+  cas de doublon). Pour une convention existante, seuls les champs présents
+  dans le fichier sont écrits ; un champ absent garde la valeur saisie dans le
+  CRM, un champ vide (`""` ou `null`) l'efface.
+- **Lignes de barème** : sans clé `rates`, les lignes de la convention ne
+  sont pas touchées. Une ligne est reconnue par branche + libellé ; pour une
+  ligne existante, seuls les champs fournis changent (fusion). Une ligne
+  **utilisée** dont un montant ou la règle de reprise change est
+  **remplacée** : l'ancienne est désactivée, jamais réécrite, et les contrats
+  existants la gardent. Une ligne désactivée dans le CRM reste inactive, sauf
+  si le fichier indique `"active": true`.
+- **Lignes absentes du fichier** : conservées telles quelles par défaut ;
+  désactivées (jamais supprimées) avec `retire_missing_rates: true` ou
+  l'option `retire_missing` de la requête.
+- **Compagnies absentes du fichier** :
+  `deactivate_companies_without_convention` (ou `deactivate_others` dans la
+  requête) désactive les compagnies actives qui n'ont aucune convention dans
+  le fichier — leurs contrats et commissions restent intacts, et une
+  compagnie qui a une convention signée et en vigueur dans le CRM n'est
+  jamais désactivée.
+- **Journal** : une entrée d'audit pour l'import, plus une par compagnie et
+  par convention touchée (noms de champs et nombres de lignes, jamais de
+  montant).
 
 ## Interface
 
@@ -150,6 +197,8 @@ Toutes les écritures sont journalisées (`audit_log`), sans montant détaillé.
   barème, création/modification, import avec aperçu.
 - **Compagnies** : statut de la convention de chaque compagnie.
 - **Contrat** : choix de la ligne de barème, commission estimée, période de
-  reprise, conditions et pièces à joindre.
+  reprise, conditions et pièces à joindre. En modification, aucune commission
+  n'est créée ni recalculée. La compagnie d'un contrat existant reste
+  sélectionnable même si elle a été désactivée.
 - **Commissions → Reprise** : montant proposé selon la convention et la date
   de fin de couverture.

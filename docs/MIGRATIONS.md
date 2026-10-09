@@ -844,10 +844,15 @@ aucun montant recalculé ; les contrats et commissions existants gardent
 `convention_rate_id = NULL`. Le comportement de création de contrat est
 inchangé tant qu'aucune ligne de barème n'est choisie.
 
-**Réversibilité** : arrêter le CRM, remettre l'ancienne version du code,
-restaurer la sauvegarde. À défaut : `DROP TABLE convention_rates; DROP TABLE
-conventions;` — les deux colonnes `convention_rate_id` restent alors présentes
-mais ignorées par l'ancien code.
+**Réversibilité** : pour revenir à l'ancienne version du code, il suffit de la
+redéployer — les tables `conventions` / `convention_rates` et les colonnes
+`convention_rate_id` peuvent **rester en place** : l'ancien code ne les lit
+pas. Ne **pas** les supprimer à la main : `contracts` et `commissions`
+référencent `convention_rates` (un `DROP TABLE` échoue dès qu'une ligne est
+utilisée, ou laisse des clés étrangères pointant vers une table absente), et
+`user_version` resterait à 18, si bien que la migration ne serait pas rejouée
+au redéploiement suivant. Pour retrouver réellement l'état antérieur : arrêter
+le CRM et restaurer la sauvegarde prise avant le déploiement.
 
 **Précautions avant déploiement** : sauvegarde préalable obligatoire.
 

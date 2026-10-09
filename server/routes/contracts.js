@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
-import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields } from '../validate.js';
+import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields, isPositiveId } from '../validate.js';
 import { computeAcquisitionCommission, CommissionCalcError } from '../commissionCalc.js';
 import { BRANCHES } from '../branches.js';
 import { resolveRateForContract, coverageWarning } from '../conventions.js';
@@ -679,10 +679,7 @@ function validateContract(data) {
   assert(isDateStr(data.end_date), 'Date d’échéance invalide (AAAA-MM-JJ).');
   checkTextFields(data, ['policy_number', 'product_name'], 200);
   checkTextFields(data, ['notes'], 5000);
-  assert(
-    data.convention_rate_id == null || (Number.isInteger(Number(data.convention_rate_id)) && Number(data.convention_rate_id) > 0),
-    'Ligne de barème invalide.'
-  );
+  assert(data.convention_rate_id == null || isPositiveId(data.convention_rate_id), 'Ligne de barème invalide.');
 }
 
 const FIELDS = [
@@ -945,7 +942,12 @@ contractsRouter.post('/', (req, res) => {
         conventionCommission.amount,
         data.start_date || null,
         data.product_name || null,
-        `${conventionRate.is_estimate ? 'Estimation (base à confirmer) : ' : 'Calcul : '}${conventionCommission.formula}`.slice(0, 500),
+        // Jamais le détail du calcul (taux négociés, confidentiels) : la note
+        // suit la commission partout, y compris dans l'export nLPD du
+        // client. Le détail se recalcule à tout moment depuis la ligne liée.
+        conventionRate.is_estimate
+          ? 'Estimation selon la convention (base à confirmer avec la compagnie) ; le décompte de la compagnie fait foi.'
+          : 'Montant attendu selon la convention ; le décompte de la compagnie fait foi.',
         conventionRate.id
       );
     }

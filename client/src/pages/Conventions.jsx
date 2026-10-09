@@ -32,12 +32,14 @@ const VALUE_LABELS = {
 const numberOrNull = (v) => (v === '' || v == null ? null : Number(v));
 
 // « 12:100; 24:50 » ↔ [{ months: 12, pct: 100 }, { months: 24, pct: 50 }]
+// Séparateur : point-virgule ou retour à la ligne — la virgule reste
+// disponible comme séparateur décimal (« 12:33,5 »).
 function stepsToText(steps) {
   return (steps || []).map((s) => `${s.months}:${s.pct}`).join('; ');
 }
 function textToSteps(text) {
   return String(text || '')
-    .split(/[;,]/)
+    .split(/[;\n]/)
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
@@ -160,7 +162,8 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
-  const locked = (initial?.contracts_count || 0) > 0;
+  const usage = initial?.usage_count ?? initial?.contracts_count ?? 0;
+  const locked = usage > 0;
   const preview = {
     ...form,
     value: numberOrNull(form.value),
@@ -211,8 +214,9 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
       {error && <div className="alert error">{error}</div>}
       {locked && (
         <div className="alert warn">
-          Cette ligne a déjà servi à {initial.contracts_count} contrat(s) : la base de calcul, les montants et la règle de
-          reprise sont figés. Pour un nouveau barème, désactivez-la et créez une nouvelle ligne.
+          Cette ligne a déjà servi ({initial.contracts_count || 0} contrat(s), {initial.commissions_count || 0} commission(s)) :
+          la base de calcul, les montants et la règle de reprise sont figés. Pour un nouveau barème, désactivez-la et
+          créez une nouvelle ligne.
         </div>
       )}
       <form onSubmit={submit}>
@@ -234,7 +238,7 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
             </select>
           </Field>
           <Field label={VALUE_LABELS[form.basis]}>
-            <input type="number" min="0" step="0.001" value={form.value} onChange={set('value')} disabled={locked} />
+            <input type="number" min="0" step="any" value={form.value} onChange={set('value')} disabled={locked} />
           </Field>
           {form.basis === 'pct_prime_annuelle' && (
             <label className="check full">
@@ -248,15 +252,15 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
                 <input type="number" min="1" step="1" value={form.max_years} onChange={set('max_years')} disabled={locked} />
               </Field>
               <Field label="Coefficient de valorisation (%)">
-                <input type="number" min="0" step="0.01" value={form.valuation_pct} onChange={set('valuation_pct')} disabled={locked} placeholder="100" />
+                <input type="number" min="0" step="any" value={form.valuation_pct} onChange={set('valuation_pct')} disabled={locked} placeholder="100" />
               </Field>
             </>
           )}
           <Field label="Plafond de commission (CHF, facultatif)">
-            <input type="number" min="0" step="0.01" value={form.cap_chf} onChange={set('cap_chf')} disabled={locked} />
+            <input type="number" min="0" step="any" value={form.cap_chf} onChange={set('cap_chf')} disabled={locked} />
           </Field>
           <Field label="Commission récurrente (% de la prime annuelle, facultatif)">
-            <input type="number" min="0" step="0.01" value={form.rec_rate} onChange={set('rec_rate')} />
+            <input type="number" min="0" step="any" value={form.rec_rate} onChange={set('rec_rate')} />
           </Field>
           <label className="check full">
             <input type="checkbox" checked={Boolean(form.is_estimate)} onChange={set('is_estimate')} />
@@ -268,7 +272,7 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
             </select>
           </Field>
           {form.clawback_mode === 'paliers' && (
-            <Field label="Paliers « mois:% repris » (p. ex. 12:100; 24:50)">
+            <Field label="Paliers « mois:% repris », séparés par « ; » (p. ex. 12:100; 24:50)">
               <input value={form.clawback_steps_text} onChange={set('clawback_steps_text')} disabled={locked} />
             </Field>
           )}
@@ -310,13 +314,60 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
 }
 
 const ACTION_LABELS = {
-  create: 'création', update: 'mise à jour', unchanged: 'inchangée', replace: 'remplacée (ancienne ligne conservée, désactivée)',
+  create: 'création',
+  update: 'mise à jour',
+  unchanged: 'inchangée',
+  replace: 'remplacée (ancienne ligne conservée, désactivée)',
 };
+
+function ImportConventionPreview({ conv }) {
+  const byAction = (action) => conv.rates.filter((r) => r.action === action);
+  const parts = [];
+  for (const [action, label] of [['create', 'nouvelle(s)'], ['update', 'mise(s) à jour'], ['replace', 'remplacée(s)'], ['unchanged', 'inchangée(s)']]) {
+    const n = byAction(action).length;
+    if (n) parts.push(`${n} ${label}`);
+  }
+  const reactivated = conv.rates.filter((r) => r.reactivated);
+  const inactiveKept = conv.rates.filter((r) => r.inactive_kept);
+  return (
+    <li style={{ marginBottom: 6 }}>
+      <strong>{conv.company}</strong> — {conv.title} ({CONVENTION_STATUS[conv.status] || conv.status}) :{' '}
+      {ACTION_LABELS[conv.action] || conv.action}
+      {conv.changed.length > 0 && <span className="muted"> ({conv.changed.join(', ')})</span>}
+      <div className="muted" style={{ fontSize: 12 }}>
+        {conv.rates_provided
+          ? <>Lignes de barème : {parts.length ? parts.join(', ') : 'aucune'}</>
+          : <>Aucune ligne de barème dans le fichier : le barème enregistré reste inchangé.</>}
+      </div>
+      {byAction('replace').length > 0 && (
+        <div style={{ fontSize: 12 }}>
+          Remplacées car déjà utilisées : {byAction('replace').map((r) => r.label).join(', ')}
+        </div>
+      )}
+      {reactivated.length > 0 && (
+        <div style={{ fontSize: 12 }}>Réactivées (demandé par le fichier) : {reactivated.map((r) => r.label).join(', ')}</div>
+      )}
+      {inactiveKept.length > 0 && (
+        <div style={{ fontSize: 12 }}>
+          Désactivées dans le CRM, laissées inactives : {inactiveKept.map((r) => r.label).join(', ')}
+          {' '}(indiquez « "active": true » dans le fichier pour les réactiver)
+        </div>
+      )}
+      {conv.retired.length > 0 && (
+        <div style={{ fontSize: 12 }}>Absentes du fichier, désactivées : {conv.retired.join(', ')}</div>
+      )}
+      {conv.kept.length > 0 && (
+        <div style={{ fontSize: 12 }}>Absentes du fichier, conservées telles quelles : {conv.kept.join(', ')}</div>
+      )}
+    </li>
+  );
+}
 
 function ImportModal({ onDone, onClose }) {
   const [data, setData] = useState(null);
   const [fileName, setFileName] = useState('');
   const [deactivateOthers, setDeactivateOthers] = useState(false);
+  const [retireMissing, setRetireMissing] = useState(false);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -330,7 +381,8 @@ function ImportModal({ onDone, onClose }) {
     try {
       const parsed = JSON.parse(await file.text());
       setData(parsed);
-      setDeactivateOthers(Boolean(parsed.deactivate_companies_without_convention));
+      setDeactivateOthers(parsed?.deactivate_companies_without_convention === true);
+      setRetireMissing(parsed?.retire_missing_rates === true);
     } catch {
       setData(null);
       setError('Ce fichier n’est pas un fichier JSON valide.');
@@ -338,21 +390,24 @@ function ImportModal({ onDone, onClose }) {
   }
 
   useEffect(() => {
-    if (!data) return;
+    if (!data) return undefined;
     let cancelled = false;
     setBusy(true);
-    api.post('/api/conventions/import', { data, dry_run: true, deactivate_others: deactivateOthers })
+    setPreview(null);
+    api.post('/api/conventions/import', { data, dry_run: true, deactivate_others: deactivateOthers, retire_missing: retireMissing })
       .then((res) => { if (!cancelled) { setPreview(res); setError(null); } })
       .catch((err) => { if (!cancelled) { setPreview(null); setError(err.message); } })
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
-  }, [data, deactivateOthers]);
+  }, [data, deactivateOthers, retireMissing]);
 
   async function apply() {
     setBusy(true);
     setError(null);
     try {
-      await api.post('/api/conventions/import', { data, dry_run: false, deactivate_others: deactivateOthers });
+      await api.post('/api/conventions/import', {
+        data, dry_run: false, deactivate_others: deactivateOthers, retire_missing: retireMissing,
+      });
       onDone();
     } catch (err) {
       setError(err.message);
@@ -360,40 +415,52 @@ function ImportModal({ onDone, onClose }) {
     }
   }
 
+  const created = preview?.companies.filter((c) => c.action === 'create') || [];
+  const updated = preview?.companies.filter((c) => c.changed.length > 0) || [];
+  const reactivated = preview?.companies.filter((c) => c.reactivate) || [];
+  const inactiveKept = preview?.companies.filter((c) => c.inactive_kept) || [];
+
   return (
     <Modal title="Importer des conventions" onClose={busy ? () => {} : onClose} wide>
       <p className="muted">
         Fichier « crm-legrand-conventions » (JSON). Rien n’est enregistré avant votre confirmation : un aperçu des
-        changements s’affiche d’abord. Les lignes déjà utilisées par des contrats ne sont jamais réécrites.
+        changements s’affiche d’abord. Seules les informations présentes dans le fichier sont écrites ; ce que vous avez
+        complété dans le CRM est conservé, et les lignes déjà utilisées par des contrats ne sont jamais réécrites.
       </p>
       {error && <div className="alert error">{error}</div>}
       <Field label="Fichier">
         <input type="file" accept="application/json,.json" onChange={readFile} disabled={busy} />
       </Field>
       {data && (
-        <label className="check mt">
-          <input type="checkbox" checked={deactivateOthers} onChange={(e) => setDeactivateOthers(e.target.checked)} disabled={busy} />
-          Désactiver les compagnies qui n’ont pas de convention dans ce fichier (leurs contrats restent intacts)
-        </label>
+        <>
+          <label className="check mt">
+            <input type="checkbox" checked={deactivateOthers} onChange={(e) => setDeactivateOthers(e.target.checked)} disabled={busy} />
+            Désactiver les compagnies qui n’ont pas de convention dans ce fichier (leurs contrats et commissions restent
+            intacts ; une compagnie qui a une convention signée dans le CRM n’est jamais désactivée)
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={retireMissing} onChange={(e) => setRetireMissing(e.target.checked)} disabled={busy} />
+            Désactiver les lignes de barème absentes du fichier (sinon elles restent telles quelles)
+          </label>
+        </>
       )}
       {preview && (
         <div className="card mt">
           <h3>Aperçu — {fileName}</h3>
           <ul style={{ margin: '0 0 0 18px' }}>
-            {preview.conventions.map((c) => (
-              <li key={`${c.company}-${c.title}`}>
-                <strong>{c.company}</strong> — {c.title} ({CONVENTION_STATUS[c.status] || c.status}) : {ACTION_LABELS[c.action]},{' '}
-                {c.rates.length} ligne(s) de barème
-                {c.rates.some((r) => r.action === 'replace') && <> dont {c.rates.filter((r) => r.action === 'replace').length} remplacée(s)</>}
-                {c.retired.length > 0 && <>, {c.retired.length} ligne(s) désactivée(s)</>}
-              </li>
-            ))}
+            {preview.conventions.map((c) => <ImportConventionPreview key={`${c.company}-${c.title}`} conv={c} />)}
           </ul>
-          {preview.companies.some((c) => c.action === 'create') && (
-            <p>Compagnie(s) créée(s) : {preview.companies.filter((c) => c.action === 'create').map((c) => c.name).join(', ')}</p>
+          {created.length > 0 && <p>Compagnie(s) créée(s) : {created.map((c) => c.name).join(', ')}</p>}
+          {updated.length > 0 && (
+            <p>Compagnie(s) mise(s) à jour : {updated.map((c) => `${c.name} (${c.changed.join(', ')})`).join(' ; ')}</p>
           )}
-          {preview.deactivate.length > 0 && (
-            <p>Compagnie(s) désactivée(s) : {preview.deactivate.join(', ')}</p>
+          {reactivated.length > 0 && <p>Compagnie(s) réactivée(s) (convention signée) : {reactivated.map((c) => c.name).join(', ')}</p>}
+          {inactiveKept.length > 0 && (
+            <p>Compagnie(s) inactive(s) laissée(s) inactive(s) (convention non signée) : {inactiveKept.map((c) => c.name).join(', ')}</p>
+          )}
+          {preview.deactivate.length > 0 && <p>Compagnie(s) désactivée(s) : {preview.deactivate.join(', ')}</p>}
+          {preview.deactivate_skipped.length > 0 && (
+            <p>Conservée(s) active(s) car une convention signée est enregistrée dans le CRM : {preview.deactivate_skipped.join(', ')}</p>
           )}
         </div>
       )}
@@ -424,11 +491,15 @@ function ConventionCard({ conv, onEdit, onDelete, onAddRate, onEditRate, onDelet
     <div className="card mt">
       <div className="page-head" style={{ marginBottom: 8 }}>
         <div>
-          <h2 style={{ margin: 0 }}>{conv.company_name} <Badge value={conv.status} label={CONVENTION_STATUS[conv.status]} /></h2>
+          <h2 style={{ margin: 0 }}>
+            {conv.company_name} <Badge value={conv.status} label={CONVENTION_STATUS[conv.status]} />
+            {conv.in_force === false && <> <Badge value="resiliee" label="Échue" /></>}
+          </h2>
           <div className="sub">{conv.title}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             {conv.intermediary_code && <>N° / code : {conv.intermediary_code} · </>}
             {conv.effective_date && <>en vigueur dès le {fmtDate(conv.effective_date)} · </>}
+            {conv.end_date && <>{conv.in_force === false ? 'a pris fin le' : 'prend fin le'} {fmtDate(conv.end_date)} · </>}
             Suivi du client : {CLIENT_FOLLOWUP[conv.client_followup] || '—'}
           </div>
         </div>
@@ -544,7 +615,7 @@ export default function Conventions() {
       {error && <div className="alert error">{error}</div>}
       {loading ? (
         <p className="muted">Chargement…</p>
-      ) : data.length === 0 ? (
+      ) : !Array.isArray(data) ? null : data.length === 0 ? (
         <div className="card"><Empty>Aucune convention enregistrée. Importez le fichier de vos conventions ou créez-en une.</Empty></div>
       ) : (
         data.map((conv) => (

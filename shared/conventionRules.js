@@ -56,6 +56,12 @@ export function toIsoDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
+// Date du jour (AAAA-MM-JJ) dans le fuseau du cabinet — et non en UTC, qui
+// donnerait encore « hier » entre minuit et 1 h/2 h en Suisse.
+export function localIsoDate(now = new Date(), timeZone = 'Europe/Zurich') {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
 function daysInMonth(year, monthIndex) {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
@@ -155,13 +161,19 @@ export function computeConventionCommission(rate, ctx = {}) {
     formula = `${formatChf(value)} par contrat`;
   } else {
     if (!(premium > 0)) return done(null, 'Prime annuelle nécessaire pour estimer la commission.', 'prime annuelle');
+    // Une base exprimée en primes mensuelles ou par année de contrat n'a pas
+    // de sens pour une prime unique : jamais de montant approximatif.
+    const isSingle = ctx.payment_frequency === 'unique';
+    if (isSingle && (basis === 'mois_prime' || (basis === 'pct_prime_annuelle' && rate.multiply_by_years))) {
+      return done(null, 'Cette ligne de barème s’applique à une prime périodique, pas à une prime unique.', 'prime périodique');
+    }
     if (basis === 'mois_prime') {
       amount = (premium / 12) * value;
       formula = `${formatNumber(value)} × prime mensuelle (${formatChf(premium / 12)})`;
     } else if (basis === 'pct_prime_annuelle') {
       let years = 1;
       if (rate.multiply_by_years) {
-        years = wholeYearsCovered(ctx.start_date, ctx.end_date);
+        years = premiumTermYears(ctx);
         if (!years) {
           return done(null, 'Durée du contrat (début et échéance) nécessaire : le taux s’applique par année entière.', 'durée du contrat');
         }

@@ -58,15 +58,36 @@ test('migration v18 — base en v17 avec données : migration additive, aucune p
     .run(contractId);
   first.close();
 
-  // Ramène la base à l'état v17 : tables de conventions absentes.
+  // Ramène la base à un vrai schéma v17 : ni tables de conventions, ni
+  // colonnes convention_rate_id (et leurs index) dans contracts/commissions.
   const legacy = new Database(path.join(dir, 'crm.sqlite'));
-  legacy.exec('DROP TABLE convention_rates; DROP TABLE conventions;');
+  legacy.exec(`
+    DROP INDEX idx_contracts_convention_rate;
+    DROP INDEX idx_commissions_convention_rate;
+    ALTER TABLE contracts DROP COLUMN convention_rate_id;
+    ALTER TABLE commissions DROP COLUMN convention_rate_id;
+    DROP TABLE convention_rates;
+    DROP TABLE conventions;
+  `);
   legacy.pragma('user_version = 17');
+  assert.ok(!columns(legacy, 'contracts').includes('convention_rate_id'), 'précondition : schéma v17');
   legacy.close();
 
   const db = await importFreshDb(dir);
   assert.equal(db.pragma('user_version', { simple: true }), 18);
   assert.ok(tableExists(db, 'conventions') && tableExists(db, 'convention_rates'));
+  assert.ok(columns(db, 'contracts').includes('convention_rate_id'), 'colonne ajoutée par la migration');
+  assert.ok(columns(db, 'commissions').includes('convention_rate_id'), 'colonne ajoutée par la migration');
+  // Clé étrangère réellement appliquée sur les colonnes ajoutées.
+  assert.equal(db.pragma('foreign_keys', { simple: true }), 1);
+  assert.throws(
+    () => db.prepare("INSERT INTO contracts (client_id, company_id, branch, convention_rate_id) VALUES (?, ?, 'lamal', 999999)").run(clientId, companyId),
+    /FOREIGN KEY/
+  );
+  assert.throws(
+    () => db.prepare("INSERT INTO commissions (contract_id, type, expected_amount_chf, status, commission_mode, convention_rate_id) VALUES (?, 'acquisition', 1, 'expected', 'fixed_amount', 999999)").run(contractId),
+    /FOREIGN KEY/
+  );
   const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId);
   assert.equal(contract.annual_premium, 3000);
   assert.equal(contract.convention_rate_id, null, 'aucune ligne inventée pour un contrat existant');
