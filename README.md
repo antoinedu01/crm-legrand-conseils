@@ -33,6 +33,11 @@ npm run seed:demo
   journal de suivi (appels, rendez-vous, notes), tâches liées.
 - **Compagnies partenaires** — 12 compagnies suisses pré-remplies (Swiss Life, AXA,
   Helvetia, Groupe Mutuel, CSS…), taux de commission par défaut par compagnie.
+- **Conventions de courtage** — convention signée par compagnie (obligations,
+  restrictions, pièces manquantes) et barème par produit : commission attendue
+  créée automatiquement selon la convention, alerte si une affaire est placée sans
+  convention, estimation des reprises (extournes). Import d'un fichier avec aperçu.
+  Barèmes confidentiels : jamais dans le dépôt (voir `docs/CONVENTIONS.md`).
 - **Contrats** — branches vie 3a/3b, LAMal, LCA, LPP, hypothèque, RC/ménage ;
   primes, fréquences, échéances ; les taux de commission se pré-remplissent depuis
   la compagnie choisie.

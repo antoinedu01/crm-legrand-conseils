@@ -42,6 +42,34 @@ export const COMMISSION_TYPES = {
   reprise: 'Reprise',
 };
 
+export const CONVENTION_STATUS = {
+  signee: 'Signée',
+  en_attente: 'En attente',
+  resiliee: 'Résiliée',
+};
+
+export const CLIENT_FOLLOWUP = {
+  compagnie: 'Par la compagnie',
+  intermediaire: 'Par le courtier',
+  non_precise: 'Non précisé',
+};
+
+export const RATE_BASES = {
+  fixe: 'Montant fixe par contrat (CHF)',
+  mois_prime: 'Nombre de primes mensuelles',
+  pct_prime_annuelle: '% de la prime annuelle',
+  pct_production: '% de la production (prime × durée)',
+  aucune: 'Aucune commission d’acquisition',
+  a_confirmer: 'À confirmer (pièce manquante)',
+};
+
+export const CLAWBACK_MODES = {
+  paliers: 'Par paliers de durée',
+  prorata: 'Au prorata de la durée',
+  aucun: 'Aucune reprise',
+  inconnu: 'Non précisée',
+};
+
 export const COMMISSION_MODES = {
   fixed_amount: 'Montant fixe (CHF)',
   percentage: 'Pourcentage de la prime',

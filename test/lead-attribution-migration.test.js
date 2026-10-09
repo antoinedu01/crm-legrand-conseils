@@ -121,7 +121,7 @@ test('v16 → v17 : la migration s\'applique sans erreur, campaigns/clients/chan
     preDb.close();
 
     const db = await importFreshDb(dataDir);
-    assert.equal(db.pragma('user_version', { simple: true }), 17);
+    assert.equal(db.pragma('user_version', { simple: true }), 18);
 
     const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId);
     assert.equal(campaign.name, 'Campagne préexistante v16');
@@ -143,7 +143,7 @@ test('DB vierge → migrations 1 à 17 : chaîne complète propre', async () => 
   const dataDir = tempDir();
   try {
     const db = await importFreshDb(dataDir);
-    assert.equal(db.pragma('user_version', { simple: true }), 17);
+    assert.equal(db.pragma('user_version', { simple: true }), 18);
 
     const campaignCols = db.prepare('PRAGMA table_info(campaigns)').all().map((c) => c.name);
     assert.ok(campaignCols.includes('key'));

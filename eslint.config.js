@@ -6,7 +6,7 @@ export default [
   },
   {
     ...js.configs.recommended,
-    files: ['server/**/*.js', 'eslint.config.js', 'vite.config.js', 'test/**/*.js'],
+    files: ['server/**/*.js', 'shared/**/*.js', 'eslint.config.js', 'vite.config.js', 'test/**/*.js', '.github/scripts/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',

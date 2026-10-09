@@ -6,6 +6,8 @@ import {
   CommissionCalcError, COMMISSION_MODES, FIXED_ONLY_BRANCHES,
   assertCommissionModeAllowed, defaultCommissionModeForBranch,
 } from '../commissionCalc.js';
+import { getRate } from '../conventions.js';
+import { clawbackPercent, describeClawback, roundChf } from '../../shared/conventionRules.js';
 
 export const commissionsRouter = Router();
 
@@ -270,6 +272,37 @@ commissionsRouter.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM commissions WHERE id = ?').run(commission.id);
   audit(req, 'suppression commission', 'commission', commission.id);
   res.json({ ok: true });
+});
+
+// Estimation de la reprise prévue par la convention si le contrat prend fin
+// à la date indiquée (dernier jour couvert). Lecture seule : la reprise
+// elle-même reste une décision du conseiller (POST /:id/reverse), sur la
+// base du décompte de la compagnie qui fait foi.
+commissionsRouter.get('/:id/clawback-estimate', (req, res) => {
+  const commission = db.prepare('SELECT * FROM commissions WHERE id = ?').get(req.params.id);
+  if (!commission) return res.status(404).json({ error: 'Commission introuvable.' });
+  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(commission.contract_id);
+  const rateId = commission.convention_rate_id ?? contract?.convention_rate_id;
+  if (!rateId) {
+    return res.json({ available: false, reason: 'Aucune ligne de convention n’est liée à ce contrat.' });
+  }
+  const rate = getRate(rateId);
+  if (!rate) return res.json({ available: false, reason: 'Ligne de convention introuvable.' });
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultEnd = ['resilie', 'echu'].includes(contract.status) && contract.end_date ? contract.end_date : today;
+  const coverageEnd = req.query.coverage_end || defaultEnd;
+  assert(isDateStr(coverageEnd), 'Date de fin de couverture invalide (AAAA-MM-JJ).');
+  const result = clawbackPercent(rate, { start_date: contract.start_date, coverage_end: coverageEnd });
+  const base = Number(commission.received_amount_chf) > 0 ? Number(commission.received_amount_chf) : Number(commission.expected_amount_chf);
+  res.json({
+    available: true,
+    rate: { id: rate.id, label: rate.label, clawback: describeClawback(rate), clawback_notes: rate.clawback_notes },
+    start_date: contract.start_date,
+    coverage_end: coverageEnd,
+    ...result,
+    base_amount: base,
+    suggested_amount: result.pct != null ? roundChf((base * result.pct) / 100) : null,
+  });
 });
 
 // Reprise/annulation d'une commission déjà émise : ne modifie ni ne

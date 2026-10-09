@@ -802,3 +802,56 @@ valeurs par défaut, index attendus, contrainte CHECK `ends_at > starts_at`,
 absence volontaire de CHECK sur les colonnes-énumération, coexistence
 complète avec `households`/`advisory_sessions`/`commissions`/`campaigns`/
 `clients` sur une base vierge.)*
+
+## Version 18
+
+**Objectif** : conventions de courtage — une convention par compagnie et ses
+lignes de barème (base de calcul de la commission d'acquisition, règle de
+reprise), pour estimer automatiquement la commission attendue d'un contrat et
+la reprise en cas de fin anticipée. Détail fonctionnel :
+[`CONVENTIONS.md`](./CONVENTIONS.md).
+
+**Tables créées** :
+- `conventions` — `company_id` (FK `companies(id)`, sans cascade), `title`,
+  `counterparty`, `intermediary_code`, `status` (défaut `signee`, validé côté
+  API), dates (`signed_date`, `effective_date`, `end_date`), textes de
+  conditions (`scope`, `termination_notice`, `payment_terms`, `obligations`,
+  `restrictions`, `missing_documents`, `document_location`, `notes`),
+  `statement_objection_days` (CHECK ≥ 0), `client_followup` (défaut
+  `non_precise`), `created_at`/`updated_at`.
+- `convention_rates` — `convention_id` (FK `conventions(id)` **ON DELETE
+  CASCADE**), `branch`, `label`, `insurer_entity`, `basis`, `value`,
+  `multiply_by_years` / `is_estimate` / `active` (CHECK 0/1), `max_years`,
+  `valuation_pct`, `cap_chf`, `rec_rate`, `rec_conditions`, `clawback_mode`
+  (défaut `inconnu`), `clawback_steps` (JSON), `clawback_months`,
+  `clawback_notes`, `conditions`, `source_ref`, `sort`,
+  `created_at`/`updated_at`.
+
+**Colonnes ajoutées** (nullables, sans valeur par défaut) :
+`contracts.convention_rate_id` et `commissions.convention_rate_id`, FK
+`convention_rates(id)` **sans** action de suppression : une ligne de barème
+déjà utilisée ne peut pas disparaître (conservation comptable).
+
+**Index créés** : `idx_conventions_company`, `idx_convention_rates_convention`,
+`idx_convention_rates_branch`, `idx_contracts_convention_rate`,
+`idx_commissions_convention_rate`.
+
+**Aucune donnée semée** : les barèmes réels sont confidentiels et n'entrent
+dans la base que par l'interface ou l'import d'un fichier gardé hors dépôt.
+
+**Compatibilité** : strictement additive — aucune ligne existante modifiée,
+aucun montant recalculé ; les contrats et commissions existants gardent
+`convention_rate_id = NULL`. Le comportement de création de contrat est
+inchangé tant qu'aucune ligne de barème n'est choisie.
+
+**Réversibilité** : arrêter le CRM, remettre l'ancienne version du code,
+restaurer la sauvegarde. À défaut : `DROP TABLE convention_rates; DROP TABLE
+conventions;` — les deux colonnes `convention_rate_id` restent alors présentes
+mais ignorées par l'ancien code.
+
+**Précautions avant déploiement** : sauvegarde préalable obligatoire.
+
+*(Statut : structure confirmée dans le code — `server/db.js`, bloc
+`if (version < 18)`. Testée dans `test/conventions-migration.test.js` : base
+neuve, base v17 avec données migrée sans perte ni recalcul, idempotence,
+cascade et protection par clé étrangère, contraintes CHECK.)*

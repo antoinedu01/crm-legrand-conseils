@@ -218,10 +218,34 @@ function CommissionForm({ initial, contracts, onSaved, onClose }) {
 // d'origine — crée une ligne négative liée, l'originale passe à 'reversed'.
 function ReverseForm({ commission, onSaved, onClose }) {
   const [amount, setAmount] = useState('');
+  const [amountTouched, setAmountTouched] = useState(false);
   const [date, setDate] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  // Estimation de la reprise selon la convention liée au contrat (lecture
+  // seule) : proposée, jamais imposée — le décompte de la compagnie fait foi.
+  const [coverageEnd, setCoverageEnd] = useState('');
+  const [estimate, setEstimate] = useState(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = coverageEnd ? `?coverage_end=${coverageEnd}` : '';
+    api.get(`/api/commissions/${commission.id}/clawback-estimate${query}`, controller.signal)
+      .then((res) => {
+        setEstimate(res);
+        if (!coverageEnd && res.coverage_end) setCoverageEnd(res.coverage_end);
+      })
+      .catch((err) => { if (err.name !== 'AbortError') setEstimate(null); });
+    return () => controller.abort();
+  }, [commission.id, coverageEnd]);
+
+  useEffect(() => {
+    if (amountTouched || !estimate?.available) return;
+    if (estimate.suggested_amount != null && estimate.suggested_amount > 0) {
+      setAmount(String(estimate.suggested_amount));
+    }
+  }, [estimate, amountTouched]);
 
   async function submit(e) {
     e.preventDefault();
@@ -250,9 +274,36 @@ function ReverseForm({ commission, onSaved, onClose }) {
         <strong>{fmtCHF(commission.received_amount_chf)}</strong>. Une nouvelle ligne négative sera créée et liée à cette
         commission ; celle-ci passera au statut « Reprise » sans être ni modifiée ni supprimée.
       </p>
+      {estimate?.available && (
+        <div className={`alert ${estimate.pct != null ? 'ok' : 'warn'}`}>
+          <strong>Selon la convention</strong> (« {estimate.rate.label} ») — {estimate.rate.clawback}.
+          <div className="form-grid mt" style={{ marginTop: 8 }}>
+            <Field label="Fin de couverture (dernier jour couvert)">
+              <input type="date" value={coverageEnd} onChange={(e) => setCoverageEnd(e.target.value)} />
+            </Field>
+            <div>
+              {estimate.pct != null ? (
+                estimate.pct > 0 ? (
+                  <>Reprise prévue : <strong>{estimate.pct} %</strong> de {fmtCHF(estimate.base_amount)} ={' '}
+                    <strong>{fmtCHF(estimate.suggested_amount)}</strong></>
+                ) : (
+                  <>Aucune reprise prévue à cette date (période de reprise terminée{estimate.period_end ? ` le ${fmtDate(estimate.period_end)}` : ''}).</>
+                )
+              ) : (
+                <>{estimate.reason}</>
+              )}
+            </div>
+          </div>
+          {estimate.rate.clawback_notes && <div className="muted" style={{ fontSize: 12 }}>{estimate.rate.clawback_notes}</div>}
+          <div className="muted" style={{ fontSize: 12 }}>Estimation à vérifier sur le décompte de la compagnie, qui fait foi.</div>
+        </div>
+      )}
       <form onSubmit={submit}>
         <Field label="Montant repris (CHF)">
-          <input type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input
+            type="number" min="0" step="0.01" required value={amount}
+            onChange={(e) => { setAmountTouched(true); setAmount(e.target.value); }}
+          />
         </Field>
         <Field label="Échéance de la reprise">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />

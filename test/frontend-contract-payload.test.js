@@ -23,6 +23,7 @@ const FULL_CONTRACT_ROW = {
   acq_commission_rate: 10,
   rec_commission_rate: 5,
   notes: 'note fictive',
+  convention_rate_id: 7,
   created_at: '2026-01-01 00:00:00',
   updated_at: '2026-01-01 00:00:00',
   client_name: 'Client fictif',
@@ -72,7 +73,7 @@ test('buildGenericContractPayload — exclut les propriétés inconnues renvoyé
   }
 });
 
-test('buildGenericContractPayload — conserve exactement les 13 champs génériques whitelistés', () => {
+test('buildGenericContractPayload — conserve exactement les 14 champs génériques whitelistés', () => {
   const payload = buildGenericContractPayload(FULL_CONTRACT_ROW);
   for (const field of GENERIC_CONTRACT_FIELDS) {
     assert.equal(field in payload, true, `le champ générique "${field}" doit être présent`);
@@ -92,7 +93,7 @@ test('GENERIC_CONTRACT_FIELDS — miroir exact de la liste blanche backend (FIEL
   assert.deepEqual(GENERIC_CONTRACT_FIELDS, [
     'client_id', 'company_id', 'branch', 'policy_number', 'product_name', 'annual_premium',
     'payment_frequency', 'start_date', 'end_date', 'status',
-    'acq_commission_rate', 'rec_commission_rate', 'notes',
+    'acq_commission_rate', 'rec_commission_rate', 'notes', 'convention_rate_id',
   ]);
 });
 

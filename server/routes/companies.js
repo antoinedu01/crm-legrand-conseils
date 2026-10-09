@@ -31,6 +31,9 @@ companiesRouter.get('/', (req, res) => {
   const rows = db
     .prepare(
       `SELECT co.*,
+        (SELECT cv.status FROM conventions cv WHERE cv.company_id = co.id
+          ORDER BY CASE cv.status WHEN 'signee' THEN 0 WHEN 'en_attente' THEN 1 ELSE 2 END, cv.id DESC
+          LIMIT 1) AS convention_status,
         (SELECT COUNT(*) FROM contracts ct WHERE ct.company_id = co.id AND ct.status = 'actif') AS active_contracts,
         (SELECT COALESCE(SUM(cm.received_amount_chf), 0) FROM commissions cm
           JOIN contracts ct ON ct.id = cm.contract_id
@@ -78,6 +81,12 @@ companiesRouter.delete('/:id', (req, res) => {
   if (used > 0) {
     return res.status(400).json({
       error: 'Des contrats sont liés à cette compagnie. Désactivez-la plutôt que de la supprimer.',
+    });
+  }
+  const conventions = db.prepare('SELECT COUNT(*) AS n FROM conventions WHERE company_id = ?').get(req.params.id).n;
+  if (conventions > 0) {
+    return res.status(400).json({
+      error: 'Une convention est enregistrée pour cette compagnie. Supprimez-la d’abord ou désactivez la compagnie.',
     });
   }
   db.prepare('DELETE FROM companies WHERE id = ?').run(req.params.id);
