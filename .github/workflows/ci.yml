@@ -22,5 +22,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      - name: Tests
+        run: >-
+          node --test
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=test-results.tap
+          "test/**/*.test.js"
+      - name: Annoter les tests en échec
+        if: failure()
+        run: node .github/scripts/annotate-test-failures.mjs test-results.tap
       - run: npm run build
