@@ -37,15 +37,17 @@ const numberOrNull = (v) => (v === '' || v == null ? null : Number(v));
 function stepsToText(steps) {
   return (steps || []).map((s) => `${s.months}:${s.pct}`).join('; ');
 }
+// Retourne null si un palier est illisible (jamais d'interprétation
+// approximative : « 6:80,12:50 » n'est pas un palier de 80,12 %).
 function textToSteps(text) {
-  return String(text || '')
-    .split(/[;\n]/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const [months, pct] = part.split(':').map((x) => Number(String(x).trim().replace(',', '.')));
-      return { months, pct };
-    });
+  const steps = [];
+  for (const part of String(text || '').split(/[;\n]/).map((p) => p.trim()).filter(Boolean)) {
+    const pieces = part.split(':').map((x) => x.trim());
+    if (pieces.length !== 2 || pieces.some((x) => !/^\d+([.,]\d+)?$/.test(x))) return null;
+    const [months, pct] = pieces.map((x) => Number(x.replace(',', '.')));
+    steps.push({ months, pct });
+  }
+  return steps;
 }
 
 function ConventionForm({ initial, companies, onSaved, onClose }) {
@@ -167,7 +169,7 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
   const preview = {
     ...form,
     value: numberOrNull(form.value),
-    clawback_steps: textToSteps(form.clawback_steps_text),
+    clawback_steps: textToSteps(form.clawback_steps_text) || [],
     clawback_months: numberOrNull(form.clawback_months),
   };
 
@@ -175,6 +177,11 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
     e.preventDefault();
     if (submitting) return;
     setError(null);
+    const steps = form.clawback_mode === 'paliers' ? textToSteps(form.clawback_steps_text) : null;
+    if (form.clawback_mode === 'paliers' && steps == null) {
+      setError('Paliers de reprise illisibles : écrivez « mois:% repris » séparés par « ; », p. ex. 12:100; 24:50.');
+      return;
+    }
     setSubmitting(true);
     const payload = {
       branch: form.branch,
@@ -190,7 +197,7 @@ function RateForm({ conventionId, initial, onSaved, onClose }) {
       rec_rate: numberOrNull(form.rec_rate),
       rec_conditions: form.rec_conditions || null,
       clawback_mode: form.clawback_mode,
-      clawback_steps: form.clawback_mode === 'paliers' ? textToSteps(form.clawback_steps_text) : null,
+      clawback_steps: steps,
       clawback_months: form.clawback_mode === 'prorata' ? numberOrNull(form.clawback_months) : null,
       clawback_notes: form.clawback_notes || null,
       conditions: form.conditions || null,
@@ -405,10 +412,10 @@ function ImportModal({ onDone, onClose }) {
     setBusy(true);
     setError(null);
     try {
-      await api.post('/api/conventions/import', {
+      const res = await api.post('/api/conventions/import', {
         data, dry_run: false, deactivate_others: deactivateOthers, retire_missing: retireMissing,
       });
-      onDone();
+      onDone(res);
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -416,6 +423,7 @@ function ImportModal({ onDone, onClose }) {
   }
 
   const created = preview?.companies.filter((c) => c.action === 'create') || [];
+  const withHomonyms = preview?.companies.filter((c) => c.homonyms?.length) || [];
   const updated = preview?.companies.filter((c) => c.changed.length > 0) || [];
   const reactivated = preview?.companies.filter((c) => c.reactivate) || [];
   const inactiveKept = preview?.companies.filter((c) => c.inactive_kept) || [];
@@ -450,7 +458,18 @@ function ImportModal({ onDone, onClose }) {
           <ul style={{ margin: '0 0 0 18px' }}>
             {preview.conventions.map((c) => <ImportConventionPreview key={`${c.company}-${c.title}`} conv={c} />)}
           </ul>
-          {created.length > 0 && <p>Compagnie(s) créée(s) : {created.map((c) => c.name).join(', ')}</p>}
+          {created.length > 0 && (
+            <p>
+              Compagnie(s) créée(s) :{' '}
+              {created.map((c) => `${c.name}${c.created_inactive ? ' (inactive : aucune convention signée en vigueur)' : ''}`).join(', ')}
+            </p>
+          )}
+          {withHomonyms.length > 0 && (
+            <p>
+              Autres fiches du CRM portant un nom ou un alias du fichier, non utilisées :{' '}
+              {withHomonyms.map((c) => `${c.homonyms.join(', ')} (convention rattachée à ${c.name})`).join(' ; ')}
+            </p>
+          )}
           {updated.length > 0 && (
             <p>Compagnie(s) mise(s) à jour : {updated.map((c) => `${c.name} (${c.changed.join(', ')})`).join(' ; ')}</p>
           )}
@@ -649,9 +668,15 @@ export default function Conventions() {
       {importing && (
         <ImportModal
           onClose={() => setImporting(false)}
-          onDone={() => {
+          onDone={(res) => {
             setImporting(false);
-            setMessage('Conventions importées. Vérifiez les lignes marquées « à confirmer » ou « estimation ».');
+            const s = res?.summary;
+            setMessage(s
+              ? `Import appliqué : ${s.conventions_created} convention(s) créée(s), ${s.conventions_updated} mise(s) à jour ; `
+                + `lignes de barème : ${s.rates_created} créée(s), ${s.rates_updated} mise(s) à jour, ${s.rates_replaced} remplacée(s), `
+                + `${s.rates_retired} désactivée(s) ; compagnies : ${s.companies_created} créée(s), ${s.companies_deactivated} désactivée(s). `
+                + 'Vérifiez les lignes « à confirmer » ou « estimation ».'
+              : 'Conventions importées. Vérifiez les lignes marquées « à confirmer » ou « estimation ».');
             reload();
             loadCompanies();
           }}

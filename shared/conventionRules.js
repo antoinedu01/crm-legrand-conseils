@@ -59,7 +59,13 @@ export function toIsoDate(date) {
 // Date du jour (AAAA-MM-JJ) dans le fuseau du cabinet — et non en UTC, qui
 // donnerait encore « hier » entre minuit et 1 h/2 h en Suisse.
 export function localIsoDate(now = new Date(), timeZone = 'Europe/Zurich') {
-  return new Intl.DateTimeFormat('sv-SE', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const parts = {};
+  for (const { type, value } of new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)) {
+    parts[type] = value;
+  }
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function daysInMonth(year, monthIndex) {

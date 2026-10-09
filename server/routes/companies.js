@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
 import { assert, isEmail, isNonNegNumber, checkTextFields } from '../validate.js';
+import { localIsoDate } from '../../shared/conventionRules.js';
 
 export const companiesRouter = Router();
 
@@ -31,8 +32,11 @@ companiesRouter.get('/', (req, res) => {
   const rows = db
     .prepare(
       `SELECT co.*,
-        (SELECT cv.status FROM conventions cv WHERE cv.company_id = co.id
-          ORDER BY CASE cv.status WHEN 'signee' THEN 0 WHEN 'en_attente' THEN 1 ELSE 2 END, cv.id DESC
+        (SELECT CASE WHEN cv.status = 'signee' AND cv.end_date IS NOT NULL AND cv.end_date < :today
+                     THEN 'resiliee' ELSE cv.status END
+          FROM conventions cv WHERE cv.company_id = co.id
+          ORDER BY CASE WHEN cv.status = 'signee' AND (cv.end_date IS NULL OR cv.end_date >= :today) THEN 0
+                        WHEN cv.status = 'en_attente' THEN 1 ELSE 2 END, cv.id DESC
           LIMIT 1) AS convention_status,
         (SELECT COUNT(*) FROM contracts ct WHERE ct.company_id = co.id AND ct.status = 'actif') AS active_contracts,
         (SELECT COALESCE(SUM(cm.received_amount_chf), 0) FROM commissions cm
@@ -43,7 +47,7 @@ companiesRouter.get('/', (req, res) => {
           WHERE ct.company_id = co.id AND cm.status != 'cancelled') AS commissions_pending
        FROM companies co ORDER BY co.active DESC, co.name COLLATE NOCASE`
     )
-    .all();
+    .all({ today: localIsoDate() });
   res.json(rows);
 });
 

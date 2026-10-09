@@ -159,25 +159,33 @@ l'action prévue et les champs modifiés.
   `format`, `version`, `generated_at`, `note`,
   `deactivate_companies_without_convention`, `retire_missing_rates` et
   `conventions`.
-- **Compagnie** : retrouvée par son nom, puis par ses alias dans l'ordre
-  (casse, espaces et accents ignorés) ; le nom principal prime toujours sur
-  un alias, une compagnie déjà en base prime sur une compagnie du fichier.
-  Deux entrées du fichier qui désignent la même compagnie, par son nom ou un
-  alias, n'en créent qu'une. Sinon la compagnie est créée. Seuls les champs
-  fournis (`contact_*`, `finma_number`, `default_acq_rate`,
-  `default_rec_rate`) sont écrits. Une compagnie **inactive** n'est
-  réactivée que si l'une de ses conventions du fichier est **signée**.
+- **Compagnie** : les entrées du fichier qui partagent un nom ou un alias
+  désignent la même compagnie, quel que soit leur ordre. Ce groupe est
+  rattaché à la compagnie du CRM qui porte l'un de ses noms — noms
+  principaux d'abord, puis alias, dans l'ordre du fichier ; casse, espaces
+  et accents ignorés ; une fiche active prime sur un doublon désactivé du
+  même nom. Les autres fiches du CRM qui portent l'un de ces noms sont
+  signalées dans l'aperçu (homonymes). Sinon la compagnie est créée — active
+  seulement si l'une de ses conventions du fichier est signée et en vigueur.
+  Seuls les champs fournis (`contact_*`, `finma_number`,
+  `default_acq_rate`, `default_rec_rate`) sont écrits. Une compagnie
+  **inactive** n'est réactivée que si l'une de ses conventions du fichier
+  est **signée et en vigueur**.
 - **Convention** : reconnue par compagnie + titre exact (la plus récente en
   cas de doublon). Pour une convention existante, seuls les champs présents
   dans le fichier sont écrits ; un champ absent garde la valeur saisie dans le
-  CRM, un champ vide (`""` ou `null`) l'efface.
+  CRM, un champ vide (`""` ou `null`) l'efface — sauf `status` et
+  `client_followup`, qui gardent alors leur valeur. Renommer une convention
+  ou une ligne dans le CRM la détache du fichier : au prochain import, le
+  titre ou le libellé du fichier crée une nouvelle convention ou ligne
+  (visible dans l'aperçu) — garder les mêmes intitulés des deux côtés.
 - **Lignes de barème** : sans clé `rates`, les lignes de la convention ne
   sont pas touchées. Une ligne est reconnue par branche + libellé ; pour une
   ligne existante, seuls les champs fournis changent (fusion). Une ligne
   **utilisée** dont un montant ou la règle de reprise change est
   **remplacée** : l'ancienne est désactivée, jamais réécrite, et les contrats
   existants la gardent. Une ligne désactivée dans le CRM reste inactive, sauf
-  si le fichier indique `"active": true`.
+  si le fichier indique `"active": true` (un `active` vide ne change rien).
 - **Lignes absentes du fichier** : conservées telles quelles par défaut ;
   désactivées (jamais supprimées) avec `retire_missing_rates: true` ou
   l'option `retire_missing` de la requête.

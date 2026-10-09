@@ -74,10 +74,22 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   );
   const [lamalModeBeforeRemoval, setLamalModeBeforeRemoval] = useState(null);
 
+  // À la création, des taux remplis d'après une ligne de convention ne
+  // valent que pour cette ligne : si la ligne disparaît (autre compagnie,
+  // autre branche), on revient aux taux par défaut de la compagnie.
+  function ratesAfterLineReset(f, companyId) {
+    if (initial?.id || !f.convention_rate_id) return {};
+    const co = companies.find((c) => String(c.id) === String(companyId));
+    return {
+      acq_commission_rate: co ? co.default_acq_rate : '',
+      rec_commission_rate: co ? co.default_rec_rate : '',
+    };
+  }
+
   function handleBranchChange(e) {
     const nextBranch = e.target.value;
     // Une ligne de barème appartient à une branche : on la retire au changement.
-    setForm((f) => ({ ...f, branch: nextBranch, convention_rate_id: '' }));
+    setForm((f) => ({ ...f, branch: nextBranch, convention_rate_id: '', ...ratesAfterLineReset(f, f.company_id) }));
     // Activation automatique uniquement à la création, lors de la première
     // sélection de la branche lamal (règle I2 §6). En édition d'un contrat
     // lamal sans bloc, l'activation passe par le bouton « Ajouter les
@@ -216,6 +228,7 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
       convention_rate_id: '',
       acq_commission_rate: f.acq_commission_rate === '' && co ? co.default_acq_rate : f.acq_commission_rate,
       rec_commission_rate: f.rec_commission_rate === '' && co ? co.default_rec_rate : f.rec_commission_rate,
+      ...ratesAfterLineReset(f, company_id),
     }));
   }
 

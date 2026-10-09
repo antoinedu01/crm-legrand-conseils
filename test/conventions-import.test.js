@@ -356,3 +356,75 @@ test('désactivation des autres compagnies : refusable, et jamais pour une compa
   assert.equal(companyByName('Tau Assurances').active, 1);
   assert.equal(db.prepare('SELECT active FROM companies WHERE id = ?').get(seededIds[0]).active, 0);
 });
+
+const fileOf = (conventions, extra = {}) => ({ format: 'crm-legrand-conventions', version: 1, conventions, ...extra });
+
+test('doublon désactivé : la fiche active du même nom est retenue', async () => {
+  const oldId = db.prepare("INSERT INTO companies (name, active) VALUES ('Beta Fictive', 0)").run().lastInsertRowid;
+  const liveId = db.prepare("INSERT INTO companies (name, active) VALUES ('BETA FICTIVE', 1)").run().lastInsertRowid;
+  const res = await post({ data: fileOf([{ company: { name: 'Beta Fictive' }, title: 'Convention Beta', status: 'signee' }]), dry_run: false });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(conventionOf(liveId).length, 1, 'convention rattachée à la fiche active');
+  assert.equal(conventionOf(oldId).length, 0);
+  assert.equal(db.prepare('SELECT active FROM companies WHERE id = ?').get(oldId).active, 0, 'le doublon reste inactif');
+});
+
+test('rattachement des compagnies indépendant de l’ordre des entrées ; homonymes signalés', async () => {
+  const kappaId = db.prepare("INSERT INTO companies (name) VALUES ('Kappa Fictive')").run().lastInsertRowid;
+  const entries = [
+    { company: { name: 'Kappa Fictive Assurances' }, title: 'Convention Kappa A', status: 'signee' },
+    { company: { name: 'Kappa Fictive Assurances', aliases: ['Kappa Fictive'] }, title: 'Convention Kappa B', status: 'signee' },
+  ];
+  for (const order of [entries, [...entries].reverse()]) {
+    const preview = await post({ data: fileOf(order) });
+    assert.equal(preview.status, 200, JSON.stringify(preview.body));
+    assert.equal(preview.body.summary.companies_created, 0, 'aucune compagnie en double, quel que soit l’ordre');
+    assert.deepEqual(preview.body.companies.map((c) => c.name), ['Kappa Fictive']);
+  }
+  assert.equal((await post({ data: fileOf(entries), dry_run: false })).status, 200);
+  assert.equal(conventionOf(kappaId).length, 2);
+  assert.equal(companyByName('Kappa Fictive Assurances'), undefined);
+
+  db.prepare("INSERT INTO companies (name) VALUES ('Nu Fictive')").run();
+  db.prepare("INSERT INTO companies (name) VALUES ('Nu Fictive Vie')").run();
+  const homonyms = await post({ data: fileOf([{ company: { name: 'Nu Fictive', aliases: ['Nu Fictive Vie'] }, title: 'Convention Nu', status: 'signee' }]) });
+  assert.equal(homonyms.status, 200, JSON.stringify(homonyms.body));
+  assert.equal(homonyms.body.companies[0].name, 'Nu Fictive', 'le nom principal prime sur l’alias');
+  assert.deepEqual(homonyms.body.companies[0].homonyms, ['Nu Fictive Vie']);
+});
+
+test('valeurs vides dans le fichier : une ligne inactive et une convention résiliée gardent leur état', async () => {
+  const companyId = db.prepare("INSERT INTO companies (name, active) VALUES ('Rho Fictive', 0)").run().lastInsertRowid;
+  const convId = db.prepare("INSERT INTO conventions (company_id, title, status) VALUES (?, 'Convention Rho', 'resiliee')").run(companyId).lastInsertRowid;
+  const rateId = db.prepare("INSERT INTO convention_rates (convention_id, branch, label, basis, value, active) VALUES (?, 'lca', 'Ligne Rho', 'fixe', 10, 0)").run(convId).lastInsertRowid;
+  const res = await post({
+    data: fileOf([{
+      company: { name: 'Rho Fictive' }, title: 'Convention Rho', status: null,
+      rates: [{ branch: 'lca', label: 'Ligne Rho', basis: 'fixe', value: 10, active: null }],
+    }]),
+    dry_run: false,
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(db.prepare('SELECT status FROM conventions WHERE id = ?').get(convId).status, 'resiliee');
+  assert.equal(db.prepare('SELECT active FROM convention_rates WHERE id = ?').get(rateId).active, 0);
+  assert.equal(db.prepare('SELECT active FROM companies WHERE id = ?').get(companyId).active, 0);
+});
+
+test('convention signée mais échue : aucune réactivation, compagnie créée inactive', async () => {
+  const companyId = db.prepare("INSERT INTO companies (name, active) VALUES ('Lambda Fictive', 0)").run().lastInsertRowid;
+  const expired = { status: 'signee', effective_date: '2020-01-01', end_date: '2021-12-31' };
+  const res = await post({
+    data: fileOf([
+      { company: { name: 'Lambda Fictive' }, title: 'Convention Lambda', ...expired },
+      { company: { name: 'Mu Fictive SA' }, title: 'Convention Mu', ...expired },
+    ]),
+    dry_run: false,
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.summary.companies_reactivated, 0);
+  assert.equal(db.prepare('SELECT active FROM companies WHERE id = ?').get(companyId).active, 0);
+  const mu = companyByName('Mu Fictive SA');
+  assert.ok(mu, 'compagnie créée pour porter la convention');
+  assert.equal(mu.active, 0, 'aucune convention en vigueur : créée inactive');
+  assert.equal(res.body.companies.find((c) => c.name === 'Mu Fictive SA').created_inactive, true);
+});

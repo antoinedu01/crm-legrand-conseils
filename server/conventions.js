@@ -107,8 +107,10 @@ export function normalizeConventionInput(body, existing = null, { checkCompany =
     ...(existing || {}),
     ...data,
   };
-  if (merged.status == null) merged.status = 'signee';
-  if (merged.client_followup == null) merged.client_followup = 'non_precise';
+  // Une valeur vide garde celle qui est enregistrée : jamais « signée » par
+  // défaut pour une convention existante (une convention résiliée le reste).
+  if (merged.status == null) merged.status = existing?.status ?? 'signee';
+  if (merged.client_followup == null) merged.client_followup = existing?.client_followup ?? 'non_precise';
   validateConvention(merged, { checkCompany });
   if (checkCompany) merged.company_id = Number(merged.company_id);
   const out = {};
@@ -166,6 +168,9 @@ export function normalizeRateInput(body, existing = null) {
     assert(months != null, 'La durée de la période de reprise (mois) est requise pour une reprise au prorata.');
   }
 
+  // `active` vide : la ligne garde son état (jamais réactivée par défaut).
+  const activeInput = merged.active == null ? existing?.active : merged.active;
+
   const sort = merged.sort == null ? 0 : merged.sort;
   assert(Number.isInteger(sort) && Math.abs(sort) <= 100000, 'L’ordre d’affichage doit être un entier.');
 
@@ -188,7 +193,7 @@ export function normalizeRateInput(body, existing = null) {
     clawback_notes: merged.clawback_notes ?? null,
     conditions: merged.conditions ?? null,
     source_ref: merged.source_ref ?? null,
-    active: merged.active == null ? 1 : toFlag(merged.active, 'active'),
+    active: activeInput == null ? 1 : toFlag(activeInput, 'active'),
     sort,
   };
   checkTextFields(out, ['label', 'insurer_entity', 'source_ref'], 200);
@@ -451,8 +456,9 @@ export function planImport(data, { deactivateOthers, retireMissing, today = loca
   const deactivate = deactivateOthers ?? optionalBoolean(data.deactivate_companies_without_convention, 'deactivate_companies_without_convention') ?? false;
   const retire = retireMissing ?? optionalBoolean(data.retire_missing_rates, 'retire_missing_rates') ?? false;
 
-  const companies = db.prepare('SELECT * FROM companies ORDER BY id').all();
-  const existingByName = new Map(); // nom normalisé → compagnie en base (la plus ancienne)
+  // Pour un même nom, une compagnie active prime sur un doublon désactivé.
+  const companies = db.prepare('SELECT * FROM companies ORDER BY active DESC, id').all();
+  const existingByName = new Map(); // nom normalisé → compagnie en base
   for (const co of companies) {
     const n = normName(co.name);
     if (!existingByName.has(n)) existingByName.set(n, co);
@@ -461,31 +467,10 @@ export function planImport(data, { deactivateOthers, retireMissing, today = loca
     options: { deactivate_others: deactivate, retire_missing: retire },
     companies: [], conventions: [], deactivate: [], deactivate_skipped: [], summary: {},
   };
-  const keyByCompanyId = new Map(); // id en base → clé dans plan.companies
-  const keyByFileName = new Map(); // nom ou alias déjà vu dans le fichier → clé
   const seenConventions = new Set();
 
-  function planForExisting(co) {
-    if (!keyByCompanyId.has(co.id)) {
-      keyByCompanyId.set(co.id, plan.companies.length);
-      plan.companies.push({ key: plan.companies.length, id: co.id, name: co.name, existing: co, action: 'unchanged', changes: {}, changed: [] });
-    }
-    return plan.companies[keyByCompanyId.get(co.id)];
-  }
-
-  // Le nom principal prime sur les alias ; pour un même nom, une compagnie
-  // déjà en base prime sur un nom ou un alias vu plus haut dans le fichier.
-  function resolveCompany(spec, names) {
-    for (const n of names) {
-      if (existingByName.has(n)) return planForExisting(existingByName.get(n));
-      if (keyByFileName.has(n)) return plan.companies[keyByFileName.get(n)];
-    }
-    const entry = { key: plan.companies.length, id: null, name: spec.name.trim(), action: 'create', changes: {}, changed: [] };
-    plan.companies.push(entry);
-    return entry;
-  }
-
-  data.conventions.forEach((item, index) => {
+  // 1re passe : structure de chaque entrée et noms de sa compagnie.
+  const entries = data.conventions.map((item, index) => {
     const companyLabel = typeof item?.company?.name === 'string' ? item.company.name.trim() : '';
     const where = `Convention n° ${index + 1}${companyLabel ? ` (${companyLabel})` : ''}`;
     try {
@@ -493,14 +478,62 @@ export function planImport(data, { deactivateOthers, retireMissing, today = loca
       assertKnownKeys(item, CONVENTION_IMPORT_KEYS, 'champs de la convention');
       assert(isPlainObject(item.company), 'compagnie requise (objet « company »).');
       assertKnownKeys(item.company, COMPANY_IMPORT_KEYS, 'champs de la compagnie');
-      const names = companySpecNames(item.company);
-      const companyChanges = companyChangesFrom(item.company);
+      return { item, where, names: companySpecNames(item.company), changes: companyChangesFrom(item.company) };
+    } catch (err) {
+      if (err instanceof ValidationError) throw new ValidationError(`${where} — ${err.message}`);
+      throw err;
+    }
+  });
 
-      // Une même compagnie peut porter plusieurs conventions dans le
-      // fichier : elle n'apparaît qu'une fois dans le plan.
-      const companyPlan = resolveCompany(item.company, names);
-      Object.assign(companyPlan.changes, companyChanges);
-      for (const n of names) if (!keyByFileName.has(n)) keyByFileName.set(n, companyPlan.key);
+  // Les entrées qui partagent un nom ou un alias désignent la même
+  // compagnie, quel que soit leur ordre dans le fichier.
+  const parent = entries.map((_, i) => i);
+  const find = (i) => {
+    let root = i;
+    while (parent[root] !== root) root = parent[root];
+    return root;
+  };
+  const firstEntryByName = new Map();
+  entries.forEach((entry, i) => {
+    for (const n of entry.names) {
+      if (!firstEntryByName.has(n)) {
+        firstEntryByName.set(n, i);
+        continue;
+      }
+      const a = find(firstEntryByName.get(n));
+      const b = find(i);
+      if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+    }
+  });
+
+  // Chaque groupe est rattaché à une compagnie en base — noms principaux
+  // d'abord, puis alias, dans l'ordre du fichier — sinon créé. Les autres
+  // fiches du CRM qui portent l'un de ces noms sont signalées (homonymes).
+  const keyByGroup = new Map();
+  entries.forEach((entry, i) => {
+    const root = find(i);
+    if (!keyByGroup.has(root)) {
+      const members = entries.filter((_, j) => find(j) === root);
+      const candidates = [];
+      for (const m of members) if (!candidates.includes(m.names[0])) candidates.push(m.names[0]);
+      for (const m of members) for (const n of m.names.slice(1)) if (!candidates.includes(n)) candidates.push(n);
+      const matches = candidates.map((n) => existingByName.get(n)).filter(Boolean);
+      const existing = matches[0] || null;
+      const homonyms = [...new Set(matches.filter((co) => co.id !== existing?.id).map((co) => co.name))];
+      const key = plan.companies.length;
+      plan.companies.push(existing
+        ? { key, id: existing.id, name: existing.name, existing, action: 'unchanged', changes: {}, changed: [], homonyms }
+        : { key, id: null, name: entry.item.company.name.trim(), action: 'create', changes: {}, changed: [], homonyms });
+      keyByGroup.set(root, key);
+    }
+    entry.companyKey = keyByGroup.get(root);
+    Object.assign(plan.companies[entry.companyKey].changes, entry.changes);
+  });
+
+  entries.forEach((entry) => {
+    const { item, where } = entry;
+    try {
+      const companyPlan = plan.companies[entry.companyKey];
 
       assert(typeof item.title === 'string' && item.title.trim(), 'titre de la convention requis.');
       const title = item.title.trim();
@@ -592,10 +625,16 @@ export function planImport(data, { deactivateOthers, retireMissing, today = loca
 
   // Compagnies existantes : seuls les champs fournis qui changent sont
   // écrits ; une compagnie inactive n'est réactivée que si l'une de ses
-  // conventions du fichier est signée.
-  const signedKeys = new Set(plan.conventions.filter((c) => c.data.status === 'signee').map((c) => c.companyKey));
+  // conventions du fichier est signée et en vigueur. Une compagnie créée
+  // n'est active qu'à la même condition.
+  const signedKeys = new Set(plan.conventions
+    .filter((c) => c.data.status === 'signee' && (!c.data.end_date || c.data.end_date >= today))
+    .map((c) => c.companyKey));
   for (const entry of plan.companies) {
-    if (entry.id == null) continue;
+    if (entry.id == null) {
+      entry.create_active = signedKeys.has(entry.key);
+      continue;
+    }
     entry.changed = Object.keys(entry.changes).filter((f) => (entry.existing[f] ?? null) !== entry.changes[f]);
     entry.reactivate = !entry.existing.active && signedKeys.has(entry.key);
     entry.inactive_kept = !entry.existing.active && !entry.reactivate;
@@ -668,10 +707,10 @@ export function applyImport(plan) {
         const fields = ['name', ...Object.keys(c.changes)];
         const values = [c.name, ...Object.keys(c.changes).map((f) => c.changes[f])];
         const id = db
-          .prepare(`INSERT INTO companies (${fields.join(', ')}, active) VALUES (${fields.map(() => '?').join(', ')}, 1)`)
-          .run(...values).lastInsertRowid;
+          .prepare(`INSERT INTO companies (${fields.join(', ')}, active) VALUES (${fields.map(() => '?').join(', ')}, ?)`)
+          .run(...values, c.create_active ? 1 : 0).lastInsertRowid;
         companyIds.set(c.key, id);
-        events.push({ action: 'import — création compagnie', entity: 'company', id, details: c.name });
+        events.push({ action: 'import — création compagnie', entity: 'company', id, details: `${c.name}${c.create_active ? '' : ' (inactive)'}` });
         continue;
       }
       companyIds.set(c.key, c.id);
@@ -746,6 +785,8 @@ export function describePlan(plan) {
       action: c.action,
       changed: c.changed,
       reactivate: Boolean(c.reactivate),
+      created_inactive: c.id == null && !c.create_active,
+      homonyms: c.homonyms,
       inactive_kept: Boolean(c.inactive_kept),
     })),
     conventions: plan.conventions.map((c) => ({

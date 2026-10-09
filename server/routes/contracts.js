@@ -679,6 +679,8 @@ function validateContract(data) {
   assert(isDateStr(data.end_date), 'Date d’échéance invalide (AAAA-MM-JJ).');
   checkTextFields(data, ['policy_number', 'product_name'], 200);
   checkTextFields(data, ['notes'], 5000);
+  assert(data.client_id == null || isPositiveId(data.client_id), 'Client invalide.');
+  assert(data.company_id == null || isPositiveId(data.company_id), 'Compagnie invalide.');
   assert(data.convention_rate_id == null || isPositiveId(data.convention_rate_id), 'Ligne de barème invalide.');
 }
 

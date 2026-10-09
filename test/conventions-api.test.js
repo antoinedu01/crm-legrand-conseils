@@ -388,6 +388,10 @@ test('identifiants et dates stricts : booléen, décimal, 31 février, fin avant
   }
   const boolCompany = await auth(request(app).post('/api/conventions')).send({ company_id: true, title: 'X' });
   assert.equal(boolCompany.status, 400, 'company_id booléen refusé');
+  const boolContractCompany = await createContract({ company_id: true, branch: 'lamal', annual_premium: 1000 });
+  assert.equal(boolContractCompany.status, 400, 'contrat : company_id booléen refusé (jamais une erreur 500)');
+  const boolContractClient = await auth(request(app).post('/api/contracts')).send({ client_id: true, company_id: companyId, branch: 'lamal' });
+  assert.equal(boolContractClient.status, 400, 'contrat : client_id booléen refusé');
   const feb31 = await auth(request(app).post('/api/conventions')).send({ company_id: companyId, title: 'X', effective_date: '2026-02-31' });
   assert.equal(feb31.status, 400);
   const reversed = await auth(request(app).post('/api/conventions')).send({
@@ -418,6 +422,8 @@ test('convention échue : lignes plus proposées, rattachement refusé, avertiss
 
   const list = await auth(request(app).get('/api/conventions'));
   assert.equal(list.body.find((c) => c.id === convId).in_force, false);
+  const companies = await auth(request(app).get('/api/companies'));
+  assert.equal(companies.body.find((c) => c.id === companyId).convention_status, 'resiliee', 'convention échue affichée comme terminée');
 });
 
 test('commission selon la convention : note sans détail de calcul ; récurrente de la ligne reprise par le contrat', async () => {
