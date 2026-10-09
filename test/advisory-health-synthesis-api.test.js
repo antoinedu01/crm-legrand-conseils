@@ -20,6 +20,10 @@ process.env.PUBLIC_RATE_LIMIT = '100';
 
 const { default: app } = await import('../server/app.js');
 const { default: db } = await import('../server/db.js');
+// Date du jour selon la même horloge que les valeurs par défaut SQL
+// (`date('now')`) : une date de sortie codée en dur finit toujours par
+// précéder la date d'entrée d'un membre ajouté « aujourd'hui ».
+const TODAY = db.prepare("SELECT date('now') AS d").get().d;
 const Q = await import('../server/advisoryQuestionnaires.js');
 const R = await import('../server/advisoryRules.js');
 const Seed = await import('../server/seed-advisory-health-content.js');
@@ -347,7 +351,7 @@ test('10 — historical/no_longer_active présents et corrects pour un membre re
   await completeHttp(sessionId);
   await executeHttp(sessionId, seed2.ruleSetId);
 
-  await auth(request(app).delete(`/api/advisory/households/${householdId}/members/${childMemberId}`)).send({ end_date: '2026-08-09' });
+  await auth(request(app).delete(`/api/advisory/households/${householdId}/members/${childMemberId}`)).send({ end_date: TODAY });
 
   const res = await auth(request(app).get(`/api/advisory/sessions/${sessionId}/health-synthesis`));
   assert.equal(res.status, 200);
