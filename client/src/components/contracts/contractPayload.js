@@ -3,7 +3,7 @@
 export const GENERIC_CONTRACT_FIELDS = [
   'client_id', 'company_id', 'branch', 'policy_number', 'product_name', 'annual_premium',
   'payment_frequency', 'start_date', 'end_date', 'status',
-  'acq_commission_rate', 'rec_commission_rate', 'notes',
+  'acq_commission_rate', 'rec_commission_rate', 'notes', 'convention_rate_id',
 ];
 
 export const SPECIALIZED_BLOCK_KEYS = ['lamal', 'lca', 'life', 'income_protection', 'lpp_ijm'];

@@ -1666,6 +1666,92 @@ if (version < 17) {
   migrate();
 }
 
+// Migration 18 — Conventions de courtage : une convention par compagnie
+// (statut, codes, conditions, obligations) et ses lignes de barème
+// (base de calcul de la commission d'acquisition, règle de reprise).
+// Les barèmes réels sont confidentiels : ils ne sont JAMAIS semés ici ni
+// versionnés dans le dépôt — ils entrent dans la base par l'interface ou par
+// l'import d'un fichier gardé hors dépôt (voir docs/CONVENTIONS.md).
+// Purement additive : deux tables nouvelles et deux colonnes nullables de
+// traçabilité (`contracts.convention_rate_id`, `commissions.convention_rate_id`)
+// — aucune ligne existante n'est modifiée, aucun montant n'est recalculé.
+if (version < 18) {
+  const migrate = db.transaction(() => {
+    function hasColumn(table, column) {
+      return db.prepare(`PRAGMA table_info("${table}")`).all().some((c) => c.name === column);
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS conventions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        title TEXT NOT NULL,
+        counterparty TEXT,
+        intermediary_code TEXT,
+        status TEXT NOT NULL DEFAULT 'signee',
+        signed_date TEXT,
+        effective_date TEXT,
+        end_date TEXT,
+        scope TEXT,
+        termination_notice TEXT,
+        payment_terms TEXT,
+        statement_objection_days INTEGER CHECK (statement_objection_days IS NULL OR statement_objection_days >= 0),
+        client_followup TEXT NOT NULL DEFAULT 'non_precise',
+        obligations TEXT,
+        restrictions TEXT,
+        missing_documents TEXT,
+        document_location TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_conventions_company ON conventions(company_id);
+
+      CREATE TABLE IF NOT EXISTS convention_rates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        convention_id INTEGER NOT NULL REFERENCES conventions(id) ON DELETE CASCADE,
+        branch TEXT NOT NULL,
+        label TEXT NOT NULL,
+        insurer_entity TEXT,
+        basis TEXT NOT NULL,
+        value REAL,
+        multiply_by_years INTEGER NOT NULL DEFAULT 0 CHECK (multiply_by_years IN (0, 1)),
+        max_years INTEGER,
+        valuation_pct REAL,
+        cap_chf REAL,
+        is_estimate INTEGER NOT NULL DEFAULT 0 CHECK (is_estimate IN (0, 1)),
+        rec_rate REAL,
+        rec_conditions TEXT,
+        clawback_mode TEXT NOT NULL DEFAULT 'inconnu',
+        clawback_steps TEXT,
+        clawback_months INTEGER,
+        clawback_notes TEXT,
+        conditions TEXT,
+        source_ref TEXT,
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_convention_rates_convention ON convention_rates(convention_id);
+      CREATE INDEX IF NOT EXISTS idx_convention_rates_branch ON convention_rates(branch);
+    `);
+    // Traçabilité : quelle ligne de barème a servi au contrat et à sa
+    // commission. Sans ON DELETE : une ligne déjà utilisée ne peut pas
+    // disparaître (conservation comptable) — l'API propose de la désactiver.
+    if (!hasColumn('contracts', 'convention_rate_id')) {
+      db.exec('ALTER TABLE contracts ADD COLUMN convention_rate_id INTEGER REFERENCES convention_rates(id)');
+    }
+    if (!hasColumn('commissions', 'convention_rate_id')) {
+      db.exec('ALTER TABLE commissions ADD COLUMN convention_rate_id INTEGER REFERENCES convention_rates(id)');
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_contracts_convention_rate ON contracts(convention_rate_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_commissions_convention_rate ON commissions(convention_rate_id)');
+
+    db.pragma('user_version = 18');
+  });
+  migrate();
+}
+
 // Les 14 canaux d'acquisition du plan de développement
 const channelCount = db.prepare('SELECT COUNT(*) AS n FROM channels').get().n;
 if (channelCount === 0) {

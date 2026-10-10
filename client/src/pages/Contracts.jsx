@@ -13,6 +13,7 @@ import { LifeFields } from '../components/contracts/LifeFields.jsx';
 import { estimateLifeAcquisitionCommission, LifeCommissionError } from '../components/contracts/lifeCommissionEstimate.js';
 import { computePolicyTermYears } from '../components/contracts/policyTermFromDates.js';
 import { FIXED_ONLY_BRANCHES } from '../components/contracts/fixedCommissionBranches.js';
+import { ConventionRateField } from '../components/contracts/ConventionRateField.jsx';
 
 const DEFAULT_LAMAL_FIELDS = { care_model: 'standard', deductible: '', accident_coverage: true, canton: '', tariff_region: '' };
 
@@ -59,6 +60,7 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     start_date: '', end_date: '', status: 'offre',
     acq_commission_rate: '', rec_commission_rate: '', notes: '',
     ...initial,
+    convention_rate_id: initial?.convention_rate_id != null ? String(initial.convention_rate_id) : '',
   });
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -72,9 +74,22 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   );
   const [lamalModeBeforeRemoval, setLamalModeBeforeRemoval] = useState(null);
 
+  // À la création, des taux remplis d'après une ligne de convention ne
+  // valent que pour cette ligne : si la ligne disparaît (autre compagnie,
+  // autre branche), on revient aux taux par défaut de la compagnie.
+  function ratesAfterLineReset(f, companyId) {
+    if (initial?.id || !f.convention_rate_id) return {};
+    const co = companies.find((c) => String(c.id) === String(companyId));
+    return {
+      acq_commission_rate: co ? co.default_acq_rate : '',
+      rec_commission_rate: co ? co.default_rec_rate : '',
+    };
+  }
+
   function handleBranchChange(e) {
     const nextBranch = e.target.value;
-    setForm((f) => ({ ...f, branch: nextBranch }));
+    // Une ligne de barème appartient à une branche : on la retire au changement.
+    setForm((f) => ({ ...f, branch: nextBranch, convention_rate_id: '', ...ratesAfterLineReset(f, f.company_id) }));
     // Activation automatique uniquement à la création, lors de la première
     // sélection de la branche lamal (règle I2 §6). En édition d'un contrat
     // lamal sans bloc, l'activation passe par le bouton « Ajouter les
@@ -194,7 +209,12 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
 
   useEffect(() => {
     api.get('/api/clients').then((rows) => setClients(rows.filter((c) => c.status !== 'anonymise')));
-    api.get('/api/companies').then((rows) => setCompanies(rows.filter((c) => c.active)));
+    // Compagnies actives, plus celle du contrat modifié même si elle a été
+    // désactivée depuis (sans quoi le formulaire ne pourrait plus être
+    // enregistré).
+    api.get('/api/companies').then((rows) => setCompanies(
+      rows.filter((c) => c.active || (initial?.company_id != null && String(c.id) === String(initial.company_id)))
+    ));
   }, []);
 
   // Pré-remplit les taux de commission avec ceux de la compagnie choisie
@@ -204,9 +224,38 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
     setForm((f) => ({
       ...f,
       company_id,
+      // Une ligne de barème appartient à une convention : on la retire au changement de compagnie.
+      convention_rate_id: '',
       acq_commission_rate: f.acq_commission_rate === '' && co ? co.default_acq_rate : f.acq_commission_rate,
       rec_commission_rate: f.rec_commission_rate === '' && co ? co.default_rec_rate : f.rec_commission_rate,
+      ...ratesAfterLineReset(f, company_id),
     }));
+  }
+
+  // Avec une ligne de convention, c'est la convention qui fixe la commission
+  // d'acquisition : le taux générique est vidé à la création pour ne jamais
+  // coexister avec le barème, et la commission récurrente reprend celle de
+  // la ligne (modifiable). En modification, rien n'est recalculé ni effacé.
+  function pickConventionRate(rateId, rate) {
+    setForm((f) => {
+      if (initial?.id) return { ...f, convention_rate_id: rateId };
+      if (rateId) {
+        return {
+          ...f,
+          convention_rate_id: rateId,
+          acq_commission_rate: '',
+          rec_commission_rate: rate?.rec_rate != null ? String(rate.rec_rate) : '',
+        };
+      }
+      // Retour à la saisie manuelle : taux par défaut de la compagnie.
+      const co = companies.find((c) => String(c.id) === String(f.company_id));
+      return {
+        ...f,
+        convention_rate_id: '',
+        acq_commission_rate: co ? co.default_acq_rate : '',
+        rec_commission_rate: co ? co.default_rec_rate : '',
+      };
+    });
   }
 
   async function submit(e) {
@@ -288,6 +337,14 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
   }
 
   const isFixedOnlyBranch = FIXED_ONLY_BRANCHES.includes(form.branch);
+  const hasConventionRate = Boolean(form.convention_rate_id);
+  const conventionContext = {
+    annual_premium: form.annual_premium,
+    payment_frequency: form.payment_frequency,
+    policy_term_years: lifeMode === 'value' || lifeMode === 'unchanged' ? lifeFields.policy_term_years : null,
+    start_date: form.start_date,
+    end_date: form.end_date,
+  };
   const premium = Number(form.annual_premium) || 0;
   const acqRateValue = Number(form.acq_commission_rate) || 0;
   // Aucun aperçu ni génération automatique de commission par pourcentage
@@ -346,7 +403,9 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
           <Field label="Compagnie">
             <select required value={form.company_id} onChange={pickCompany}>
               <option value="">— Choisir —</option>
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}{c.active ? '' : ' (inactive)'}</option>
+              ))}
             </select>
           </Field>
           <Field label="Branche">
@@ -382,7 +441,23 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
           <Field label="Échéance">
             <input type="date" value={form.end_date || ''} onChange={set('end_date')} />
           </Field>
-          {isFixedOnlyBranch ? (
+          <ConventionRateField
+            companyId={form.company_id}
+            branch={form.branch}
+            value={form.convention_rate_id}
+            onChange={pickConventionRate}
+            contract={conventionContext}
+            isEdit={!!initial?.id}
+            disabled={submitting}
+          />
+          {hasConventionRate ? (
+            isFixedOnlyBranch ? null : (
+              <Field label="Commission récurrente / portefeuille (%)">
+                <input type="number" min="0" step="any" value={form.rec_commission_rate ?? ''} onChange={set('rec_commission_rate')} />
+                <small className="muted">Pré-remplie selon la ligne de la convention, si elle en prévoit une.</small>
+              </Field>
+            )
+          ) : isFixedOnlyBranch ? (
             <Field label="Commission" full>
               <div className="alert warn" style={{ margin: 0 }}>
                 Aucun calcul automatique fondé sur la prime pour la LAMal/LCA : le montant, fixé par la
@@ -499,7 +574,7 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             )}
           </div>
         )}
-        {premium > 0 && ((!hideGenericAcqForLife && acq > 0) || rec > 0) && (
+        {!hasConventionRate && premium > 0 && ((!hideGenericAcqForLife && acq > 0) || rec > 0) && (
           <div className="alert ok mt">
             Commissions estimées :{' '}
             {!hideGenericAcqForLife && acq > 0 && <>acquisition <strong>{fmtCHF(acq)}</strong></>}
@@ -508,7 +583,7 @@ export function ContractForm({ initial, initialClientId, onSaved, onClose }) {
             {!initial?.id && !hideGenericAcqForLife && acq > 0 && <> — la commission d’acquisition sera créée automatiquement.</>}
           </div>
         )}
-        {!initial?.id && isLifePeriodic && premium > 0 && acqRateValue > 0 && (
+        {!hasConventionRate && !initial?.id && isLifePeriodic && premium > 0 && acqRateValue > 0 && (
           lifeCommissionUnavailable ? (
             <div className="alert warn mt">
               La durée contractuelle est nécessaire pour calculer la commission d’acquisition d’un contrat Vie.

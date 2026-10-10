@@ -334,16 +334,20 @@ test('generate-recurring exclut structurellement les branches LAMal/LCA', async 
 test('aucun montant ou taux de commission n’est codé en dur par nom de compagnie dans le code source', () => {
   const insurerNames = [
     'Swiss Life', 'AXA', 'Helvetia', 'Zurich', 'Bâloise', 'Allianz Suisse',
-    'Groupe Mutuel', 'CSS', 'Visana', 'Sanitas', 'Concordia', 'Generali',
+    'Groupe Mutuel', 'CSS', 'Visana', 'Sanitas', 'Concordia', 'Generali', 'SWICA',
   ];
-  const sources = [
-    fs.readFileSync(path.join(process.cwd(), 'server/commissionCalc.js'), 'utf8'),
-    fs.readFileSync(path.join(process.cwd(), 'server/routes/commissions.js'), 'utf8'),
-    fs.readFileSync(path.join(process.cwd(), 'server/routes/contracts.js'), 'utf8'),
+  // Y compris le module des conventions : les barèmes réels, confidentiels,
+  // ne vivent que dans la base du CRM, jamais dans ce dépôt public.
+  const files = [
+    'server/commissionCalc.js', 'server/routes/commissions.js', 'server/routes/contracts.js',
+    'server/conventions.js', 'server/routes/conventions.js', 'shared/conventionRules.js',
+    'client/src/components/contracts/ConventionRateField.jsx', 'client/src/pages/Conventions.jsx',
   ];
-  for (const source of sources) {
+  for (const file of files) {
+    // « Europe/Zurich » est le fuseau horaire du cabinet, pas un assureur.
+    const source = fs.readFileSync(path.join(process.cwd(), file), 'utf8').replaceAll('Europe/Zurich', '');
     for (const name of insurerNames) {
-      assert.ok(!source.includes(name), `${name} ne doit jamais apparaître dans la logique de calcul de commission`);
+      assert.ok(!source.includes(name), `${name} ne doit jamais apparaître dans ${file}`);
     }
   }
 });

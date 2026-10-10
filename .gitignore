@@ -3,3 +3,6 @@ data/
 client/dist/
 *.log
 .env
+
+# Conventions de courtage : barèmes confidentiels, jamais dans ce dépôt public
+*conventions*.json

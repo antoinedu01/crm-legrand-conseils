@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAsync, Modal, Field, Empty } from '../components/ui.jsx';
-import { fmtCHF } from '../labels.js';
+import { useAsync, Modal, Field, Empty, Badge } from '../components/ui.jsx';
+import { fmtCHF, CONVENTION_STATUS } from '../labels.js';
 
 function CompanyForm({ initial, onSaved, onClose }) {
   const [form, setForm] = useState({
@@ -88,7 +89,10 @@ export default function Companies() {
       <div className="page-head">
         <div>
           <h1>Compagnies partenaires</h1>
-          <div className="sub">Vos partenaires d’assurance et leurs conditions de commissionnement</div>
+          <div className="sub">
+            Vos partenaires d’assurance — les barèmes détaillés par produit sont dans les{' '}
+            <Link to="/conventions">conventions</Link>
+          </div>
         </div>
         <button className="primary" onClick={() => setEditing({})}>+ Nouvelle compagnie</button>
       </div>
@@ -102,7 +106,7 @@ export default function Companies() {
           <table className="data">
             <thead>
               <tr>
-                <th>Compagnie</th><th>Contact</th><th className="num">Taux acq. / réc.</th>
+                <th>Compagnie</th><th>Convention</th><th>Contact</th><th className="num">Taux par défaut acq. / réc.</th>
                 <th className="num">Contrats actifs</th><th className="num">Comm. perçues</th>
                 <th className="num">Comm. attendues</th><th></th>
               </tr>
@@ -114,6 +118,11 @@ export default function Companies() {
                     <strong>{co.name}</strong>
                     {!co.active && <span className="muted"> · inactif</span>}
                     {co.finma_number && <div className="muted" style={{ fontSize: 12 }}>FINMA {co.finma_number}</div>}
+                  </td>
+                  <td>
+                    {co.convention_status
+                      ? <Link to="/conventions"><Badge value={co.convention_status} label={CONVENTION_STATUS[co.convention_status]} /></Link>
+                      : <span className="muted">—</span>}
                   </td>
                   <td>{co.contact_name || '—'}{co.contact_email && <div className="muted" style={{ fontSize: 12 }}>{co.contact_email}</div>}</td>
                   <td className="num">{co.default_acq_rate || 0}% / {co.default_rec_rate || 0}%</td>

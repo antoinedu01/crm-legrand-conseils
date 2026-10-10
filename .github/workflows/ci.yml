@@ -1,0 +1,34 @@
+# Contrôle qualité automatique : lint + tests + build à chaque push et pull
+# request. Aucun déploiement, aucun secret, aucune donnée de production :
+# les tests utilisent une base SQLite temporaire (CRM_DATA_DIR isolé).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - name: Tests
+        run: >-
+          node --test
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=test-results.tap
+          "test/**/*.test.js"
+      - name: Résumé et annotations des tests
+        if: always()
+        run: node .github/scripts/annotate-test-failures.mjs test-results.tap
+      - run: npm run build

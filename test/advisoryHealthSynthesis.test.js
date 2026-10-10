@@ -12,6 +12,10 @@ import path from 'path';
 process.env.CRM_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-advisory-health-synthesis-'));
 
 const { default: db } = await import('../server/db.js');
+// Date du jour selon la même horloge que les valeurs par défaut SQL
+// (`date('now')`) : une date de sortie codée en dur finit toujours par
+// précéder la date d'entrée d'un membre ajouté « aujourd'hui ».
+const TODAY = db.prepare("SELECT date('now') AS d").get().d;
 const { createHousehold, addMember, removeMember } = await import('../server/advisoryHouseholds.js');
 const Q = await import('../server/advisoryQuestionnaires.js');
 const S = await import('../server/advisorySessions.js');
@@ -953,7 +957,7 @@ test('R — B. membre devenu historique après le démarrage de la session : tou
   assert.equal(childBefore.franchise.orientation.value, 'elevee_potentiellement_adaptee');
 
   // Retire le membre enfant du foyer (jamais le principal -- removeMember l'interdit).
-  removeMember(householdId, childMemberId, { end_date: '2026-08-09' }, REQ);
+  removeMember(householdId, childMemberId, { end_date: TODAY }, REQ);
 
   const after = Synth.buildHealthSynthesis({ sessionId });
   assert.equal(after.members.length, 2, 'un membre historique reste présent dans members[], jamais supprimé du DTO');
@@ -981,7 +985,7 @@ test('R — C. deux appels identiques après passage historique : historical/no_
   answerV2(sessionId, childMemberId, withOverrides([]));
   ensureCompleted(sessionId);
   E.executeRuleSetForSession(sessionId, 'health', rev(sessionId), REQ, { rule_set_id: seed2.ruleSetId });
-  removeMember(householdId, childMemberId, { end_date: '2026-08-09' }, REQ);
+  removeMember(householdId, childMemberId, { end_date: TODAY }, REQ);
 
   const dto1 = Synth.buildHealthSynthesis({ sessionId });
   const dto2 = Synth.buildHealthSynthesis({ sessionId });

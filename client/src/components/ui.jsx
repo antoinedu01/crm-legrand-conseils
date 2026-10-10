@@ -243,6 +243,8 @@ const TONES = {
   // État global agrégé multi-domaines (Lot 4B, GATE §3) -- `up_to_date` et
   // `stale` réutilisent déjà les tons ci-dessus (mêmes valeurs, même sens).
   not_analyzed: '', partial: 'warn', unavailable: '', error: 'critical',
+  // Conventions de courtage.
+  signee: 'good', en_attente: 'warn', resiliee: 'critical',
 };
 
 export function Badge({ value, label }) {

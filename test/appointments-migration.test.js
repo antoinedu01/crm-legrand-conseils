@@ -323,7 +323,7 @@ function buildLegacyV8Database(dataDir) {
 // -- 1, 2 — migration depuis une base pré-v9 -----------------------------
 test('migration v16 — une base neuve atteint directement user_version = 16', async () => {
   const db = await importFreshDb(tempDir());
-  assert.equal(db.pragma('user_version', { simple: true }), 17, 'une base neuve traverse v16 puis, dans la même passe, v17 (A4.1)');
+  assert.equal(db.pragma('user_version', { simple: true }), 18, 'une base neuve traverse v16 puis, dans la même passe, v17 (A4.1) et v18 (conventions)');
 });
 
 test('migration v16 — une base héritée en v8 est migrée vers v16 sans perte de données (scénarios 1, 2, 13)', async () => {
@@ -339,7 +339,7 @@ test('migration v16 — une base héritée en v8 est migrée vers v16 sans perte
   legacy.close();
 
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 17, 'une base héritée traverse v16 puis, dans la même passe, v17 (A4.1)');
+  assert.equal(db.pragma('user_version', { simple: true }), 18, 'une base héritée traverse v16 puis, dans la même passe, v17 (A4.1) et v18 (conventions)');
 
   // Aucune donnée existante supprimée ou modifiée par la migration.
   const preservedClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.lastInsertRowid);
@@ -428,7 +428,7 @@ test("migration v16 — idempotence : un second import de la même base n'échou
   const dir = tempDir();
   await importFreshDb(dir);
   const db = await importFreshDb(dir);
-  assert.equal(db.pragma('user_version', { simple: true }), 17, 'un second import reste en v17 (16 puis 17 dans la même passe), jamais dupliqué');
+  assert.equal(db.pragma('user_version', { simple: true }), 18, 'un second import reste en v18 (16, 17 puis 18 dans la même passe), jamais dupliqué');
   const exists = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'appointments'")
     .get();

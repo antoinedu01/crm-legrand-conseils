@@ -24,6 +24,14 @@ export function isDateStr(v) {
   return v == null || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)));
 }
 
+// Identifiant SQL : entier strictement positif, donné en nombre ou en
+// chiffres — jamais un booléen (Number(true) vaut 1), une chaîne vide ou un
+// nombre décimal.
+export function isPositiveId(v) {
+  if (typeof v === 'number') return Number.isSafeInteger(v) && v > 0;
+  return typeof v === 'string' && /^[1-9]\d{0,14}$/.test(v);
+}
+
 export function isNonNegNumber(v) {
   return v == null || (Number.isFinite(Number(v)) && Number(v) >= 0);
 }

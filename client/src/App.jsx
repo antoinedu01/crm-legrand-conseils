@@ -8,6 +8,7 @@ import Clients from './pages/Clients.jsx';
 import ClientDetail from './pages/ClientDetail.jsx';
 import Contracts from './pages/Contracts.jsx';
 import Companies from './pages/Companies.jsx';
+import Conventions from './pages/Conventions.jsx';
 import Commissions from './pages/Commissions.jsx';
 import Tasks from './pages/Tasks.jsx';
 import Compliance from './pages/Compliance.jsx';
@@ -32,6 +33,7 @@ const NAV = [
   ['/contrats', '📄', 'Contrats'],
   ['/commissions', '💰', 'Commissions'],
   ['/compagnies', '🏢', 'Compagnies'],
+  ['/conventions', '📑', 'Conventions'],
   ['/taches', '✅', 'Tâches'],
   ['/diagnostic-360/foyers', '🧭', 'Diagnostic 360'],
   ['/diagnostic-360/sessions', '🗓️', 'Sessions RDV'],
@@ -141,6 +143,7 @@ function AuthenticatedShell({ auth, refresh }) {
           <Route path="/contrats" element={<Contracts />} />
           <Route path="/commissions" element={<Commissions />} />
           <Route path="/compagnies" element={<Companies />} />
+          <Route path="/conventions" element={<Conventions />} />
           <Route path="/taches" element={<Tasks />} />
           <Route path="/diagnostic-360/foyers" element={<Households />} />
           <Route path="/diagnostic-360/foyers/:id" element={<HouseholdDetail />} />

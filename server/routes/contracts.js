@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { audit } from '../audit.js';
-import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields } from '../validate.js';
+import { assert, isDateStr, isNonNegNumber, inEnum, checkTextFields, isPositiveId } from '../validate.js';
 import { computeAcquisitionCommission, CommissionCalcError } from '../commissionCalc.js';
+import { BRANCHES } from '../branches.js';
+import { resolveRateForContract, coverageWarning } from '../conventions.js';
+import { computeConventionCommission } from '../../shared/conventionRules.js';
 
 export const contractsRouter = Router();
 
-export const BRANCHES = [
-  'vie_3a', 'vie_3b', 'lamal', 'lca', 'lpp', 'hypotheque',
-  'deces', 'incapacite', 'rc_menage', 'autre',
-];
+export { BRANCHES };
 const CONTRACT_STATUSES = ['offre', 'actif', 'suspendu', 'resilie', 'echu'];
 const FREQUENCIES = ['mensuelle', 'trimestrielle', 'semestrielle', 'annuelle', 'unique'];
 
@@ -679,12 +679,15 @@ function validateContract(data) {
   assert(isDateStr(data.end_date), 'Date d’échéance invalide (AAAA-MM-JJ).');
   checkTextFields(data, ['policy_number', 'product_name'], 200);
   checkTextFields(data, ['notes'], 5000);
+  assert(data.client_id == null || isPositiveId(data.client_id), 'Client invalide.');
+  assert(data.company_id == null || isPositiveId(data.company_id), 'Compagnie invalide.');
+  assert(data.convention_rate_id == null || isPositiveId(data.convention_rate_id), 'Ligne de barème invalide.');
 }
 
 const FIELDS = [
   'client_id', 'company_id', 'branch', 'policy_number', 'product_name', 'annual_premium',
   'payment_frequency', 'start_date', 'end_date', 'status',
-  'acq_commission_rate', 'rec_commission_rate', 'notes',
+  'acq_commission_rate', 'rec_commission_rate', 'notes', 'convention_rate_id',
 ];
 
 function pick(body) {
@@ -795,6 +798,22 @@ contractsRouter.post('/', (req, res) => {
   validateContract(data);
   const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(data.client_id);
   if (!client) return res.status(400).json({ error: 'Client introuvable.' });
+  const company = db.prepare('SELECT id, name FROM companies WHERE id = ?').get(data.company_id);
+  if (!company) return res.status(400).json({ error: 'Compagnie introuvable.' });
+
+  // Ligne de barème de la convention (optionnelle) : doit appartenir à une
+  // convention signée de CETTE compagnie, pour CETTE branche, et être active.
+  const conventionRate = data.convention_rate_id != null
+    ? resolveRateForContract({ rateId: data.convention_rate_id, company_id: data.company_id, branch: data.branch })
+    : null;
+  if (conventionRate) {
+    data.convention_rate_id = conventionRate.id;
+    // La commission récurrente prévue par la ligne pré-remplit le contrat si
+    // le conseiller n'a rien indiqué lui-même.
+    if (conventionRate.rec_rate != null && data.rec_commission_rate == null) {
+      data.rec_commission_rate = conventionRate.rec_rate;
+    }
+  }
 
   // Détails LAMal optionnels : `lamal` absent du corps → aucune écriture ;
   // `lamal: null` n'a pas de sens à la création (rien n'existe encore) et
@@ -849,23 +868,50 @@ contractsRouter.post('/', (req, res) => {
   if (!client.mandate_signed) warnings.push('Le mandat de courtage n’est pas signé.');
   if (!client.info_lsa_date) warnings.push('L’information selon l’art. 45 LSA n’a pas été remise.');
   if (!client.consent_data) warnings.push('Le consentement nLPD au traitement des données n’est pas enregistré.');
+  // Garde-fou conventions : uniquement lorsque des conventions ont été
+  // saisies dans le CRM (sinon rien ne permet de conclure à une absence).
+  const coverage = coverageWarning(company, data.branch);
+  if (coverage) warnings.push(coverage);
 
   // Commission d'acquisition : calculée et validée avant toute écriture, afin
   // de garantir l'atomicité observable (un contrat Vie périodique sans durée
   // contractuelle valide est rejeté avant toute insertion, jamais créé avec
   // une commission tronquée à une année).
-  let commissionAmount;
-  try {
-    commissionAmount = computeAcquisitionCommission({
-      branch: data.branch,
+  //
+  // Avec une ligne de convention, c'est la convention qui fixe le montant
+  // attendu (y compris en LAMal/LCA, où aucun taux générique n'est jamais
+  // appliqué) : il est enregistré en montant fixe, avec la ligne d'origine
+  // pour traçabilité, et reste une estimation jusqu'au décompte de la
+  // compagnie. Une donnée manquante n'empêche pas la création du contrat :
+  // aucune commission n'est alors créée et le conseiller en est averti.
+  let commissionAmount = null;
+  let conventionCommission = null;
+  if (conventionRate) {
+    conventionCommission = computeConventionCommission(conventionRate, {
       annual_premium: data.annual_premium,
       payment_frequency: data.payment_frequency,
-      acq_commission_rate: data.acq_commission_rate,
       policy_term_years: lifeProvided && lifeBody != null ? lifeBody.policy_term_years : null,
+      start_date: data.start_date,
+      end_date: data.end_date,
     });
-  } catch (err) {
-    if (err instanceof CommissionCalcError) return res.status(400).json({ error: err.message });
-    throw err;
+    if (conventionCommission.amount == null && conventionCommission.missing) {
+      warnings.push(conventionCommission.missing === 'barème'
+        ? `Barème à confirmer pour « ${conventionRate.label} » : aucune commission n’a été créée automatiquement.`
+        : `Commission selon la convention non créée — ${conventionCommission.formula} Ajoutez-la depuis la page Commissions.`);
+    }
+  } else {
+    try {
+      commissionAmount = computeAcquisitionCommission({
+        branch: data.branch,
+        annual_premium: data.annual_premium,
+        payment_frequency: data.payment_frequency,
+        acq_commission_rate: data.acq_commission_rate,
+        policy_term_years: lifeProvided && lifeBody != null ? lifeBody.policy_term_years : null,
+      });
+    } catch (err) {
+      if (err instanceof CommissionCalcError) return res.status(400).json({ error: err.message });
+      throw err;
+    }
   }
 
   const { contractId, lamalResult, lcaResult, lifeResult, incomeProtectionResult, lppIjmResult } = db.transaction(() => {
@@ -885,6 +931,27 @@ contractsRouter.post('/', (req, res) => {
         `INSERT INTO commissions (contract_id, type, label, expected_amount_chf, expected_payment_date, status, commission_mode)
          VALUES (?, 'acquisition', 'Commission d''acquisition', ?, ?, 'expected', 'percentage')`
       ).run(id, commissionAmount, data.start_date || null);
+    }
+    if (conventionCommission?.amount > 0) {
+      db.prepare(
+        `INSERT INTO commissions (
+          contract_id, type, label, expected_amount_chf, expected_payment_date, status, commission_mode,
+          product_name, notes, convention_rate_id
+        ) VALUES (?, 'acquisition', ?, ?, ?, 'expected', 'fixed_amount', ?, ?, ?)`
+      ).run(
+        id,
+        `Acquisition selon convention — ${conventionRate.label}`.slice(0, 500),
+        conventionCommission.amount,
+        data.start_date || null,
+        data.product_name || null,
+        // Jamais le détail du calcul (taux négociés, confidentiels) : la note
+        // suit la commission partout, y compris dans l'export nLPD du
+        // client. Le détail se recalcule à tout moment depuis la ligne liée.
+        conventionRate.is_estimate
+          ? 'Estimation selon la convention (base à confirmer avec la compagnie) ; le décompte de la compagnie fait foi.'
+          : 'Montant attendu selon la convention ; le décompte de la compagnie fait foi.',
+        conventionRate.id
+      );
     }
     const lamal = lamalProvided && lamalBody !== null ? writeLamal(id, lamalBody) : null;
     const lca = lcaProvided && lcaBody !== null ? writeLca(id, lcaBody) : null;
@@ -914,7 +981,11 @@ contractsRouter.post('/', (req, res) => {
   if (lppIjmResult?.action === 'created') {
     audit(req, 'création détails LPP/IJM', 'contract', contractId, `type ${lppIjmResult.data.product_type}`);
   }
-  res.status(201).json({ id: contractId, warnings });
+  res.status(201).json({
+    id: contractId,
+    warnings,
+    ...(conventionCommission ? { convention_commission: conventionCommission } : {}),
+  });
 });
 
 contractsRouter.put('/:id', (req, res) => {
@@ -948,6 +1019,23 @@ contractsRouter.put('/:id', (req, res) => {
   }
 
   const finalBranch = 'branch' in data ? data.branch : contract.branch;
+  const finalCompanyId = 'company_id' in data ? data.company_id : contract.company_id;
+  const finalRateId = 'convention_rate_id' in data ? data.convention_rate_id : contract.convention_rate_id;
+  if (finalRateId != null && ('convention_rate_id' in data || 'company_id' in data || 'branch' in data)) {
+    // Une ligne déjà liée et devenue inactive reste acceptée ; une nouvelle
+    // ligne doit être active et issue d'une convention signée.
+    const newlyChosen = 'convention_rate_id' in data && Number(finalRateId) !== Number(contract.convention_rate_id);
+    try {
+      resolveRateForContract({ rateId: finalRateId, company_id: finalCompanyId, branch: finalBranch, forCreation: newlyChosen });
+    } catch (err) {
+      if (!('convention_rate_id' in data)) {
+        return res.status(400).json({
+          error: 'La ligne de barème liée à ce contrat ne correspond plus à la compagnie ou à la branche : choisissez une autre ligne ou retirez-la.',
+        });
+      }
+      throw err;
+    }
+  }
 
   if (lamalProvided && lamalBody !== null) {
     assert(LAMAL_COMPATIBLE_BRANCHES.includes(finalBranch),
